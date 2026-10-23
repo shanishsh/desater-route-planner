@@ -170,3 +170,4 @@ class AuthFlowTest {
         job.cancel()
     }
 }
+

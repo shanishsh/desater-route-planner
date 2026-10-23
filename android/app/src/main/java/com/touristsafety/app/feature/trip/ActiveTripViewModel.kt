@@ -1,16 +1,19 @@
 package com.touristsafety.app.feature.trip
 
 import android.content.Context
+import android.os.BatteryManager
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
+import com.touristsafety.app.core.location.DeviceLocationRepository
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.repository.RouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -40,7 +43,9 @@ data class ActiveTripUiState(
 @HiltViewModel
 class ActiveTripViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val routeRepository: RouteRepository
+    private val routeRepository: RouteRepository,
+    private val deviceLocationRepository: DeviceLocationRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val tripId: String = checkNotNull(savedStateHandle["tripId"])
@@ -51,6 +56,16 @@ class ActiveTripViewModel @Inject constructor(
 
     init {
         observeTrip()
+    }
+
+    private fun getBatteryPercentage(): Int {
+        return try {
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val pct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            if (pct in 1..100) pct else 85
+        } catch (e: Exception) {
+            85
+        }
     }
 
     private fun observeTrip() {
@@ -105,12 +120,18 @@ class ActiveTripViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isCheckingIn = true) }
             val state = _uiState.value
+            val locState = deviceLocationRepository.locationState.value
+            val lat = locState.latitude ?: state.nextWaypoint?.latitude ?: 0.0
+            val lon = locState.longitude ?: state.nextWaypoint?.longitude ?: 0.0
+            val elev = locState.location?.altitude ?: (state.nextWaypoint?.elevation_m ?: 0.0)
+            val battery = getBatteryPercentage()
+
             val result = routeRepository.submitCheckIn(
                 tripId = tripId,
-                latitude = state.nextWaypoint?.latitude ?: 32.24,
-                longitude = state.nextWaypoint?.longitude ?: 77.18,
-                elevationM = state.nextWaypoint?.elevation_m ?: 2400.0,
-                batteryPct = 85,
+                latitude = lat,
+                longitude = lon,
+                elevationM = elev,
+                batteryPct = battery,
                 status = "OK"
             )
             result.fold(
@@ -137,12 +158,18 @@ class ActiveTripViewModel @Inject constructor(
     fun triggerEmergencySos() {
         viewModelScope.launch {
             val state = _uiState.value
+            val locState = deviceLocationRepository.locationState.value
+            val lat = locState.latitude ?: state.nextWaypoint?.latitude ?: 0.0
+            val lon = locState.longitude ?: state.nextWaypoint?.longitude ?: 0.0
+            val elev = locState.location?.altitude ?: (state.nextWaypoint?.elevation_m ?: 0.0)
+            val battery = getBatteryPercentage()
+
             val result = routeRepository.triggerEmergencySos(
                 tripId = tripId,
-                latitude = state.nextWaypoint?.latitude ?: 32.24,
-                longitude = state.nextWaypoint?.longitude ?: 77.18,
-                elevationM = state.nextWaypoint?.elevation_m ?: 2400.0,
-                batteryPct = 85,
+                latitude = lat,
+                longitude = lon,
+                elevationM = elev,
+                batteryPct = battery,
                 emergencyType = "MOUNTAIN_SOS",
                 details = "Trekker manual emergency beacon trigger from mobile field unit."
             )

@@ -69,3 +69,4 @@ class TokenManager @Inject constructor(
         prefs.edit().putBoolean(KEY_PERMISSIONS_ONBOARDED, completed).apply()
     }
 }
+

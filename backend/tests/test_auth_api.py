@@ -62,3 +62,4 @@ async def test_register_and_login_flow():
         assert me_data["email"] == test_email
         assert me_data["role"] == "tourist"
         assert me_data["is_active"] is True
+

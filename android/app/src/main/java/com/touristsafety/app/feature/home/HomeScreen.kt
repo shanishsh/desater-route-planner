@@ -13,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,11 +41,56 @@ fun HomeScreen(
     onNavigateToDisasterSafety: () -> Unit = {},
     onNavigateToProviders: () -> Unit = {},
     onNavigateToPlanTrip: () -> Unit = {},
+    onNavigateToWelcome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
     val isSirenPlaying by viewModel.isSirenPlaying.collectAsState()
     val context = LocalContext.current
+    var showProfileDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    if (showProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showProfileDialog = false },
+            icon = { Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(36.dp)) },
+            title = { Text("Trekker Account") },
+            text = {
+                Column {
+                    Text(
+                        "Logged in as:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        viewModel.getUserEmail() ?: "Field Explorer (Guest)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "TrailGuard session active. Offline safety caches and planned routes are synchronized with on-device Room storage.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.logout()
+                        showProfileDialog = false
+                        onNavigateToWelcome()
+                    }
+                ) {
+                    Text("Sign Out", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProfileDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -60,6 +108,9 @@ fun HomeScreen(
                     }
                     IconButton(onClick = { viewModel.refreshAll() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh Data")
+                    }
+                    IconButton(onClick = { showProfileDialog = true }) {
+                        Icon(Icons.Default.AccountCircle, contentDescription = "Account Profile")
                     }
                 }
             )

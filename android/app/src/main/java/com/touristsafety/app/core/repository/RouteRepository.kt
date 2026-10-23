@@ -118,6 +118,10 @@ class RouteRepository @Inject constructor(
         return plannedRouteDao.getRouteById(routeId)
     }
 
+    suspend fun deletePlannedRoute(routeId: String) {
+        plannedRouteDao.deleteRoute(routeId)
+    }
+
     suspend fun startTrip(routeId: String, deviceId: String? = null): Result<StartTripResponseDto> {
         return try {
             val response = apiService.startTrip(StartTripRequestDto(route_id = routeId, device_id = deviceId))

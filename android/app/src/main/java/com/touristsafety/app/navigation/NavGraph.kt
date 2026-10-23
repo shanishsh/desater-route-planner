@@ -122,7 +122,12 @@ fun AppNavGraph(
                 onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
                 onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) },
                 onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) },
-                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) }
+                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) },
+                onNavigateToWelcome = {
+                    navController.navigate(Screen.Welcome.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
 
@@ -176,7 +181,12 @@ fun AppNavGraph(
 
         composable(Screen.Saved.route) {
             val viewModel: SavedTripsViewModel = hiltViewModel()
-            SavedTripsScreen(viewModel = viewModel)
+            SavedTripsScreen(
+                viewModel = viewModel,
+                onNavigateToReview = { routeId ->
+                    navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
+                }
+            )
         }
 
         composable(Screen.DisasterSafety.route) {

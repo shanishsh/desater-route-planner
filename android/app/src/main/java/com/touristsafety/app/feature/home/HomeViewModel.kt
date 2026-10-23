@@ -19,12 +19,19 @@ class HomeViewModel @Inject constructor(
     private val emergencyRepository: EmergencyRepository,
     private val providerStatusRepository: ProviderStatusRepository,
     private val disasterRepository: DisasterRepository,
-    private val connectivityMonitor: NetworkConnectivityMonitor
+    private val connectivityMonitor: NetworkConnectivityMonitor,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     val isSirenPlaying: StateFlow<Boolean> = disasterRepository.isSirenPlaying
+
+    fun getUserEmail(): String? = authRepository.getUserEmail()
+
+    fun logout() {
+        authRepository.logout()
+    }
 
     private var weatherJob: Job? = null
 

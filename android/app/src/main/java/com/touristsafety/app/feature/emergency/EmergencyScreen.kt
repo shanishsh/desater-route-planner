@@ -90,6 +90,86 @@ fun EmergencyScreen(
                 }
             }
 
+            // 1a. Search & Rescue (SAR) SOS Field Beacon
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (state.isSosTriggered) Color(0xFFB71C1C) else MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Emergency,
+                                contentDescription = null,
+                                tint = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (state.isSosTriggered) "SOS BEACON ACTIVE" else "Transmit SAR Emergency Beacon",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    "Broadcasts your live GPS coordinates, altitude, and SAR distress package to emergency responders.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (state.isSosTriggered) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.triggerFieldSos() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.error,
+                                contentColor = if (state.isSosTriggered) Color(0xFFB71C1C) else MaterialTheme.colorScheme.onError
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CrisisAlert, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (state.isSosTriggered) "RE-TRANSMIT BEACON" else "SEND DISTRESS BEACON",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // SOS Alert Message Feedback
+            state.sosMessage?.let { msg ->
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.dismissSosMessage() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1b. Disaster Safety & Offline Geofence Shortcut
             item {
                 Card(

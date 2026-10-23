@@ -33,3 +33,4 @@ data class UserMeResponseDto(
     @SerialName("role") val role: String = "tourist",
     @SerialName("is_active") val isActive: Boolean = true
 )
+

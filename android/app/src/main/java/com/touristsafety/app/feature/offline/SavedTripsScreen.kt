@@ -5,10 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -24,6 +21,7 @@ import com.touristsafety.app.core.model.Itinerary
 @Composable
 fun SavedTripsScreen(
     viewModel: SavedTripsViewModel,
+    onNavigateToReview: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -81,8 +79,38 @@ fun SavedTripsScreen(
                 }
             }
 
-            // 2. Saved Trips Section
+            // 2. Custom Planned Routes (From Plan Route Screen)
             item {
+                Text(
+                    text = "Planned Expedition Routes (${state.plannedRoutes.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (state.plannedRoutes.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "No custom expedition routes planned yet. Plan a route to cache topographies and corridor hazards offline.",
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            } else {
+                items(state.plannedRoutes, key = { it.routeId }) { route ->
+                    PlannedRouteItem(
+                        route = route,
+                        onReview = { onNavigateToReview(route.routeId) },
+                        onDelete = { viewModel.deletePlannedRoute(route.routeId) }
+                    )
+                }
+            }
+
+            // 3. Saved Offline Itineraries Section
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Saved Offline Itineraries (${state.savedItineraries.size})",
                     style = MaterialTheme.typography.titleMedium,
@@ -94,7 +122,7 @@ fun SavedTripsScreen(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "No trips currently saved offline. Save an itinerary below for 100% offline access.",
+                            text = "No pre-packaged itineraries saved offline. Download a bounded pack below.",
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -109,7 +137,7 @@ fun SavedTripsScreen(
                 }
             }
 
-            // 3. Available Itineraries to Save
+            // 4. Available Itineraries to Save
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -124,6 +152,64 @@ fun SavedTripsScreen(
                     itinerary = itin,
                     onSave = { viewModel.downloadBoundedOfflinePack(itin.id) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun PlannedRouteItem(
+    route: com.touristsafety.app.core.database.entity.PlannedRouteEntity,
+    onReview: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(route.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Check, contentDescription = "Cached", tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Offline Ready", color = Color(0xFF2E7D32), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "${route.originName} → ${route.destinationName}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Distance: ${String.format(java.util.Locale.US, "%.1f", route.distanceKm)} km", style = MaterialTheme.typography.bodySmall)
+                Text("Ascent: ${route.totalAscentM.toInt()} m", style = MaterialTheme.typography.bodySmall)
+                Text("Status: ${route.overallSafetyStatus}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onReview,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Review Safety")
+                }
+                OutlinedButton(
+                    onClick = onDelete
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

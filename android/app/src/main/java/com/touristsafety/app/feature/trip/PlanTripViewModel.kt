@@ -19,9 +19,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class PlanTripUiState(
-    val originName: String = "Current Location",
-    val originLat: Double = 31.1048,
-    val originLon: Double = 77.1734,
+    val originName: String = "",
+    val originLat: Double? = null,
+    val originLon: Double? = null,
     val destinationName: String = "",
     val destinationLat: Double? = null,
     val destinationLon: Double? = null,
@@ -56,31 +56,31 @@ class PlanTripViewModel @Inject constructor(
     private var searchOriginJob: Job? = null
 
     init {
-        // Fetch current location on start if permission is already granted
+        // Attempt current location fix on launch if permission is granted
         useCurrentLocation()
     }
 
     fun useCurrentLocation() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLocating = true) }
+            _uiState.update { it.copy(isLocating = true, errorMessage = null) }
             val loc = locationHelper.getLastKnownLocation()
-            if (loc != null) {
+            if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
                 _uiState.update {
                     it.copy(
-                        originName = "Current Location (${String.format(java.util.Locale.US, "%.3f, %.3f", loc.latitude, loc.longitude)})",
+                        originName = "Current GPS (${String.format(java.util.Locale.US, "%.4f, %.4f", loc.latitude, loc.longitude)})",
                         originLat = loc.latitude,
                         originLon = loc.longitude,
                         isLocating = false
                     )
                 }
             } else {
-                // Fallback default Shimla center
                 _uiState.update {
                     it.copy(
-                        originName = "Shimla Mall Road",
-                        originLat = 31.1048,
-                        originLon = 77.1734,
-                        isLocating = false
+                        originName = "",
+                        originLat = null,
+                        originLon = null,
+                        isLocating = false,
+                        errorMessage = "GPS fix unavailable. Please enter origin or search by place name."
                     )
                 }
             }
@@ -166,6 +166,13 @@ class PlanTripViewModel @Inject constructor(
 
     fun planRoute() {
         val state = _uiState.value
+        val originLat = state.originLat
+        val originLon = state.originLon
+        if (originLat == null || originLon == null || state.originName.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "Please specify a start location via GPS or search.") }
+            return
+        }
+
         val destLat = state.destinationLat
         val destLon = state.destinationLon
         if (destLat == null || destLon == null || state.destinationName.isBlank()) {
@@ -187,8 +194,8 @@ class PlanTripViewModel @Inject constructor(
             _uiState.update { it.copy(planningPhase = "Scanning NASA FIRMS fire anomalies and forest boundaries...") }
 
             val result = routeRepository.planRoute(
-                originLat = state.originLat,
-                originLon = state.originLon,
+                originLat = originLat,
+                originLon = originLon,
                 originName = state.originName,
                 destLat = destLat,
                 destLon = destLon,

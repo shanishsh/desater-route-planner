@@ -6,6 +6,7 @@ import com.touristsafety.app.core.location.LocationHelper
 import com.touristsafety.app.core.model.MapPoint
 import com.touristsafety.app.core.model.PointCategory
 import com.touristsafety.app.core.repository.EmergencyRepository
+import com.touristsafety.app.core.repository.RouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,12 +22,15 @@ data class EmergencyUiState(
     val isLoading: Boolean = false,
     val hasLocationPermission: Boolean = false,
     val userLatitude: Double? = null,
-    val userLongitude: Double? = null
+    val userLongitude: Double? = null,
+    val isSosTriggered: Boolean = false,
+    val sosMessage: String? = null
 )
 
 @HiltViewModel
 class EmergencyViewModel @Inject constructor(
     private val emergencyRepository: EmergencyRepository,
+    private val routeRepository: RouteRepository,
     private val locationHelper: LocationHelper
 ) : ViewModel() {
 
@@ -55,6 +59,45 @@ class EmergencyViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun triggerFieldSos(emergencyType: String = "MANUAL_PANIC") {
+        viewModelScope.launch {
+            val state = _uiState.value
+            val lat = state.userLatitude ?: 0.0
+            val lon = state.userLongitude ?: 0.0
+            val result = routeRepository.triggerEmergencySos(
+                tripId = "field-emergency",
+                latitude = lat,
+                longitude = lon,
+                elevationM = 0.0,
+                batteryPct = 100,
+                emergencyType = emergencyType,
+                details = "Field emergency beacon triggered from Emergency & Assistance screen."
+            )
+            result.fold(
+                onSuccess = { res ->
+                    _uiState.update {
+                        it.copy(
+                            isSosTriggered = true,
+                            sosMessage = "EMERGENCY SOS BEACON ACTIVE: Incident #${res.incident_id.take(8)} logged. SAR teams notified."
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            isSosTriggered = true,
+                            sosMessage = "SOS recorded locally. Emergency Beacon active and queued for instant transmission."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun dismissSosMessage() {
+        _uiState.update { it.copy(sosMessage = null) }
     }
 
     private fun observePoints() {

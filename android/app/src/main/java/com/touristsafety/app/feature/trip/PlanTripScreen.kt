@@ -308,7 +308,7 @@ fun PlanTripScreen(
                             .fillMaxWidth()
                             .height(52.dp),
                         shape = RoundedCornerShape(10.dp),
-                        enabled = state.destinationName.isNotBlank()
+                        enabled = state.destinationName.isNotBlank() && state.originName.isNotBlank()
                     ) {
                         Icon(Icons.Default.Navigation, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
