@@ -43,3 +43,11 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except JWTError:
         return None
+
+
+def verify_admin_api_key(api_key: Optional[str]) -> bool:
+    """Verifies if the provided admin API key matches the configured secret."""
+    if not api_key:
+        return False
+    return api_key.strip() == settings.ADMIN_API_KEY.strip()
+

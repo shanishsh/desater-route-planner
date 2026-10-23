@@ -10,6 +10,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.touristsafety.app.feature.alerts.AlertsScreen
 import com.touristsafety.app.feature.alerts.AlertsViewModel
+import com.touristsafety.app.feature.disaster.DisasterSafetyScreen
+import com.touristsafety.app.feature.disaster.DisasterSafetyViewModel
 import com.touristsafety.app.feature.emergency.EmergencyScreen
 import com.touristsafety.app.feature.emergency.EmergencyViewModel
 import com.touristsafety.app.feature.home.HomeScreen
@@ -36,7 +38,8 @@ fun AppNavGraph(
                 viewModel = viewModel,
                 onNavigateToMap = { navController.navigate(Screen.Map.route) },
                 onNavigateToAlerts = { navController.navigate(Screen.Alerts.route) },
-                onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) }
+                onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
+                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) }
             )
         }
         composable(Screen.Map.route) {
@@ -49,11 +52,18 @@ fun AppNavGraph(
         }
         composable(Screen.Emergency.route) {
             val viewModel: EmergencyViewModel = hiltViewModel()
-            EmergencyScreen(viewModel = viewModel)
+            EmergencyScreen(
+                viewModel = viewModel,
+                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) }
+            )
         }
         composable(Screen.Saved.route) {
             val viewModel: SavedTripsViewModel = hiltViewModel()
             SavedTripsScreen(viewModel = viewModel)
+        }
+        composable(Screen.DisasterSafety.route) {
+            val viewModel: DisasterSafetyViewModel = hiltViewModel()
+            DisasterSafetyScreen(viewModel = viewModel)
         }
     }
 }

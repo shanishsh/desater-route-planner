@@ -6,6 +6,11 @@ from app.models.alert import Alert
 from app.models.weather import WeatherSnapshot
 from app.models.crowd import CrowdSnapshot
 from app.models.audit import AuditEvent
+from app.models.disaster_alert import DisasterAlert
+from app.models.subscriber import Subscriber
+from app.models.device_installation import DeviceInstallation
+from app.models.outbox import OutboxEvent
+from app.models.notification_delivery import NotificationDelivery
 
 __all__ = [
     "User",
@@ -16,5 +21,10 @@ __all__ = [
     "WeatherSnapshot",
     "CrowdSnapshot",
     "AuditEvent",
+    "DisasterAlert",
+    "Subscriber",
+    "DeviceInstallation",
+    "OutboxEvent",
+    "NotificationDelivery",
 ]
 

@@ -52,6 +52,19 @@ class Settings(BaseSettings):
     # Alert Freshness
     DEFAULT_ALERT_FRESHNESS_SECONDS: int = 3600  # 1 hour
 
+    # Disaster Alert & Notification Module
+    ADMIN_API_KEY: str = "dev-disaster-admin-key-2026"
+    SMS_PROVIDER: str = "mock"  # "mock" or "twilio"
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
+    MOCK_OTP_CODE: str = "123456"  # Mock OTP for development
+    OTP_EXPIRE_MINUTES: int = 10
+    FCM_PROVIDER: str = "mock"  # "mock" or "firebase"
+    FIREBASE_CREDENTIALS_PATH: str = ""
+    OUTBOX_POLL_INTERVAL_SECONDS: float = 2.0
+    OUTBOX_MAX_RETRIES: int = 5
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

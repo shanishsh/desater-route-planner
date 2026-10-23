@@ -241,6 +241,67 @@ erDiagram
     ITINERARIES ||--o{ ALERTS : affects
     ROUTE_SEGMENTS ||--o{ ALERTS : targets
     ITINERARIES ||--o{ CROWD_SNAPSHOTS : monitors
+
+    DISASTER_ALERTS ||--o{ NOTIFICATION_DELIVERIES : generates
+    SUBSCRIBERS ||--o{ NOTIFICATION_DELIVERIES : receives
+    DEVICE_INSTALLATIONS ||--o{ NOTIFICATION_DELIVERIES : receives
+
+    DISASTER_ALERTS {
+        string id PK
+        string title
+        string description
+        string hazard_category
+        string severity
+        string status
+        int version
+        boolean is_simulated
+        string issuing_authority
+        text required_protective_instructions
+        float center_latitude
+        float center_longitude
+        float affected_radius_meters
+        datetime published_at
+    }
+
+    SUBSCRIBERS {
+        string id PK
+        string phone_e164 UK
+        string status
+        string hashed_otp
+        datetime otp_expires_at
+        boolean consent_given
+        datetime consent_timestamp
+        json subscribed_areas_json
+    }
+
+    DEVICE_INSTALLATIONS {
+        string id PK
+        string installation_id UK
+        string fcm_token
+        string platform
+        boolean is_active
+    }
+
+    OUTBOX_EVENTS {
+        string id PK
+        string event_type
+        json payload_json
+        string status
+        int retry_count
+        datetime next_retry_at
+    }
+
+    NOTIFICATION_DELIVERIES {
+        string id PK
+        string alert_id FK
+        string channel
+        string subscriber_id FK
+        string device_id FK
+        string recipient_address
+        string provider_message_id
+        string status
+        boolean is_simulated
+    }
 ```
 
 ---
@@ -260,5 +321,11 @@ erDiagram
    Redis caches weather and geographic queries. If Redis crashes or is stopped, the application seamlessly operates in degraded in-memory mode without terminating active user requests.
 
 5. **Privacy by Design**:
-   Tourists' GPS coordinates are processed exclusively on-device for finding nearest emergency points. The backend does not log, persist, or track tourist locations.
+   Tourists' GPS coordinates are processed exclusively on-device for finding nearest emergency points and evaluating cached hazard boundaries. The backend does not log, persist, or track tourist locations.
+
+6. **Transactional Outbox for Emergency Dispatches**:
+   To prevent disaster warnings from being committed to the database while their SMS/Push delivery events are silently lost due to network or broker crashes, alert mutations and outbox records are committed in the same database transaction. The background worker reliably polls and dispatches with bounded exponential backoff.
+
+7. **On-Device Offline Hazard Geofencing**:
+   Hazard centroids, boundaries, and instructions are cached in Room (`HazardZoneEntity`). The handset calculates distances to hazards on-device and fires local notifications through the high-importance `DISASTER_ALERTS_CHANNEL`, providing complete safety monitoring even with zero internet or cellular connectivity. Persistent Room records deduplicate warnings across process restarts.
 

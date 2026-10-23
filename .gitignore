@@ -41,6 +41,14 @@ local.properties
 captures/
 .externalNativeBuild
 .cxx/
+*.hprof
+*.apk
+*.aab
+
+# Local Databases
+*.db
+*.sqlite
+*.sqlite3
 
 # Docker
 pgdata/

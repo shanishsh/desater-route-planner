@@ -132,7 +132,7 @@ At demo reset ($T_0$), three simulated alert scenarios are generated with public
 cd backend
 python -m pytest -v
 ```
-**Test Coverage Includes:**
+**Test Coverage (19/19 Tests Passed):**
 - Liveness and readiness dependency health checks (`test_health.py`)
 - Alert dynamic freshness engine & future clock skew validation (`test_alerts.py`)
 - Verification of all 3 seeded simulated alerts (`test_alerts.py`)
@@ -141,20 +141,101 @@ python -m pytest -v
 - MapPoint spatial bounding box (`bbox`) and category filtering (`test_map_points.py`)
 - Rate limiting middleware headers and limits (`test_rate_limit.py`)
 - Circuit breaker state machine transitions (`test_circuit_breaker.py`)
+- Subscriber registration & OTP SHA-256 hashing (`test_disaster_module.py`)
+- Explicit consent validation & opt-out handling (`test_disaster_module.py`)
+- Device installation & FCM push token registration (`test_disaster_module.py`)
+- Admin authorization enforcement & Outbox generation (`test_disaster_module.py`)
+- Severity dispatch policies, multi-channel dispatch, & deduplication (`test_disaster_module.py`)
+- Alert version increment on update & cancellation workflow (`test_disaster_module.py`)
 
 ### Android Unit Test Suite (JUnit & MockK)
 ```powershell
 cd android
 .\gradlew testDebugUnitTest
 ```
-**Test Coverage Includes:**
+**Test Coverage (All Tests Passed):**
 - `AlertFreshnessTest`: Injected clock verification of Fresh vs Stale determination.
 - `OfflineRepositoryTest`: Room offline-first persistence and network error fallback.
 - `HomeViewModelTest`: StateFlow UI state emission and itinerary/alert bindings.
+- `HazardGeofenceTest`:
+  - Great-circle Haversine distance accuracy validation (~9.0 km between Manali and Solang).
+  - Geofence trigger: On-device hazard entry generates local offline alert notification with cached disclosure.
+  - Geofence deduplication: Room persistence prevents repetitive alerting across app process restarts.
+  - Boundary isolation: Locations outside danger perimeter never trigger false warnings.
 
 ---
 
-## 6. Troubleshooting Guide
+## 6. Disaster Alert, SMS Fallback & Offline Geofencing Module
+
+### 6.1 Multi-Channel Severity Delivery Policy
+| Severity | Delivery Channels | Trigger Condition | Rationale |
+|---|---|---|---|
+| **CRITICAL** | Push Notification + Cellular SMS | High flash floods, cloudbursts, severe avalanches | Dispatched independently without waiting for handset ACK; cellular SMS reaches remote valleys where LTE/5G data is down. |
+| **SEVERE** | Push Notification + Cellular SMS | Landslides, road blockages, structural washouts | Redundant dual dispatch to subscribed geographical districts. |
+| **WARNING** | Push Notification / In-App | High winds, trail detours, heavy rainfall watch | Preserves cellular carrier resources and avoids tourist alert fatigue. |
+| **INFO** | In-App Feed Only | General advisories, park fee updates | Background synchronization without notifications. |
+
+### 6.2 Transactional Outbox Pattern
+Alert creation and notification event scheduling occur within the **same atomic database transaction**:
+1. When an authorized admin creates an alert (`POST /api/v1/disaster-alerts`), a `DisasterAlert` row and an `OutboxEvent` row are committed simultaneously.
+2. The background worker polls `outbox_events` with status `PENDING`.
+3. The `NotificationDispatcher` queries verified, consented subscribers whose subscribed areas intersect the affected geometry.
+4. Messages are sent via the configured provider (`MockSMSProvider` or `TwilioSMSProvider`).
+5. Every delivery attempt is recorded in `notification_deliveries` with delivery state, provider message ID, and audit metadata.
+6. Failures retry with exponential backoff up to 5 times. Idempotency keys (`sms_{alert_id}_{subscriber_id}_{version}`) ensure retries never duplicate messages.
+
+### 6.3 GPS On-Device Offline Geofencing
+- **100% On-Device Processing**: Tourist GPS coordinates are processed exclusively on the handset. Coordinates are never continuously uploaded or tracked on the backend server.
+- **Battery-Conscious Sampling**: Uses Android's native `LocationListener` with a 15-second interval and 25-meter displacement threshold.
+- **Offline Room Database**: Active hazard polygons, centroids, radii, and protective instructions are synchronized into Room (`HazardZoneEntity`).
+- **Offline Notification & Siren**: When entering a cached hazard zone without internet, `DisasterNotificationManager` triggers the high-importance `DISASTER_ALERTS_CHANNEL` with custom vibration and audio, explicitly disclosing that it is a **cached offline warning** and newer conditions might not be known.
+- **Deduplication Persistence**: Entered zones are saved to `TriggeredHazardWarningEntity` in Room to prevent repeated alarms across app restarts.
+
+---
+
+## 7. Indian Telecom Regulatory Framework (TRAI / DLT) & SMS Provider Requirements
+
+For production deployment of disaster SMS in India, the following mandatory regulatory guidelines must be followed:
+
+1. **TRAI Distributed Ledger Technology (DLT) Registration**:
+   - In accordance with the Telecom Regulatory Authority of India (TRAI) Telecom Commercial Communications Customer Preference Regulations (TCCCPR, 2018), any entity sending SMS in India must register as a Principal Entity on a telecom provider's DLT portal (e.g., Jio, Airtel, Vodafone Idea, or BSNL DLT).
+2. **Sender Header / Sender ID**:
+   - Transactional / Service Implicit sender IDs (e.g., `TRSTSF`, `HPSDMA`) must be approved on DLT for emergency and government-endorsed safety communication.
+3. **Template Registration & Variable Scrubbing**:
+   - Every emergency SMS message template must be pre-approved on the DLT portal with registered variables:  
+     `[DISASTER ALERT] {#var#} ({#var#}). Instructions: {#var#}. Source: {#var#}. Reply STOP to unsubscribe.`
+   - Telecom operators will scrub and reject any message whose structure deviates from the approved DLT template.
+4. **Consent & Preference Management**:
+   - Explicit, verifiable consent must be captured with timestamp and IP address before sending promotional or service messages. The platform stores this in `subscribers.consent_given` and `audit_events`.
+   - Clear opt-out mechanism (`Reply STOP to unsubscribe`) must be provided.
+5. **Cost & Commercial Reality**:
+   - Bulk SMS messaging is **not free**. A dedicated commercial SMS gateway agreement (via Karix, Gupshup, ValueFirst, Twilio, or Sinch) with approved DLT entity credentials is required.
+
+---
+
+## 8. Critical System Limitations and Disclaimers
+
+> [!CAUTION]
+> **READ CAREFULLY BEFORE DEPLOYING IN FIELD OPERATIONS**
+
+1. **Not an Official Disaster Authority**:
+   - This application is an independent safety companion. It is **NOT** a substitute for official disaster authorities (NDMA, SDMA, IMD, DDMA, or local law enforcement).
+2. **No Carrier Cell Broadcast Capabilities**:
+   - The platform cannot issue native carrier-level Cell Broadcast warnings (PWS / WEA). Those require direct government telecom infrastructure access.
+3. **GPS Position Alone Cannot Detect Disasters**:
+   - An on-device GPS receiver determines device coordinates only; it has no sensory capacity to detect a remote flood, landslide, or blizzard unless that hazard was previously downloaded or received over a network.
+4. **SMS Delivery Limitations**:
+   - Cellular SMS depends entirely on cellular tower reach, network congestion, and SMS gateway operator availability. Delivery is best-effort and never guaranteed.
+5. **Push Notification Limitations**:
+   - FCM push notifications require an active TCP socket and internet connectivity (cellular data or Wi-Fi). FCM cannot reach devices with zero network coverage.
+6. **Operating System Audio & Do Not Disturb Controls**:
+   - Android operating system security controls, user volume settings, Do Not Disturb (DND) modes, and notification channel silences cannot be forcefully bypassed by application software.
+7. **Official Government Alert Integration**:
+   - For India, users must prioritize official Government SACHET portal alerts (`https://sachet.ndma.gov.in/`) and All India Radio / Doordarshan broadcasts during major natural disasters.
+
+---
+
+## 9. Troubleshooting Guide
 
 - **Android Emulator Cannot Reach Backend**:
   - Inside the Android emulator, `localhost` refers to the emulator itself. Always use `http://10.0.2.2:8000/api/v1/`. Cleartext HTTP is permitted for `10.0.2.2` via `res/xml/network_security_config.xml`.
