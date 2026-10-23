@@ -22,6 +22,11 @@ import com.touristsafety.app.feature.offline.SavedTripsScreen
 import com.touristsafety.app.feature.offline.SavedTripsViewModel
 import com.touristsafety.app.feature.providers.ProviderStatusScreen
 import com.touristsafety.app.feature.providers.ProviderStatusViewModel
+import com.touristsafety.app.feature.trip.PlanTripScreen
+import com.touristsafety.app.feature.trip.RouteSafetyReviewScreen
+import com.touristsafety.app.feature.trip.ActiveTripScreen
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 
 @Composable
 fun AppNavGraph(
@@ -42,7 +47,35 @@ fun AppNavGraph(
                 onNavigateToAlerts = { navController.navigate(Screen.Alerts.route) },
                 onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
                 onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) },
-                onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) }
+                onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) },
+                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) }
+            )
+        }
+        composable(Screen.PlanTrip.route) {
+            PlanTripScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToReview = { routeId ->
+                    navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
+                }
+            )
+        }
+        composable(
+            route = Screen.RouteSafetyReview.route,
+            arguments = listOf(navArgument("routeId") { type = NavType.StringType })
+        ) {
+            RouteSafetyReviewScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToActiveTrip = { tripId ->
+                    navController.navigate(Screen.ActiveTrip.createRoute(tripId))
+                }
+            )
+        }
+        composable(
+            route = Screen.ActiveTrip.route,
+            arguments = listOf(navArgument("tripId") { type = NavType.StringType })
+        ) {
+            ActiveTripScreen(
+                onNavigateBack = { navController.navigate(Screen.Home.route) }
             )
         }
         composable(Screen.Map.route) {

@@ -11,6 +11,7 @@ from app.models.subscriber import Subscriber
 from app.models.device_installation import DeviceInstallation
 from app.models.outbox import OutboxEvent
 from app.models.notification_delivery import NotificationDelivery
+from app.models.planned_route import PlannedRoute, ActiveTrip
 
 __all__ = [
     "User",
@@ -26,5 +27,7 @@ __all__ = [
     "DeviceInstallation",
     "OutboxEvent",
     "NotificationDelivery",
+    "PlannedRoute",
+    "ActiveTrip",
 ]
 

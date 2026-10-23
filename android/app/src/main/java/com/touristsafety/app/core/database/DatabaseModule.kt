@@ -55,5 +55,11 @@ object DatabaseModule {
 
     @Provides
     fun provideProviderStatusDao(db: AppDatabase): ProviderStatusDao = db.providerStatusDao()
+
+    @Provides
+    fun providePlannedRouteDao(db: AppDatabase): PlannedRouteDao = db.plannedRouteDao()
+
+    @Provides
+    fun provideActiveTripDao(db: AppDatabase): ActiveTripDao = db.activeTripDao()
 }
 

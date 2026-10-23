@@ -17,9 +17,11 @@ import com.touristsafety.app.core.database.entity.*
         SubscriberEntity::class,
         ForestEntity::class,
         FireHotspotEntity::class,
-        ProviderStatusEntity::class
+        ProviderStatusEntity::class,
+        PlannedRouteEntity::class,
+        ActiveTripEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,5 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun forestDao(): ForestDao
     abstract fun fireHotspotDao(): FireHotspotDao
     abstract fun providerStatusDao(): ProviderStatusDao
+    abstract fun plannedRouteDao(): PlannedRouteDao
+    abstract fun activeTripDao(): ActiveTripDao
 }
 

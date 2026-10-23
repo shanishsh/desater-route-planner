@@ -98,4 +98,51 @@ interface ApiService {
         @Query("max_lon") maxLon: Double,
         @Query("days") days: Int = 1
     ): Response<WildfiresResponseDto>
+
+    @GET("places/search")
+    suspend fun searchPlaces(
+        @Query("q") query: String,
+        @Query("count") count: Int = 8
+    ): Response<List<PlaceSearchResultDto>>
+
+    @POST("routes/plan")
+    suspend fun planRoute(
+        @Body body: PlanRouteRequestDto
+    ): Response<PlannedRouteResponseDto>
+
+    @GET("routes/{id}")
+    suspend fun getPlannedRoute(
+        @Path("id") id: String
+    ): Response<PlannedRouteResponseDto>
+
+    @GET("routes/{id}/conditions")
+    suspend fun getRouteConditions(
+        @Path("id") id: String
+    ): Response<List<RouteWaypointConditionDto>>
+
+    @GET("routes/{id}/alternatives")
+    suspend fun getRouteAlternatives(
+        @Path("id") id: String
+    ): Response<List<RouteAlternativeDto>>
+
+    @POST("trips/start")
+    suspend fun startTrip(
+        @Body body: StartTripRequestDto
+    ): Response<StartTripResponseDto>
+
+    @POST("trips/{id}/progress")
+    suspend fun recordTripProgress(
+        @Path("id") id: String,
+        @Body body: TripProgressRequestDto
+    ): Response<TripProgressResponseDto>
+
+    @GET("trips/{id}/status")
+    suspend fun getTripStatus(
+        @Path("id") id: String
+    ): Response<TripStatusResponseDto>
+
+    @POST("trips/{id}/stop")
+    suspend fun stopTrip(
+        @Path("id") id: String
+    ): Response<Map<String, String>>
 }
