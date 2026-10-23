@@ -179,6 +179,9 @@ data class PlannedRouteResponseDto(
     val hazards_geojson: JsonElement? = null,
     val fires_geojson: JsonElement? = null,
     val facilities_geojson: JsonElement? = null,
+    val forests_geojson: JsonElement? = null,
+    val weather_geojson: JsonElement? = null,
+    val geometry_diagnostics: Map<String, JsonElement> = emptyMap(),
     val analysis_limitations: List<String> = emptyList(),
     val created_at: String = ""
 )
@@ -217,9 +220,12 @@ data class RouteAnalysisResponseDto(
     val hazards_geojson: JsonElement? = null,
     val fires_geojson: JsonElement? = null,
     val facilities_geojson: JsonElement? = null,
+    val forests_geojson: JsonElement? = null,
+    val weather_geojson: JsonElement? = null,
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val analysis_limitations: List<String> = emptyList(),
-    val overlays_geojson: JsonElement? = null
+    val overlays_geojson: JsonElement? = null,
+    val geometry_diagnostics: Map<String, JsonElement> = emptyMap()
 )
 
 @Serializable

@@ -173,6 +173,7 @@ class OpenMeteoClient:
             else:
                 self.last_error = f"Open-Meteo hourly returned status {response.status_code}"
                 logger.warning(f"Open-Meteo hourly returned status {response.status_code}")
+                self.circuit_breaker.record_failure()
         except Exception as exc:
             self.last_error = f"Failed to fetch Open-Meteo hourly forecast: {exc}"
             logger.warning(f"Failed to fetch Open-Meteo hourly forecast: {exc}")

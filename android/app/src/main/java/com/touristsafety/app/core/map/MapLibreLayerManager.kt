@@ -40,6 +40,7 @@ object MapLibreLayerManager {
     const val LAYER_FOREST_LINE = "layer-forest-line"
     const val LAYER_DISASTER_FILL = "layer-disaster-fill"
     const val LAYER_DISASTER_LINE = "layer-disaster-line"
+    const val LAYER_DISASTER_POINTS_CIRCLE = "layer-disaster-points-circle"
     const val LAYER_ROUTE_SECONDARY_LINE = "layer-route-secondary-line"
     const val LAYER_ROUTE_PRIMARY_LINE = "layer-route-primary-line"
     const val LAYER_ACTIVE_FIRES_CIRCLE = "layer-active-fires-circle"
@@ -131,6 +132,17 @@ object MapLibreLayerManager {
                     )
                 }
                 style.addLayer(disasterLine)
+            }
+            if (style.getLayer(LAYER_DISASTER_POINTS_CIRCLE) == null) {
+                val disasterPointsCircle = CircleLayer(LAYER_DISASTER_POINTS_CIRCLE, SOURCE_DISASTER_POLYGONS).apply {
+                    setProperties(
+                        circleColor(Color.rgb(211, 47, 47)), // Emergency Red #D32F2F
+                        circleRadius(7.0f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(2.0f)
+                    )
+                }
+                style.addLayer(disasterPointsCircle)
             }
 
             // 4. Route Lines Sources & Layers
@@ -225,45 +237,88 @@ object MapLibreLayerManager {
         try {
             // 1. Update Corridor GeoJSON
             val corridorSource = style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)
-            corridorSource?.setGeoJson(buildCorridorGeoJson(state.corridorPolygonCoordinates))
+            val corrJson = if (!state.corridorGeoJson.isNullOrBlank()) {
+                state.corridorGeoJson
+            } else {
+                buildCorridorGeoJson(state.corridorPolygonCoordinates)
+            }
+            corridorSource?.setGeoJson(corrJson)
 
             // 2. Update Primary & Secondary Route GeoJSON
             val primSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)
-            primSource?.setGeoJson(buildLineStringGeoJson(state.routeCoordinates))
+            val primJson = if (!state.routePrimaryGeoJson.isNullOrBlank()) {
+                state.routePrimaryGeoJson
+            } else {
+                buildLineStringGeoJson(state.routeCoordinates)
+            }
+            primSource?.setGeoJson(primJson)
 
             val secSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)
-            if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
-                secSource?.setGeoJson(buildLineStringGeoJson(state.primaryRouteCoordinates))
+            val secJson = if (!state.routeSecondaryGeoJson.isNullOrBlank()) {
+                state.routeSecondaryGeoJson
+            } else if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
+                buildLineStringGeoJson(state.primaryRouteCoordinates)
             } else {
-                secSource?.setGeoJson(EMPTY_GEOJSON)
+                EMPTY_GEOJSON
             }
+            secSource?.setGeoJson(secJson)
 
-            // 3. Update Disaster Polygons
+            // 3. Update Disaster Features (Polygons & Point Advisories)
             val disasterSource = style.getSourceAs<GeoJsonSource>(SOURCE_DISASTER_POLYGONS)
-            val disasterFeatures = state.visibleFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE && it.geometryPolygon != null }
-            disasterSource?.setGeoJson(buildPolygonFeatureCollection(disasterFeatures))
+            val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
+                state.hazardsGeoJson
+            } else {
+                val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE && it.geometryPolygon != null }
+                buildPolygonFeatureCollection(disasterFeatures)
+            }
+            disasterSource?.setGeoJson(disasterJson)
 
             // 4. Update Forest Polygons
             val forestSource = style.getSourceAs<GeoJsonSource>(SOURCE_FOREST_POLYGONS)
-            val forestFeatures = state.visibleFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
-            forestSource?.setGeoJson(buildPolygonFeatureCollection(forestFeatures))
+            val forestJson = if (!state.forestsGeoJson.isNullOrBlank()) {
+                state.forestsGeoJson
+            } else {
+                val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
+                buildPolygonFeatureCollection(forestFeatures)
+            }
+            forestSource?.setGeoJson(forestJson)
 
             // 5. Update Active Fires
             val fireSource = style.getSourceAs<GeoJsonSource>(SOURCE_ACTIVE_FIRES)
-            val fireFeatures = state.visibleFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
-            fireSource?.setGeoJson(buildPointFeatureCollection(fireFeatures))
+            val fireJson = if (!state.firesGeoJson.isNullOrBlank()) {
+                state.firesGeoJson
+            } else {
+                val fireFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
+                buildPointFeatureCollection(fireFeatures)
+            }
+            fireSource?.setGeoJson(fireJson)
 
             // 6. Update Safe Havens
             val havenSource = style.getSourceAs<GeoJsonSource>(SOURCE_SAFE_HAVENS)
-            val havenFeatures = state.visibleFeatures.filter { it.category == MapFeatureCategory.SHELTER || it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.POLICE_STATION || it.category == MapFeatureCategory.TOURIST_ASSISTANCE }
-            havenSource?.setGeoJson(buildPointFeatureCollection(havenFeatures))
+            val havenJson = if (!state.facilitiesGeoJson.isNullOrBlank()) {
+                state.facilitiesGeoJson
+            } else {
+                val havenFeatures = state.allFeatures.filter {
+                    it.category == MapFeatureCategory.SHELTER ||
+                    it.category == MapFeatureCategory.HOSPITAL ||
+                    it.category == MapFeatureCategory.POLICE_STATION ||
+                    it.category == MapFeatureCategory.TOURIST_ASSISTANCE
+                }
+                buildPointFeatureCollection(havenFeatures)
+            }
+            havenSource?.setGeoJson(havenJson)
 
             // 7. Update Weather Points
             val weatherSource = style.getSourceAs<GeoJsonSource>(SOURCE_WEATHER_POINTS)
-            val weatherFeatures = state.visibleFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
-            weatherSource?.setGeoJson(buildPointFeatureCollection(weatherFeatures))
+            val weatherJson = if (!state.weatherGeoJson.isNullOrBlank()) {
+                state.weatherGeoJson
+            } else {
+                val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
+                buildPointFeatureCollection(weatherFeatures)
+            }
+            weatherSource?.setGeoJson(weatherJson)
 
-            // 8. Update Layer Visibilities according to state.layerVisibilities
+            // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip
             updateLayerVisibilities(style, state)
 
         } catch (e: Exception) {
@@ -273,11 +328,27 @@ object MapLibreLayerManager {
 
     private fun updateLayerVisibilities(style: Style, state: MapUiState) {
         val vis = state.layerVisibilities
-        val firesVis = vis[MapFeatureCategory.ACTIVE_FIRE_DETECTION] != false
-        val hazardVis = vis[MapFeatureCategory.HAZARD_ZONE] != false
-        val forestVis = vis[MapFeatureCategory.FOREST_AREA] != false
-        val weatherVis = vis[MapFeatureCategory.WEATHER_POINT] != false
-        val shelterVis = vis[MapFeatureCategory.SHELTER] != false
+        val filterCat = state.selectedFilter?.category
+
+        val firesVis = (filterCat == null || filterCat == MapFeatureCategory.ACTIVE_FIRE_DETECTION) &&
+                (vis[MapFeatureCategory.ACTIVE_FIRE_DETECTION] != false)
+
+        val hazardVis = (filterCat == null || filterCat == MapFeatureCategory.HAZARD_ZONE) &&
+                (vis[MapFeatureCategory.HAZARD_ZONE] != false)
+
+        val forestVis = (filterCat == null || filterCat == MapFeatureCategory.FOREST_AREA) &&
+                (vis[MapFeatureCategory.FOREST_AREA] != false)
+
+        val weatherVis = (filterCat == null || filterCat == MapFeatureCategory.WEATHER_POINT) &&
+                (vis[MapFeatureCategory.WEATHER_POINT] != false)
+
+        val shelterVis = (filterCat == null ||
+                filterCat == MapFeatureCategory.SHELTER ||
+                filterCat == MapFeatureCategory.HOSPITAL ||
+                filterCat == MapFeatureCategory.POLICE_STATION ||
+                filterCat == MapFeatureCategory.FIRE_STATION ||
+                filterCat == MapFeatureCategory.TOURIST_ASSISTANCE) &&
+                (vis[MapFeatureCategory.SHELTER] != false)
 
         style.getLayer(LAYER_ACTIVE_FIRES_CIRCLE)?.setProperties(
             visibility(if (firesVis) Property.VISIBLE else Property.NONE)
@@ -286,6 +357,9 @@ object MapLibreLayerManager {
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
         style.getLayer(LAYER_DISASTER_LINE)?.setProperties(
+            visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_DISASTER_POINTS_CIRCLE)?.setProperties(
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
         style.getLayer(LAYER_FOREST_FILL)?.setProperties(

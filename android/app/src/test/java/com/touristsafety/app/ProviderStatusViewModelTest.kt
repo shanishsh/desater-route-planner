@@ -24,6 +24,7 @@ import org.junit.Test
 class ProviderStatusViewModelTest {
 
     private val providerStatusRepository = mockk<ProviderStatusRepository>(relaxed = true)
+    private val routeRepository = mockk<com.touristsafety.app.core.repository.RouteRepository>(relaxed = true)
     private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
     private val telephonyManager = mockk<TelephonyContextManager>(relaxed = true)
     private val serverConfigManager = mockk<ServerConfigManager>(relaxed = true)
@@ -45,6 +46,7 @@ class ProviderStatusViewModelTest {
         every { connectivityMonitor.state } returns MutableStateFlow(
             DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE, backendPingMs = 15L)
         )
+        every { routeRepository.activeRouteFlow } returns MutableStateFlow(null)
         coEvery { connectivityMonitor.probeBackend() } returns Unit
     }
 
@@ -79,6 +81,7 @@ class ProviderStatusViewModelTest {
 
         val viewModel = ProviderStatusViewModel(
             providerStatusRepository,
+            routeRepository,
             connectivityMonitor,
             telephonyManager,
             serverConfigManager

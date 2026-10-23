@@ -682,3 +682,174 @@ async def test_simulated_alerts_excluded_from_route_corridor_analysis(client, te
     assert planned.overall_safety_status != "SAFE"
 
 
+@pytest.mark.asyncio
+async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_db, monkeypatch):
+    """Verify:
+    1. forests_geojson is populated and contains valid Polygons.
+    2. MultiPolygon and polygon holes are preserved in hazards_geojson.
+    3. Point-only alert produces Point feature with 'disaster_alert_point', not an invented polygon.
+    4. Active fires are strictly Point features.
+    5. geometry_diagnostics contains valid breakdown.
+    """
+    now = datetime.now(timezone.utc)
+
+    # 1. Alert with polygon holes
+    outer_ring = [[77.16, 32.25], [77.20, 32.25], [77.20, 32.29], [77.16, 32.29], [77.16, 32.25]]
+    inner_ring_hole = [[77.17, 32.26], [77.19, 32.26], [77.19, 32.28], [77.17, 32.28], [77.17, 32.26]]
+    poly_with_hole = {
+        "type": "Polygon",
+        "coordinates": [outer_ring, inner_ring_hole]
+    }
+    alert_hole = DisasterAlert(
+        title="Landslide with Safe Island Zone",
+        description="Hazard perimeter with unaffected inner ridge",
+        hazard_category="landslide",
+        severity="SEVERE",
+        status="active",
+        issuing_authority="Geological Survey of India",
+        required_protective_instructions="Follow outer perimeter detour",
+        center_latitude=32.27,
+        center_longitude=77.18,
+        affected_radius_meters=2000.0,
+        polygon_geojson=json.dumps(poly_with_hole),
+        is_simulated=False,
+        published_at=now,
+    )
+
+    # 2. Alert with Point only (no polygon, no circle radius)
+    alert_point_only = DisasterAlert(
+        title="Stationary Rockfall Warning Post",
+        description="Point detection without verified perimeter",
+        hazard_category="trail_closure",
+        severity="WARNING",
+        status="active",
+        issuing_authority="State Disaster Management",
+        required_protective_instructions="Caution near mile marker 14",
+        center_latitude=32.26,
+        center_longitude=77.18,
+        affected_radius_meters=0.0,
+        polygon_geojson=None,
+        is_simulated=False,
+        published_at=now,
+    )
+
+    test_db.add_all([alert_hole, alert_point_only])
+    await test_db.commit()
+
+    # Mock OSM Forest client to return real forest feature
+    async def mock_fetch_forest(min_lat, min_lon, max_lat, max_lon):
+        return {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "id": "osm_way_101",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[77.17, 32.24], [77.19, 32.24], [77.19, 32.26], [77.17, 32.26], [77.17, 32.24]]]
+                },
+                "properties": {
+                    "name": "Solang Pine Reserve",
+                    "type": "forest",
+                    "wood_type": "coniferous",
+                }
+            }],
+            "record_count": 1,
+            "provider_status": "HEALTHY",
+        }
+
+    from app.clients.osm_forest import osm_forest_client
+    monkeypatch.setattr(osm_forest_client, "fetch_forest_features", mock_fetch_forest)
+
+    route_res = RouteResult(
+        route_id="test-geometry-fidelity-route",
+        title="Manali to Solang Geometry Test",
+        origin_name="Manali",
+        origin_lat=32.2396,
+        origin_lon=77.1887,
+        destination_name="Solang",
+        destination_lat=32.3166,
+        destination_lon=77.1583,
+        travel_mode="hiking",
+        distance_km=12.0,
+        duration_minutes=150.0,
+        geometry_geojson={
+            "type": "LineString",
+            "coordinates": [[77.1887, 32.2396], [77.1700, 32.2700], [77.1583, 32.3166]]
+        },
+        waypoints=[
+            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Mid", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+        ]
+    )
+
+    planned = await route_condition_analyzer.analyze_route(test_db, route_res, corridor_distance_meters=5000.0)
+
+    # 1. Verify forests_geojson
+    assert planned.forests_geojson is not None
+    assert planned.forests_geojson["type"] == "FeatureCollection"
+    assert len(planned.forests_geojson["features"]) >= 1
+    forest_feat = planned.forests_geojson["features"][0]
+    assert forest_feat["geometry"]["type"] == "Polygon"
+    assert forest_feat["properties"]["name"] == "Solang Pine Reserve"
+
+    # 2. Verify hazards_geojson preserves holes
+    assert planned.hazards_geojson is not None
+    hazard_features = planned.hazards_geojson["features"]
+    poly_hole_feat = next(f for f in hazard_features if f["properties"]["title"] == "Landslide with Safe Island Zone")
+    assert poly_hole_feat["geometry"]["type"] == "Polygon"
+    # Outer ring + inner hole ring = 2 rings preserved!
+    assert len(poly_hole_feat["geometry"]["coordinates"]) == 2
+
+    # 3. Verify point-only alert produces Point feature with 'disaster_alert_point' layer
+    point_feat = next(f for f in hazard_features if f["properties"]["title"] == "Stationary Rockfall Warning Post")
+    assert point_feat["geometry"]["type"] == "Point"
+    assert point_feat["properties"]["layer"] == "disaster_alert_point"
+    assert point_feat["properties"]["derived_from"] == "point"
+
+    # 4. Verify weather_geojson exists
+    assert planned.weather_geojson is not None
+    assert len(planned.weather_geojson["features"]) == 3
+    assert all(f["geometry"]["type"] == "Point" for f in planned.weather_geojson["features"])
+
+    # 5. Verify fires_geojson is strictly Points
+    assert planned.fires_geojson is not None
+    for f in planned.fires_geojson["features"]:
+        assert f["geometry"]["type"] == "Point"
+
+    # 6. Persist PlannedRoute and verify corridor analysis endpoint returns geometry_diagnostics
+    from app.models.planned_route import PlannedRoute
+    db_route = PlannedRoute(
+        id="test-geometry-fidelity-route",
+        title=planned.title,
+        origin_name=planned.origin_name,
+        origin_lat=planned.origin_lat,
+        origin_lon=planned.origin_lon,
+        destination_name=planned.destination_name,
+        dest_lat=planned.dest_lat,
+        dest_lon=planned.dest_lon,
+        travel_mode=planned.travel_mode,
+        distance_km=planned.distance_km,
+        duration_minutes=planned.duration_minutes,
+        geometry_geojson=planned.geometry_geojson,
+        overall_hazard_score=planned.overall_hazard_score,
+        overall_safety_status=planned.overall_safety_status,
+        route_version=1,
+        conditions_data=[c.model_dump() for c in planned.conditions],
+        alternatives_data=[a.model_dump() for a in planned.alternatives],
+        data_freshness_data=planned.data_freshness,
+    )
+    test_db.add(db_route)
+    await test_db.commit()
+
+    persisted = await route_condition_analyzer.analyze_persisted_route(test_db, "test-geometry-fidelity-route")
+    assert persisted is not None
+    assert persisted.forests_geojson is not None
+    assert persisted.geometry_diagnostics is not None
+    diag = persisted.geometry_diagnostics
+    assert "geometry_type_counts" in diag
+    assert diag["geometry_type_counts"]["polygons"] >= 1
+    assert diag["forest_polygons_count"] >= 1
+
+
+

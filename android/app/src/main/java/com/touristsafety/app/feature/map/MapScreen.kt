@@ -100,22 +100,35 @@ fun MapScreen(
                                     screenPoint,
                                     MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
                                     MapLibreLayerManager.LAYER_DISASTER_FILL,
+                                    MapLibreLayerManager.LAYER_DISASTER_LINE,
+                                    MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
                                     MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
                                     MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_FOREST_FILL
+                                    MapLibreLayerManager.LAYER_FOREST_FILL,
+                                    MapLibreLayerManager.LAYER_FOREST_LINE
                                 )
                                 if (renderedFeatures.isNotEmpty()) {
                                     val top = renderedFeatures.first()
                                     val featId = top.getStringProperty("id") ?: top.id()
-                                    val clicked = state.visibleFeatures.firstOrNull { it.id == featId }
+                                    val clicked = state.allFeatures.firstOrNull { it.id == featId }
+                                        ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
                                     if (clicked != null) {
                                         viewModel.selectFeature(clicked)
                                         return@addOnMapClickListener true
                                     } else {
-                                        val title = top.getStringProperty("title")
-                                        val clickedByTitle = state.visibleFeatures.firstOrNull { it.title == title }
-                                        if (clickedByTitle != null) {
-                                            viewModel.selectFeature(clickedByTitle)
+                                        val title = top.getStringProperty("title") ?: top.getStringProperty("name")
+                                        if (!title.isNullOrBlank()) {
+                                            val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
+                                            val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
+                                            val dynamicFeature = UnifiedMapFeature(
+                                                id = featId ?: "feature-${System.currentTimeMillis()}",
+                                                title = title,
+                                                subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
+                                                category = category,
+                                                latitude = latLng.latitude,
+                                                longitude = latLng.longitude
+                                            )
+                                            viewModel.selectFeature(dynamicFeature)
                                             return@addOnMapClickListener true
                                         }
                                     }

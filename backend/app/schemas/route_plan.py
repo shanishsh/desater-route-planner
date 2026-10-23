@@ -216,6 +216,9 @@ class PlannedRouteResponse(BaseModel):
     hazards_geojson: Optional[Dict[str, Any]] = None
     fires_geojson: Optional[Dict[str, Any]] = None
     facilities_geojson: Optional[Dict[str, Any]] = None
+    forests_geojson: Optional[Dict[str, Any]] = None
+    weather_geojson: Optional[Dict[str, Any]] = None
+    geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     distance_meters: float = 0.0
     duration_seconds: float = 0.0
     routing_provider: str = "OSRM"
@@ -317,8 +320,11 @@ class RouteAnalysisResponse(BaseModel):
     hazards_geojson: Optional[Dict[str, Any]] = None
     fires_geojson: Optional[Dict[str, Any]] = None
     facilities_geojson: Optional[Dict[str, Any]] = None
+    forests_geojson: Optional[Dict[str, Any]] = None
+    weather_geojson: Optional[Dict[str, Any]] = None
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     analysis_limitations: List[str] = Field(default_factory=list)
+    geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StartTripRequest(BaseModel):

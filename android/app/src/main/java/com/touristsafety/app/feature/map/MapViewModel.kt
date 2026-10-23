@@ -98,7 +98,16 @@ data class MapUiState(
     val corridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
     val primaryCorridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
     val isAnalyzingCorridor: Boolean = false,
-    val analysisLimitations: List<String> = emptyList()
+    val analysisLimitations: List<String> = emptyList(),
+    val corridorGeoJson: String? = null,
+    val routePrimaryGeoJson: String? = null,
+    val routeSecondaryGeoJson: String? = null,
+    val forestsGeoJson: String? = null,
+    val hazardsGeoJson: String? = null,
+    val firesGeoJson: String? = null,
+    val facilitiesGeoJson: String? = null,
+    val weatherGeoJson: String? = null,
+    val geometryDiagnostics: Map<String, JsonElement> = emptyMap()
 )
 
 @HiltViewModel
@@ -200,7 +209,19 @@ class MapViewModel @Inject constructor(
                             plannedRouteAlternatives = emptyList(),
                             selectedAlternativeId = null,
                             activeDisasterAlertsCount = 0,
-                            routeSummaryFireCount = 0
+                            routeSummaryFireCount = 0,
+                            routeSummaryForestCount = 0,
+                            corridorGeoJson = null,
+                            routePrimaryGeoJson = null,
+                            routeSecondaryGeoJson = null,
+                            forestsGeoJson = null,
+                            hazardsGeoJson = null,
+                            firesGeoJson = null,
+                            facilitiesGeoJson = null,
+                            weatherGeoJson = null,
+                            geometryDiagnostics = emptyMap(),
+                            corridorPolygonCoordinates = emptyList(),
+                            primaryCorridorPolygonCoordinates = emptyList()
                         )
                     }
                     rebuildUnifiedFeatures()
@@ -219,6 +240,14 @@ class MapViewModel @Inject constructor(
                             routeTitle = activeRoute.title,
                             routeCoordinates = primaryCoords,
                             primaryRouteCoordinates = primaryCoords,
+                            routePrimaryGeoJson = activeRoute.geometry_geojson?.toString(),
+                            corridorGeoJson = activeRoute.corridor_geojson?.toString(),
+                            forestsGeoJson = activeRoute.forests_geojson?.toString(),
+                            hazardsGeoJson = activeRoute.hazards_geojson?.toString(),
+                            firesGeoJson = activeRoute.fires_geojson?.toString(),
+                            facilitiesGeoJson = activeRoute.facilities_geojson?.toString(),
+                            weatherGeoJson = activeRoute.weather_geojson?.toString(),
+                            geometryDiagnostics = activeRoute.geometry_diagnostics,
                             routeDistanceKm = activeRoute.distance_km,
                             routeDurationHours = activeRoute.duration_minutes / 60.0,
                             routeOverallHazardScore = activeRoute.overall_hazard_score,
@@ -502,6 +531,52 @@ class MapViewModel @Inject constructor(
             )
         }
 
+        // 1b. Parse Forest features from analysis.forests_geojson or analysis.forest_features
+        val forestList = mutableListOf<ForestFeature>()
+        analysis.forests_geojson?.let { fJson ->
+            try {
+                if (fJson is JsonObject) {
+                    val features = fJson["features"] as? JsonArray
+                    features?.forEachIndexed { idx, featElem ->
+                        val fObj = featElem as? JsonObject ?: return@forEachIndexed
+                        val geom = fObj["geometry"] as? JsonObject
+                        val props = fObj["properties"] as? JsonObject
+                        val fName = (props?.get("name") as? JsonPrimitive)?.contentOrNull ?: "Forest Area"
+                        val fType = (props?.get("type") as? JsonPrimitive)?.contentOrNull ?: (props?.get("wood_type") as? JsonPrimitive)?.contentOrNull ?: "woodland"
+                        val ringCoords = mutableListOf<Pair<Double, Double>>()
+                        if (geom != null) {
+                            val coordsArray = geom["coordinates"] as? JsonArray
+                            val ring = coordsArray?.firstOrNull() as? JsonArray
+                            ring?.forEach { ptElem ->
+                                val pt = ptElem as? JsonArray ?: return@forEach
+                                if (pt.size >= 2) {
+                                    val lon = (pt[0] as? JsonPrimitive)?.doubleOrNull ?: return@forEach
+                                    val lat = (pt[1] as? JsonPrimitive)?.doubleOrNull ?: return@forEach
+                                    ringCoords.add(lat to lon)
+                                }
+                            }
+                        }
+                        if (ringCoords.isNotEmpty()) {
+                            forestList.add(
+                                ForestFeature(
+                                    id = "forest_corridor_$idx",
+                                    osmId = idx.toLong(),
+                                    name = fName,
+                                    woodType = fType,
+                                    coordinates = ringCoords,
+                                    isPolygon = true,
+                                    isCached = false
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MapViewModel", "Error parsing corridor forests", e)
+            }
+        }
+        rawForestFeatures = forestList
+
         // 2. Active Fires from fire_detections with genuine coordinates
         rawFireHotspots = analysis.fire_detections.mapIndexed { idx, fire ->
             FireHotspot(
@@ -614,6 +689,7 @@ class MapViewModel @Inject constructor(
                 layerStatuses = updatedStatuses,
                 activeDisasterAlertsCount = rawHazardZones.size,
                 routeSummaryFireCount = rawFireHotspots.size,
+                routeSummaryForestCount = rawForestFeatures.size,
                 routeOverallHazardScore = analysis.overall_hazard_score,
                 routeSafetyStatus = analysis.overall_safety_status,
                 activeDecisionExplanation = analysis.decision_explanation,
@@ -623,6 +699,13 @@ class MapViewModel @Inject constructor(
                 corridorDistanceKm = analysis.corridor_distance_km,
                 corridorPolygonCoordinates = corridorCoords,
                 primaryCorridorPolygonCoordinates = corridorCoords,
+                corridorGeoJson = analysis.corridor_geojson?.toString(),
+                forestsGeoJson = analysis.forests_geojson?.toString(),
+                hazardsGeoJson = analysis.hazards_geojson?.toString(),
+                firesGeoJson = analysis.fires_geojson?.toString(),
+                facilitiesGeoJson = analysis.facilities_geojson?.toString(),
+                weatherGeoJson = analysis.weather_geojson?.toString(),
+                geometryDiagnostics = analysis.geometry_diagnostics,
                 plannedRouteAlternatives = if (analysis.alternatives.isNotEmpty()) analysis.alternatives else it.plannedRouteAlternatives,
                 analysisLimitations = analysis.analysis_limitations,
                 isAnalyzingCorridor = false
@@ -693,7 +776,14 @@ class MapViewModel @Inject constructor(
                 activeDisasterAlertsCount = rawHazardZones.size,
                 routeOverallHazardScore = fallbackRoute.overall_hazard_score,
                 routeSafetyStatus = fallbackRoute.overall_safety_status,
-                activeDecisionExplanation = fallbackRoute.decision_explanation
+                activeDecisionExplanation = fallbackRoute.decision_explanation,
+                corridorGeoJson = fallbackRoute.corridor_geojson?.toString(),
+                hazardsGeoJson = fallbackRoute.hazards_geojson?.toString(),
+                firesGeoJson = fallbackRoute.fires_geojson?.toString(),
+                facilitiesGeoJson = fallbackRoute.facilities_geojson?.toString(),
+                forestsGeoJson = fallbackRoute.forests_geojson?.toString(),
+                weatherGeoJson = fallbackRoute.weather_geojson?.toString(),
+                routePrimaryGeoJson = fallbackRoute.geometry_geojson?.toString()
             )
         }
         rebuildUnifiedFeatures()
@@ -1068,6 +1158,7 @@ class MapViewModel @Inject constructor(
                     selectedAlternativeId = null,
                     routeCoordinates = it.primaryRouteCoordinates,
                     corridorPolygonCoordinates = it.primaryCorridorPolygonCoordinates,
+                    routeSecondaryGeoJson = null,
                     routeOverallHazardScore = it.primaryRouteOverallHazardScore,
                     routeSafetyStatus = it.primaryRouteSafetyStatus,
                     activeDecisionExplanation = it.primaryDecisionExplanation
@@ -1085,11 +1176,13 @@ class MapViewModel @Inject constructor(
                 it.copy(
                     selectedAlternativeId = altId,
                     routeCoordinates = altCoords,
+                    routeSecondaryGeoJson = alt.geometry_geojson?.toString(),
                     corridorPolygonCoordinates = if (altCorridorRings.isNotEmpty()) altCorridorRings else it.primaryCorridorPolygonCoordinates,
+                    corridorGeoJson = alt.corridor_geojson?.toString() ?: it.corridorGeoJson,
                     routeDistanceKm = alt.distance_km,
                     routeDurationHours = alt.duration_minutes / 60.0,
                     routeOverallHazardScore = alt.hazard_score,
-                    routeSafetyStatus = if (alt.hazard_score >= 60.0) "HIGH_RISK" else (if (alt.hazard_score >= 25.0) "CAUTION" else "SAFE"),
+                    routeSafetyStatus = if (alt.hazard_score >= 60.0) "HIGH_RISK" else (if (alt.hazard_score >= 25.0) "CAUTION" else "NORMAL"),
                     activeDecisionExplanation = alt.recommendation_reason ?: alt.safety_label
                 )
             }

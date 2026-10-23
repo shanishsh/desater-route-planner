@@ -545,38 +545,47 @@ class RouteConditionAnalyzer:
         import json
         for alert in active_alerts:
             geom = None
+            derived_from = "official_geometry"
             if alert.polygon_geojson:
                 try:
                     geom = json.loads(alert.polygon_geojson)
                 except Exception:
                     geom = None
             if not geom and alert.center_latitude and alert.center_longitude:
-                # Generate circular polygon perimeter around center coordinate
-                c_coords = []
-                r_lat = (alert.affected_radius_meters or 5000.0) / 111320.0
-                r_lon = (alert.affected_radius_meters or 5000.0) / (111320.0 * math.cos(math.radians(alert.center_latitude)) + 1e-6)
-                for i in range(24):
-                    ang = 2.0 * math.pi * i / 24
-                    c_coords.append([
-                        round(alert.center_longitude + r_lon * math.cos(ang), 5),
-                        round(alert.center_latitude + r_lat * math.sin(ang), 5)
-                    ])
-                if c_coords:
-                    c_coords.append(c_coords[0])
-                geom = {"type": "Polygon", "coordinates": [c_coords]}
+                # If alert has a documented circle radius from CAP 1.2 (<cap:circle>)
+                if alert.affected_radius_meters and alert.affected_radius_meters > 0:
+                    c_coords = []
+                    r_lat = alert.affected_radius_meters / 111320.0
+                    r_lon = alert.affected_radius_meters / (111320.0 * math.cos(math.radians(alert.center_latitude)) + 1e-6)
+                    for i in range(24):
+                        ang = 2.0 * math.pi * i / 24
+                        c_coords.append([
+                            round(alert.center_longitude + r_lon * math.cos(ang), 5),
+                            round(alert.center_latitude + r_lat * math.sin(ang), 5)
+                        ])
+                    if c_coords:
+                        c_coords.append(c_coords[0])
+                    geom = {"type": "Polygon", "coordinates": [c_coords]}
+                    derived_from = "cap_circle"
+                else:
+                    # Point-only alert: preserve strictly as a Point, do NOT invent a polygon!
+                    geom = {"type": "Point", "coordinates": [alert.center_longitude, alert.center_latitude]}
+                    derived_from = "point"
 
             if geom:
+                layer_type = "disaster_alert" if geom.get("type") in ["Polygon", "MultiPolygon"] else "disaster_alert_point"
                 overlay_features.append({
                     "type": "Feature",
                     "geometry": geom,
                     "properties": {
-                        "layer": "disaster_alert",
+                        "layer": layer_type,
                         "id": alert.id,
                         "title": alert.title,
                         "severity": alert.severity,
                         "category": alert.hazard_category,
                         "instructions": alert.required_protective_instructions,
                         "issuing_authority": alert.issuing_authority,
+                        "derived_from": derived_from,
                         "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
                     }
                 })
@@ -652,7 +661,7 @@ class RouteConditionAnalyzer:
         # Dedicated FeatureCollections for high-performance MapLibre native source bindings
         hazards_geojson = {
             "type": "FeatureCollection",
-            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "disaster_alert"],
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") in ("disaster_alert", "disaster_alert_point")],
         }
         fires_geojson = {
             "type": "FeatureCollection",
@@ -661,6 +670,39 @@ class RouteConditionAnalyzer:
         facilities_geojson = {
             "type": "FeatureCollection",
             "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "assistance_point"],
+        }
+        forests_geojson = {
+            "type": "FeatureCollection",
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "forest_area"],
+        }
+        weather_geojson = {
+            "type": "FeatureCollection",
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "weather_point"],
+        }
+
+        # Compute geometry type diagnostics breakdown
+        geom_counts = {"points": 0, "polygons": 0, "multipolygons": 0, "linestrings": 0}
+        for f in overlay_features:
+            g_type = (f.get("geometry", {}).get("type") or "").lower()
+            if g_type == "point":
+                geom_counts["points"] += 1
+            elif g_type == "polygon":
+                geom_counts["polygons"] += 1
+            elif g_type == "multipolygon":
+                geom_counts["multipolygons"] += 1
+            elif g_type == "linestring":
+                geom_counts["linestrings"] += 1
+
+        geometry_diagnostics = {
+            "geometry_type_counts": geom_counts,
+            "total_overlay_features": len(overlay_features),
+            "forest_polygons_count": len(forests_geojson["features"]),
+            "fire_points_count": len(fires_geojson["features"]),
+            "hazard_features_count": len(hazards_geojson["features"]),
+            "safe_haven_points_count": len(facilities_geojson["features"]),
+            "weather_points_count": len(weather_geojson["features"]),
+            "missing_geometry_count": 0,
+            "corridor_distance_km": corridor_dist_km,
         }
 
         corridor_alerts_dto = [
@@ -715,6 +757,9 @@ class RouteConditionAnalyzer:
             "hazards_geojson": hazards_geojson,
             "fires_geojson": fires_geojson,
             "facilities_geojson": facilities_geojson,
+            "forests_geojson": forests_geojson,
+            "weather_geojson": weather_geojson,
+            "geometry_diagnostics": geometry_diagnostics,
             "is_stale": False,
             "offline_cached": False,
         }
@@ -739,6 +784,9 @@ class RouteConditionAnalyzer:
             hazards_geojson=hazards_geojson,
             fires_geojson=fires_geojson,
             facilities_geojson=facilities_geojson,
+            forests_geojson=forests_geojson,
+            weather_geojson=weather_geojson,
+            geometry_diagnostics=geometry_diagnostics,
             distance_meters=round(route.distance_km * 1000.0, 1),
             duration_seconds=round(route.duration_minutes * 60.0, 1),
             routing_provider="OSRM",
@@ -916,6 +964,9 @@ class RouteConditionAnalyzer:
             hazards_geojson=analysis.hazards_geojson,
             fires_geojson=analysis.fires_geojson,
             facilities_geojson=analysis.facilities_geojson,
+            forests_geojson=analysis.forests_geojson,
+            weather_geojson=analysis.weather_geojson,
+            geometry_diagnostics=fresh.get("geometry_diagnostics", {}),
             alternatives=analysis.alternatives,
             analysis_limitations=limitations,
         )

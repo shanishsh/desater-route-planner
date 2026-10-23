@@ -152,9 +152,73 @@ class OSMForestClient:
         }
 
     def _elements_to_geojson_features(self, elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Converts Overpass elements with geometry into GeoJSON features."""
+        """Converts Overpass elements with geometry into GeoJSON features (handling ways and multipolygon relations)."""
         features = []
         for el in elements:
+            el_type = el.get("type")
+            tags = el.get("tags", {})
+            name = tags.get("name", "Unnamed Forest / Woodland")
+            wood_type = tags.get("wood", tags.get("leaf_type", "mixed"))
+
+            # Handle relations (e.g. multipolygon)
+            if el_type == "relation":
+                members = el.get("members", [])
+                outer_rings = []
+                inner_rings = []
+                for m in members:
+                    role = m.get("role", "outer")
+                    m_geom = m.get("geometry", [])
+                    if len(m_geom) >= 3:
+                        ring = [[pt["lon"], pt["lat"]] for pt in m_geom]
+                        if ring[0] != ring[-1]:
+                            ring.append(ring[0])
+                        if role == "inner":
+                            inner_rings.append(ring)
+                        else:
+                            outer_rings.append(ring)
+
+                if outer_rings:
+                    if len(outer_rings) == 1:
+                        # Single polygon with possible holes
+                        poly_coords = [outer_rings[0]] + inner_rings
+                        features.append({
+                            "type": "Feature",
+                            "id": f"osm_rel_{el.get('id')}",
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": poly_coords,
+                            },
+                            "properties": {
+                                "osm_id": el.get("id"),
+                                "name": name,
+                                "landuse": tags.get("landuse"),
+                                "natural": tags.get("natural"),
+                                "wood_type": wood_type,
+                                "source": "OpenStreetMap",
+                            },
+                        })
+                    else:
+                        # MultiPolygon: list of [outer, inners...]
+                        mp_coords = [[[outer]] for outer in outer_rings]
+                        features.append({
+                            "type": "Feature",
+                            "id": f"osm_rel_{el.get('id')}",
+                            "geometry": {
+                                "type": "MultiPolygon",
+                                "coordinates": mp_coords,
+                            },
+                            "properties": {
+                                "osm_id": el.get("id"),
+                                "name": name,
+                                "landuse": tags.get("landuse"),
+                                "natural": tags.get("natural"),
+                                "wood_type": wood_type,
+                                "source": "OpenStreetMap",
+                            },
+                        })
+                continue
+
+            # Handle ways
             geometry_type = "Polygon"
             coords = []
 
@@ -170,10 +234,6 @@ class OSMForestClient:
                 coords = [[pt["lon"], pt["lat"]] for pt in raw_geom]
             else:
                 continue
-
-            tags = el.get("tags", {})
-            name = tags.get("name", "Unnamed Forest / Woodland")
-            wood_type = tags.get("wood", tags.get("leaf_type", "mixed"))
 
             features.append({
                 "type": "Feature",
