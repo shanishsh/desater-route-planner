@@ -99,11 +99,19 @@ data class ElevationProfilePointDto(
 @Serializable
 data class SafeHavenInfoDto(
     val name: String,
-    val category: String, // mountain_hut, shelter, ranger_station, hospital, police
+    val category: String, // hospital, clinic, police, fuel, fire_station, shelter
     val latitude: Double,
     val longitude: Double,
     val distance_km: Double,
-    val is_egress_point: Boolean = true
+    val is_egress_point: Boolean = true,
+    val opening_hours: String? = null,
+    val phone: String? = null,
+    val website: String? = null,
+    val brand: String? = null,
+    val operator: String? = null,
+    val address: String? = null,
+    val emergency_verified: Boolean = false,
+    val source: String? = null
 )
 
 @Serializable
@@ -140,7 +148,18 @@ data class RouteAlternativeDto(
     val corridor_hazard_count: Int = 0,
     val fires_within_2km_count: Int = 0,
     val recommendation_reason: String? = null,
-    val exposure_summary: String? = null
+    val exposure_summary: String? = null,
+    val hospitals_count: Int = 0,
+    val clinics_count: Int = 0,
+    val police_stations_count: Int = 0,
+    val fuel_stations_count: Int = 0,
+    val fire_stations_count: Int = 0,
+    val nearest_hospital_km: Double? = null,
+    val nearest_police_km: Double? = null,
+    val nearest_fuel_km: Double? = null,
+    val facilities_geojson: JsonElement? = null,
+    val preference_rankings: Map<String, JsonElement> = emptyMap(),
+    val data_completeness: Boolean = true
 )
 
 @Serializable

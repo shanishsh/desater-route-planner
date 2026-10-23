@@ -41,6 +41,11 @@ enum class MapFeatureCategory(
         icon = Icons.Default.NightShelter,
         primaryColor = Color(0xFF43A047) // Shelter Green
     ),
+    PETROL_PUMP(
+        displayName = "Petrol Pump / Fuel",
+        icon = Icons.Default.LocalGasStation,
+        primaryColor = Color(0xFFF57C00) // Fuel Amber Orange
+    ),
     TOURIST_ASSISTANCE(
         displayName = "Assistance & Info",
         icon = Icons.Default.Info,

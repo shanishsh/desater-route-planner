@@ -112,6 +112,9 @@ fun FeatureDetailBottomSheet(
                 MapFeatureCategory.POLICE_STATION -> {
                     PoliceDetailContent(feature)
                 }
+                MapFeatureCategory.PETROL_PUMP -> {
+                    PetrolPumpDetailContent(feature)
+                }
                 MapFeatureCategory.FIRE_STATION -> {
                     FireStationDetailContent(feature)
                 }
@@ -134,7 +137,7 @@ fun FeatureDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Action Buttons: Navigate & Call
+            // Action Buttons: Navigate, Call, Website
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -149,7 +152,6 @@ fun FeatureDetailBottomSheet(
                         try {
                             context.startActivity(mapIntent)
                         } catch (e: Exception) {
-                            // Fallback to general intent
                             val fallbackIntent = Intent(Intent.ACTION_VIEW, geoUri)
                             context.startActivity(fallbackIntent)
                         }
@@ -163,11 +165,12 @@ fun FeatureDetailBottomSheet(
                 }
 
                 // Call Action (if phone number is available)
-                feature.phone?.let { phoneNum ->
+                val phoneNum = feature.phone ?: feature.details["phone"]
+                phoneNum?.let { phone ->
                     OutlinedButton(
                         onClick = {
                             val intent = Intent(Intent.ACTION_DIAL).apply {
-                                data = Uri.parse("tel:$phoneNum")
+                                data = Uri.parse("tel:$phone")
                             }
                             context.startActivity(intent)
                         },
@@ -177,6 +180,24 @@ fun FeatureDetailBottomSheet(
                         Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Call", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Website Action (if website URL is available)
+                feature.details["website"]?.let { webUrl ->
+                    OutlinedButton(
+                        onClick = {
+                            val webUri = if (webUrl.startsWith("http://") || webUrl.startsWith("https://")) {
+                                Uri.parse(webUrl)
+                            } else {
+                                Uri.parse("https://$webUrl")
+                            }
+                            val intent = Intent(Intent.ACTION_VIEW, webUri)
+                            context.startActivity(intent)
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -195,16 +216,30 @@ private fun HospitalClinicDetailContent(feature: UnifiedMapFeature) {
         feature.address?.let { addr ->
             DetailRow(icon = Icons.Default.LocationOn, label = "Address", value = addr)
         }
+        val hours = feature.details["opening_hours"] ?: "Opening hours unavailable"
+        DetailRow(
+            icon = Icons.Default.Schedule,
+            label = "Opening Hours",
+            value = hours
+        )
+        val isEmergency = feature.details["emergency_verified"] == "true"
+        DetailRow(
+            icon = if (isEmergency) Icons.Default.CheckCircle else Icons.Default.Info,
+            label = "Emergency Service",
+            value = if (isEmergency) "Emergency Care Verified (OSM)" else "Emergency capability not specified in source",
+            tint = if (isEmergency) Color(0xFF2E7D32) else Color(0xFF757575)
+        )
+        feature.details["operator"]?.let { op ->
+            DetailRow(icon = Icons.Default.Business, label = "Operator", value = op)
+        }
+        feature.details["phone"]?.let { ph ->
+            DetailRow(icon = Icons.Default.Phone, label = "Phone", value = ph)
+        }
         DetailRow(
             icon = Icons.Default.Verified,
             label = "Verification",
             value = "${feature.sourceName} (Verified)",
             tint = Color(0xFF2E7D32)
-        )
-        DetailRow(
-            icon = Icons.Default.Schedule,
-            label = "Emergency Service",
-            value = "24/7 Acute Mountain Trauma & Emergency Triage"
         )
     }
 }
@@ -218,16 +253,69 @@ private fun PoliceDetailContent(feature: UnifiedMapFeature) {
         feature.address?.let { addr ->
             DetailRow(icon = Icons.Default.LocationOn, label = "Location", value = addr)
         }
+        val hours = feature.details["opening_hours"] ?: "Opening hours unavailable"
         DetailRow(
-            icon = Icons.Default.LocalPolice,
-            label = "Jurisdiction",
-            value = "Tourist Police & Mountain Search/Rescue Dispatch"
+            icon = Icons.Default.Schedule,
+            label = "Station Hours",
+            value = hours
         )
+        feature.details["phone"]?.let { ph ->
+            DetailRow(icon = Icons.Default.Phone, label = "Station Phone", value = ph)
+        }
         DetailRow(
             icon = Icons.Default.Verified,
             label = "Authority",
             value = feature.sourceName,
             tint = Color(0xFF1E88E5)
+        )
+    }
+}
+
+@Composable
+private fun PetrolPumpDetailContent(feature: UnifiedMapFeature) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFFFFF3E0),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = Color(0xFFF57C00), modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Fuel / Refueling Station (Vehicular Travel Only)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFF57C00)
+                )
+            }
+        }
+        feature.details["brand"]?.let { b ->
+            DetailRow(icon = Icons.Default.LocalGasStation, label = "Fuel Brand", value = b)
+        }
+        feature.details["operator"]?.let { op ->
+            DetailRow(icon = Icons.Default.Business, label = "Station Operator", value = op)
+        }
+        feature.address?.let { addr ->
+            DetailRow(icon = Icons.Default.LocationOn, label = "Station Location", value = addr)
+        }
+        val hours = feature.details["opening_hours"] ?: "Opening hours unavailable"
+        DetailRow(
+            icon = Icons.Default.Schedule,
+            label = "Dispensing Hours",
+            value = hours
+        )
+        feature.details["phone"]?.let { ph ->
+            DetailRow(icon = Icons.Default.Phone, label = "Phone", value = ph)
+        }
+        DetailRow(
+            icon = Icons.Default.Verified,
+            label = "Source",
+            value = feature.sourceName,
+            tint = Color(0xFFF57C00)
         )
     }
 }
@@ -244,10 +332,10 @@ private fun FireStationDetailContent(feature: UnifiedMapFeature) {
                 modifier = Modifier.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.FireTruck, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Municipal Fire Department Facility (Civil Emergency Service)",
+                    text = "Civil Fire & Rescue Station",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFFE65100)
@@ -259,6 +347,15 @@ private fun FireStationDetailContent(feature: UnifiedMapFeature) {
         }
         feature.address?.let { addr ->
             DetailRow(icon = Icons.Default.LocationOn, label = "Compound Address", value = addr)
+        }
+        val hours = feature.details["opening_hours"] ?: "Opening hours unavailable"
+        DetailRow(
+            icon = Icons.Default.Schedule,
+            label = "Station Hours",
+            value = hours
+        )
+        feature.details["phone"]?.let { ph ->
+            DetailRow(icon = Icons.Default.Phone, label = "Emergency Dispatch", value = ph)
         }
         DetailRow(
             icon = Icons.Default.Verified,
@@ -378,6 +475,9 @@ private fun GenericAssistanceDetailContent(feature: UnifiedMapFeature) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         feature.subtitle?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium) }
         feature.address?.let { DetailRow(icon = Icons.Default.LocationOn, label = "Address", value = it) }
+        val hours = feature.details["opening_hours"] ?: "Opening hours unavailable"
+        DetailRow(icon = Icons.Default.Schedule, label = "Opening Hours", value = hours)
+        feature.details["phone"]?.let { DetailRow(icon = Icons.Default.Phone, label = "Phone", value = it) }
         DetailRow(icon = Icons.Default.Verified, label = "Source", value = feature.sourceName)
     }
 }
@@ -409,4 +509,3 @@ private fun DetailRow(
         )
     }
 }
-

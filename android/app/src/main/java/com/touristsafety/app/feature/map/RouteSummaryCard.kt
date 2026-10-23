@@ -47,6 +47,7 @@ fun RouteSummaryCard(
     isAnalyzingCorridor: Boolean = false,
     onSelectCorridorDistance: (Double) -> Unit = {},
     analysisLimitations: List<String> = emptyList(),
+    onOpenComparison: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -230,6 +231,21 @@ fun RouteSummaryCard(
                         isSelected = isPrimarySelected,
                         onClick = { onSelectAlternative(null) }
                     )
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.clickable { onOpenComparison() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CompareArrows, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Compare (${1 + plannedRouteAlternatives.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
 
                     plannedRouteAlternatives.forEach { alt ->
                         val isAltSelected = selectedAlternativeId == alt.id

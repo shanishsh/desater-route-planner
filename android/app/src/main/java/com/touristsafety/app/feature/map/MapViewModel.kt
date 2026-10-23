@@ -36,8 +36,10 @@ enum class RouteLifecycleState {
 
 enum class MapFilterChip(val label: String, val category: MapFeatureCategory?) {
     ALL("All", null),
-    MEDICAL("Medical", MapFeatureCategory.HOSPITAL),
+    MEDICAL("Hospitals", MapFeatureCategory.HOSPITAL),
+    CLINICS("Clinics", MapFeatureCategory.CLINIC),
     POLICE("Police", MapFeatureCategory.POLICE_STATION),
+    FUEL("Petrol Pumps", MapFeatureCategory.PETROL_PUMP),
     FIRE_STATIONS("Fire Stations", MapFeatureCategory.FIRE_STATION),
     FOREST("Forest", MapFeatureCategory.FOREST_AREA),
     ACTIVE_FIRES("Active Fires", MapFeatureCategory.ACTIVE_FIRE_DETECTION),
@@ -78,6 +80,8 @@ data class MapUiState(
     val showNearbySheet: Boolean = false,
     val showLegendSheet: Boolean = false,
     val showSearchDialog: Boolean = false,
+    val showComparisonSheet: Boolean = false,
+    val selectedComparisonPreference: String = "balanced",
     val isBottomRouteExpanded: Boolean = false,
     val searchQuery: String = "",
     val searchResults: List<PlaceSearchResultDto> = emptyList(),
@@ -593,13 +597,26 @@ class MapViewModel @Inject constructor(
             )
         }
 
-        // 3. Assistance points from assistance_points (Safe Havens)
+        // 3. Assistance points from assistance_points (Safe Havens & Facilities)
         rawMapPoints = analysis.assistance_points.mapIndexed { idx, sh ->
             val cat = when (sh.category.lowercase()) {
-                "hospital", "clinic" -> PointCategory.MEDICAL
+                "hospital" -> PointCategory.MEDICAL
+                "clinic" -> PointCategory.CLINIC
                 "police" -> PointCategory.POLICE
+                "fuel", "petrol_pump" -> PointCategory.FUEL_STATION
+                "fire_station", "fire" -> PointCategory.FIRE_STATION
                 "shelter", "mountain_hut" -> PointCategory.SHELTER
                 else -> PointCategory.VISITOR_INFO
+            }
+            val details = mutableMapOf<String, String>()
+            sh.opening_hours?.let { details["opening_hours"] = it }
+            sh.phone?.let { details["phone"] = it }
+            sh.website?.let { details["website"] = it }
+            sh.brand?.let { details["brand"] = it }
+            sh.operator?.let { details["operator"] = it }
+            sh.address?.let { details["address"] = it }
+            if (sh.emergency_verified) {
+                details["emergency_verified"] = "true"
             }
             MapPoint(
                 id = "haven_$idx",
@@ -607,10 +624,13 @@ class MapViewModel @Inject constructor(
                 category = cat,
                 latitude = sh.latitude,
                 longitude = sh.longitude,
-                description = "Emergency Safe Haven • ${sh.distance_km} km from trail corridor",
-                provenance = "OpenStreetMap Overpass Verified",
+                address = sh.address,
+                phone = sh.phone,
+                description = "Verified ${sh.category.replace('_', ' ')} • ${sh.distance_km} km from route",
+                provenance = sh.source ?: "OpenStreetMap Overpass",
                 verificationStatus = "verified",
-                verificationTimestampEpochMs = System.currentTimeMillis()
+                verificationTimestampEpochMs = System.currentTimeMillis(),
+                details = details
             )
         }
 
@@ -800,11 +820,20 @@ class MapViewModel @Inject constructor(
                 PointCategory.CLINIC -> MapFeatureCategory.CLINIC
                 PointCategory.POLICE -> MapFeatureCategory.POLICE_STATION
                 PointCategory.FIRE_STATION -> MapFeatureCategory.FIRE_STATION
+                PointCategory.FUEL_STATION -> MapFeatureCategory.PETROL_PUMP
                 PointCategory.SHELTER -> MapFeatureCategory.SHELTER
                 PointCategory.VISITOR_INFO, PointCategory.TRANSPORT, PointCategory.VERIFIED_PUBLIC -> MapFeatureCategory.TOURIST_ASSISTANCE
                 PointCategory.EMERGENCY_SERVICE -> MapFeatureCategory.FIRE_STATION
             }
             val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, pt.latitude, pt.longitude)
+            val detailMap = mutableMapOf<String, String>()
+            pt.address?.let { detailMap["Address"] = it }
+            pt.phone?.let { detailMap["Phone"] = it }
+            detailMap["Category"] = cat.displayName
+            detailMap["Provenance"] = pt.provenance
+            detailMap["Status"] = pt.verificationStatus
+            detailMap.putAll(pt.details)
+
             list.add(
                 UnifiedMapFeature(
                     id = "poi_${pt.id}",
@@ -819,13 +848,7 @@ class MapViewModel @Inject constructor(
                     isVerified = pt.verificationStatus == "verified",
                     phone = pt.phone,
                     address = pt.address,
-                    details = mapOfNotNull(
-                        "Address" to pt.address,
-                        "Phone" to pt.phone,
-                        "Category" to cat.displayName,
-                        "Provenance" to pt.provenance,
-                        "Status" to pt.verificationStatus
-                    )
+                    details = detailMap
                 )
             )
         }
@@ -927,8 +950,10 @@ class MapViewModel @Inject constructor(
 
             when (chip) {
                 MapFilterChip.ALL -> true
-                MapFilterChip.MEDICAL -> feat.category == MapFeatureCategory.HOSPITAL || feat.category == MapFeatureCategory.CLINIC
+                MapFilterChip.MEDICAL -> feat.category == MapFeatureCategory.HOSPITAL
+                MapFilterChip.CLINICS -> feat.category == MapFeatureCategory.CLINIC
                 MapFilterChip.POLICE -> feat.category == MapFeatureCategory.POLICE_STATION
+                MapFilterChip.FUEL -> feat.category == MapFeatureCategory.PETROL_PUMP
                 MapFilterChip.FIRE_STATIONS -> feat.category == MapFeatureCategory.FIRE_STATION
                 MapFilterChip.FOREST -> feat.category == MapFeatureCategory.FOREST_AREA
                 MapFilterChip.ACTIVE_FIRES -> feat.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION
@@ -1084,6 +1109,14 @@ class MapViewModel @Inject constructor(
 
     fun toggleLegendSheet(show: Boolean) {
         _uiState.update { it.copy(showLegendSheet = show) }
+    }
+
+    fun toggleComparisonSheet(show: Boolean) {
+        _uiState.update { it.copy(showComparisonSheet = show) }
+    }
+
+    fun setComparisonPreference(pref: String) {
+        _uiState.update { it.copy(selectedComparisonPreference = pref) }
     }
 
     fun toggleSearchDialog(show: Boolean) {

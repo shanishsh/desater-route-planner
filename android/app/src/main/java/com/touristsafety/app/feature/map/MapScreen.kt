@@ -102,6 +102,11 @@ fun MapScreen(
                                     MapLibreLayerManager.LAYER_DISASTER_FILL,
                                     MapLibreLayerManager.LAYER_DISASTER_LINE,
                                     MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_POLICE_CIRCLE,
+                                    MapLibreLayerManager.LAYER_FUEL_CIRCLE,
+                                    MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
                                     MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
                                     MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                                     MapLibreLayerManager.LAYER_FOREST_FILL,
@@ -302,6 +307,7 @@ fun MapScreen(
             isAnalyzingCorridor = state.isAnalyzingCorridor,
             onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
             analysisLimitations = state.analysisLimitations,
+            onOpenComparison = { viewModel.toggleComparisonSheet(true) },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
@@ -373,6 +379,21 @@ fun MapScreen(
                     )
                 },
                 onDismiss = { viewModel.toggleSearchDialog(false) }
+            )
+        }
+
+        // E. Route Candidates Comparison Bottom Sheet
+        if (state.showComparisonSheet) {
+            RouteComparisonSheet(
+                state = state,
+                onDismiss = { viewModel.toggleComparisonSheet(false) },
+                onSelectAlternative = { altId ->
+                    viewModel.selectRouteAlternative(altId)
+                    viewModel.toggleComparisonSheet(false)
+                },
+                onSelectPreference = { pref ->
+                    viewModel.setComparisonPreference(pref)
+                }
             )
         }
     }

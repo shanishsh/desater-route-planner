@@ -6,6 +6,7 @@ enum class PointCategory {
     CLINIC,
     POLICE,
     FIRE_STATION,
+    FUEL_STATION,
     SHELTER,
     VISITOR_INFO,
     TRANSPORT,
@@ -23,6 +24,6 @@ data class MapPoint(
     val description: String? = null,
     val verificationStatus: String = "verified",
     val verificationTimestampEpochMs: Long = System.currentTimeMillis(),
-    val provenance: String = "Official Public Safety Directory"
+    val provenance: String = "Official Public Safety Directory",
+    val details: Map<String, String> = emptyMap()
 )
-

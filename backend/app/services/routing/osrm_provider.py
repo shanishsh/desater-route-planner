@@ -70,7 +70,7 @@ class OSRMRoutingProvider:
             params = {
                 "overview": "full",
                 "geometries": "geojson",
-                "alternatives": "true",
+                "alternatives": "3",
                 "steps": "true",
             }
             response = await client.get(url, params=params)

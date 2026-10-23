@@ -169,10 +169,18 @@ class RouteConditionAnalyzer:
                     longitude=item["longitude"],
                     distance_km=item.get("distance_to_route_km", 0.0),
                     is_egress_point=True,
+                    opening_hours=item.get("opening_hours"),
+                    phone=item.get("phone"),
+                    website=item.get("website"),
+                    brand=item.get("brand"),
+                    operator=item.get("operator"),
+                    address=item.get("address"),
+                    emergency_verified=item.get("emergency_verified", False),
+                    source=item.get("provenance", "OpenStreetMap Overpass"),
                 )
             )
         safe_havens.sort(key=lambda sh: sh.distance_km)
-        safe_havens = safe_havens[:15]
+        safe_havens = safe_havens[:30]
 
         # Analyze each waypoint with terrain and TrailGuard Risk Engine
         waypoint_conditions: List[RouteWaypointCondition] = []
@@ -429,10 +437,39 @@ class RouteConditionAnalyzer:
             provider_statuses=provider_statuses,
         )
 
-        # 2. Evaluate candidate alternatives with individual corridors and identical spatial criteria
+        # Primary route facility stats
+        prim_hosp = sum(1 for sh in safe_havens if sh.category == "hospital")
+        prim_clinic = sum(1 for sh in safe_havens if sh.category == "clinic")
+        prim_police = sum(1 for sh in safe_havens if sh.category == "police")
+        prim_fuel = sum(1 for sh in safe_havens if sh.category == "fuel")
+        prim_fire = sum(1 for sh in safe_havens if sh.category == "fire_station")
+        med_dists = [sh.distance_km for sh in safe_havens if sh.category in ("hospital", "clinic")]
+        prim_near_hosp = round(min(med_dists), 2) if med_dists else None
+        pol_dists = [sh.distance_km for sh in safe_havens if sh.category == "police"]
+        prim_near_pol = round(min(pol_dists), 2) if pol_dists else None
+        fuel_dists = [sh.distance_km for sh in safe_havens if sh.category == "fuel"]
+        prim_near_fuel = round(min(fuel_dists), 2) if fuel_dists else None
+
+        # 2. Evaluate candidate alternatives with individual corridors, independent facility scans, and identical spatial criteria
         alt_schemas: List[RouteAlternativeSchema] = []
         best_alt_idx = -1
         lowest_hazard_score = primary_exposure["hazard_score"]
+
+        # Track all candidates for multi-preference ranking (candidate 0 = primary route)
+        all_candidates_summary = [{
+            "id": route.route_id,
+            "title": "Primary Route",
+            "distance_km": route.distance_km,
+            "duration_minutes": route.duration_minutes,
+            "hazard_score": primary_exposure["hazard_score"],
+            "intersections": primary_exposure["direct_hazard_intersections_count"],
+            "emergency_facilities": prim_hosp + prim_clinic + prim_police,
+            "nearest_hospital_km": prim_near_hosp or 999.0,
+            "hospitals_count": prim_hosp,
+            "clinics_count": prim_clinic,
+            "police_stations_count": prim_police,
+            "fuel_stations_count": prim_fuel,
+        }]
 
         for alt_idx, alt in enumerate(route.alternatives):
             alt_coords_raw = alt.geometry_geojson.get("coordinates", [])
@@ -458,29 +495,151 @@ class RouteConditionAnalyzer:
                 provider_statuses=provider_statuses,
             )
 
-            alt_score = alt_exposure["hazard_score"]
-            alt_schemas.append(
-                RouteAlternativeSchema(
-                    id=alt.id,
-                    title=alt.title,
-                    description=alt.description,
-                    distance_km=alt.distance_km,
-                    duration_minutes=alt.duration_minutes,
-                    geometry_geojson=alt.geometry_geojson,
-                    corridor_geojson=alt_corridor_poly,
-                    hazard_score=alt_score,
-                    safety_label=alt_exposure["safety_label"],
-                    direct_hazard_intersections_count=alt_exposure["direct_hazard_intersections_count"],
-                    corridor_hazard_count=alt_exposure["corridor_hazard_count"],
-                    fires_within_2km_count=alt_exposure["fires_within_2km_count"],
-                    exposure_summary=alt_exposure["exposure_summary"],
-                    is_recommended=False,
-                )
+            # Independent facility filtering for this alternative
+            alt_amenities = route_corridor_service.filter_amenities(
+                amenity_items,
+                alt_coords_lat_lon,
+                corridor_distance_meters=corridor_dist_m,
             )
+            alt_hosp = sum(1 for a in alt_amenities if a.get("category") == "hospital")
+            alt_clinic = sum(1 for a in alt_amenities if a.get("category") == "clinic")
+            alt_police = sum(1 for a in alt_amenities if a.get("category") == "police")
+            alt_fuel = sum(1 for a in alt_amenities if a.get("category") == "fuel")
+            alt_fire = sum(1 for a in alt_amenities if a.get("category") == "fire_station")
+            alt_med_dists = [a.get("distance_to_route_km", 999.0) for a in alt_amenities if a.get("category") in ("hospital", "clinic")]
+            alt_near_hosp = round(min(alt_med_dists), 2) if alt_med_dists else None
+            alt_pol_dists = [a.get("distance_to_route_km", 999.0) for a in alt_amenities if a.get("category") == "police"]
+            alt_near_pol = round(min(alt_pol_dists), 2) if alt_pol_dists else None
+            alt_fuel_dists = [a.get("distance_to_route_km", 999.0) for a in alt_amenities if a.get("category") == "fuel"]
+            alt_near_fuel = round(min(alt_fuel_dists), 2) if alt_fuel_dists else None
+
+            # Build facility FeatureCollection for this alternative
+            alt_fac_features = []
+            for a in alt_amenities[:25]:
+                cat = a.get("category", "shelter")
+                c_color = "#E53935" if cat == "hospital" else ("#D32F2F" if cat == "clinic" else ("#1E88E5" if cat == "police" else ("#F57C00" if cat == "fuel" else ("#E65100" if cat == "fire_station" else "#2E7D32"))))
+                alt_fac_features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [a["longitude"], a["latitude"]]},
+                    "properties": {
+                        "layer": "assistance_point",
+                        "facility_layer": f"facility_{cat}",
+                        "name": a.get("name", "Assistance Point"),
+                        "category": cat,
+                        "distance_km": a.get("distance_to_route_km", 0.0),
+                        "opening_hours": a.get("opening_hours"),
+                        "phone": a.get("phone"),
+                        "website": a.get("website"),
+                        "brand": a.get("brand"),
+                        "operator": a.get("operator"),
+                        "emergency_verified": a.get("emergency_verified", False),
+                        "address": a.get("address"),
+                        "provenance": a.get("provenance", "OpenStreetMap Overpass"),
+                        "color": c_color,
+                    }
+                })
+            alt_fac_geojson = {"type": "FeatureCollection", "features": alt_fac_features}
+
+            alt_score = alt_exposure["hazard_score"]
+            alt_schema = RouteAlternativeSchema(
+                id=alt.id,
+                title=alt.title,
+                description=alt.description,
+                distance_km=alt.distance_km,
+                duration_minutes=alt.duration_minutes,
+                geometry_geojson=alt.geometry_geojson,
+                corridor_geojson=alt_corridor_poly,
+                hazard_score=alt_score,
+                safety_label=alt_exposure["safety_label"],
+                direct_hazard_intersections_count=alt_exposure["direct_hazard_intersections_count"],
+                corridor_hazard_count=alt_exposure["corridor_hazard_count"],
+                fires_within_2km_count=alt_exposure["fires_within_2km_count"],
+                exposure_summary=alt_exposure["exposure_summary"],
+                hospitals_count=alt_hosp,
+                clinics_count=alt_clinic,
+                police_stations_count=alt_police,
+                fuel_stations_count=alt_fuel,
+                fire_stations_count=alt_fire,
+                nearest_hospital_km=alt_near_hosp,
+                nearest_police_km=alt_near_pol,
+                nearest_fuel_km=alt_near_fuel,
+                facilities_geojson=alt_fac_geojson,
+                is_recommended=False,
+                data_completeness=alt_exposure.get("is_complete", True),
+            )
+            alt_schemas.append(alt_schema)
+
+            all_candidates_summary.append({
+                "id": alt.id,
+                "title": alt.title,
+                "distance_km": alt.distance_km,
+                "duration_minutes": alt.duration_minutes,
+                "hazard_score": alt_score,
+                "intersections": alt_exposure["direct_hazard_intersections_count"],
+                "emergency_facilities": alt_hosp + alt_clinic + alt_police,
+                "nearest_hospital_km": alt_near_hosp or 999.0,
+                "hospitals_count": alt_hosp,
+                "clinics_count": alt_clinic,
+                "police_stations_count": alt_police,
+                "fuel_stations_count": alt_fuel,
+            })
 
             if alt_score < lowest_hazard_score and alt_exposure["is_complete"]:
                 lowest_hazard_score = alt_score
                 best_alt_idx = alt_idx
+
+        # Compute 5 preference rankings across all routes
+        # 1. Shortest (distance_km asc)
+        shortest_rank = sorted(range(len(all_candidates_summary)), key=lambda i: all_candidates_summary[i]["distance_km"])
+        # 2. Fastest (duration_minutes asc)
+        fastest_rank = sorted(range(len(all_candidates_summary)), key=lambda i: all_candidates_summary[i]["duration_minutes"])
+        # 3. Safest (hazard_score asc, intersections asc)
+        safest_rank = sorted(range(len(all_candidates_summary)), key=lambda i: (all_candidates_summary[i]["hazard_score"], all_candidates_summary[i]["intersections"]))
+        # 4. Emergency Access (emergency_facilities desc, nearest_hospital asc)
+        access_rank = sorted(range(len(all_candidates_summary)), key=lambda i: (-all_candidates_summary[i]["emergency_facilities"], all_candidates_summary[i]["nearest_hospital_km"]))
+        # 5. Balanced
+        def _balanced_score(cand):
+            saf_pt = max(0.0, 100.0 - cand["hazard_score"])
+            dur_pt = max(0.0, 100.0 - cand["duration_minutes"])
+            fac_pt = min(100.0, cand["emergency_facilities"] * 25.0)
+            return 0.40 * saf_pt + 0.30 * dur_pt + 0.30 * fac_pt
+        balanced_rank = sorted(range(len(all_candidates_summary)), key=lambda i: -_balanced_score(all_candidates_summary[i]))
+
+        for a_idx, alt_schema in enumerate(alt_schemas):
+            cand_idx = a_idx + 1  # 0 is primary
+            r_short = shortest_rank.index(cand_idx) + 1
+            r_fast = fastest_rank.index(cand_idx) + 1
+            r_safe = safest_rank.index(cand_idx) + 1
+            r_access = access_rank.index(cand_idx) + 1
+            r_bal = balanced_rank.index(cand_idx) + 1
+
+            alt_schema.preference_rankings = {
+                "shortest": {
+                    "rank": r_short,
+                    "metric": f"{alt_schema.distance_km} km",
+                    "contrast": f"{round(alt_schema.distance_km - route.distance_km, 1):+g} km vs primary",
+                },
+                "fastest": {
+                    "rank": r_fast,
+                    "metric": f"{int(alt_schema.duration_minutes)} min",
+                    "contrast": f"{round(alt_schema.duration_minutes - route.duration_minutes, 1):+g} min vs primary",
+                },
+                "safest": {
+                    "rank": r_safe,
+                    "metric": f"Hazard: {int(alt_schema.hazard_score)}/100",
+                    "contrast": f"{round(primary_exposure['hazard_score'] - alt_schema.hazard_score, 0):+g} hazard diff",
+                },
+                "facility_access": {
+                    "rank": r_access,
+                    "metric": f"{alt_schema.hospitals_count + alt_schema.police_stations_count} emergency sites",
+                    "contrast": f"Nearest hospital: {alt_schema.nearest_hospital_km or 'N/A'} km",
+                },
+                "balanced": {
+                    "rank": r_bal,
+                    "metric": f"Rank #{r_bal}",
+                    "contrast": "Multi-criteria score (Safety 40%, Travel 30%, Facilities 30%)",
+                },
+            }
 
         # If a candidate alternative provides lower hazard exposure than a risky primary route, recommend it
         if best_alt_idx >= 0 and (primary_exposure["hazard_score"] >= 25.0 or primary_exposure["direct_hazard_intersections_count"] > 0):
@@ -609,18 +768,36 @@ class RouteConditionAnalyzer:
                     "color": "#E65100",
                 }
             })
-        # 4. Safe havens
+        # 4. Safe havens & essential facilities
+        facility_colors = {
+            "hospital": "#E53935",
+            "clinic": "#D32F2F",
+            "police": "#1E88E5",
+            "fuel": "#F57C00",
+            "fire_station": "#E65100",
+            "shelter": "#2E7D32",
+        }
         for sh in safe_havens:
+            c_color = facility_colors.get(sh.category, "#2E7D32")
             overlay_features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [sh.longitude, sh.latitude]},
                 "properties": {
                     "layer": "assistance_point",
+                    "facility_layer": f"facility_{sh.category}",
                     "name": sh.name,
                     "category": sh.category,
                     "distance_km": sh.distance_km,
                     "is_egress_point": sh.is_egress_point,
-                    "color": "#2E7D32",
+                    "opening_hours": sh.opening_hours,
+                    "phone": sh.phone,
+                    "website": sh.website,
+                    "brand": sh.brand,
+                    "operator": sh.operator,
+                    "address": sh.address,
+                    "emergency_verified": sh.emergency_verified,
+                    "provenance": sh.source,
+                    "color": c_color,
                 }
             })
         # 5. Forest areas

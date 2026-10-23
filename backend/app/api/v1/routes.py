@@ -208,3 +208,93 @@ async def get_route_alternatives(
 
     return [RouteAlternativeSchema(**a) for a in (db_route.alternatives_data or [])]
 
+
+@router.get("/{route_id}/comparison")
+async def get_route_comparison(
+    route_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns side-by-side comparative analysis of primary route and all alternatives."""
+    stmt = select(PlannedRoute).where(PlannedRoute.id == route_id)
+    result = await db.execute(stmt)
+    db_route = result.scalar_one_or_none()
+
+    if not db_route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    alternatives = [RouteAlternativeSchema(**a) for a in (db_route.alternatives_data or [])]
+    freshness = db_route.data_freshness_data or {}
+    primary_summary = {
+        "id": db_route.id,
+        "title": "Primary Route",
+        "distance_km": db_route.distance_km,
+        "duration_minutes": db_route.duration_minutes,
+        "hazard_score": db_route.overall_hazard_score,
+        "safety_label": db_route.overall_safety_status,
+        "is_selected": True,
+    }
+
+    return {
+        "route_id": db_route.id,
+        "primary_route": primary_summary,
+        "alternatives": [a.model_dump() for a in alternatives],
+        "travel_mode": db_route.travel_mode,
+        "comparison_preferences": ["shortest", "fastest", "safest", "facility_access", "balanced"],
+        "analyzed_at": db_route.last_analyzed_at.isoformat() if db_route.last_analyzed_at else None,
+    }
+
+
+@router.post("/{route_id}/select-alternative", response_model=PlannedRouteResponse)
+async def select_route_alternative(
+    route_id: str,
+    alternative_id: str = Query(..., description="ID of the alternative to select as primary"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Promotes an alternative route candidate to be the active primary route."""
+    stmt = select(PlannedRoute).where(PlannedRoute.id == route_id)
+    result = await db.execute(stmt)
+    db_route = result.scalar_one_or_none()
+
+    if not db_route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    alts = db_route.alternatives_data or []
+    target_alt = next((a for a in alts if a.get("id") == alternative_id), None)
+    if not target_alt:
+        raise HTTPException(status_code=404, detail=f"Alternative route '{alternative_id}' not found")
+
+    # Swap primary route geometry and distance/duration with selected alternative
+    old_primary_alt = {
+        "id": f"alt-prev-{db_route.id[:8]}",
+        "title": f"Previous: {db_route.title}",
+        "description": f"Previously selected route. {db_route.distance_km} km, ~{int(db_route.duration_minutes)} mins.",
+        "distance_km": db_route.distance_km,
+        "duration_minutes": db_route.duration_minutes,
+        "geometry_geojson": db_route.geometry_geojson,
+        "hazard_score": db_route.overall_hazard_score,
+        "safety_label": db_route.overall_safety_status,
+    }
+
+    new_alts = [a for a in alts if a.get("id") != alternative_id]
+    new_alts.append(old_primary_alt)
+
+    db_route.geometry_geojson = target_alt["geometry_geojson"]
+    db_route.distance_km = target_alt["distance_km"]
+    db_route.duration_minutes = target_alt["duration_minutes"]
+    db_route.overall_hazard_score = target_alt.get("hazard_score", 0.0)
+    db_route.overall_safety_status = target_alt.get("safety_label", "SAFE")
+    db_route.alternatives_data = new_alts
+    db_route.route_version = (db_route.route_version or 1) + 1
+    db_route.last_analyzed_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(db_route)
+
+    # Re-analyze with new primary geometry
+    analysis = await route_condition_analyzer.analyze_persisted_route(
+        db=db,
+        route_id=route_id,
+    )
+    return analysis
+
+

@@ -151,11 +151,19 @@ class ElevationProfilePoint(BaseModel):
 
 class SafeHavenInfo(BaseModel):
     name: str
-    category: str  # mountain_hut, shelter, ranger_station, hospital, police
+    category: str  # hospital, clinic, police, fuel, fire_station, shelter
     latitude: float
     longitude: float
     distance_km: float
     is_egress_point: bool = True
+    opening_hours: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    brand: Optional[str] = None
+    operator: Optional[str] = None
+    address: Optional[str] = None
+    emergency_verified: bool = False
+    source: str = "OpenStreetMap Overpass"
 
 
 class TrailGuardRiskBreakdown(BaseModel):
@@ -202,6 +210,17 @@ class RouteAlternativeSchema(BaseModel):
     fires_within_2km_count: int = 0
     recommendation_reason: Optional[str] = None
     exposure_summary: Optional[str] = None
+    hospitals_count: int = 0
+    clinics_count: int = 0
+    police_stations_count: int = 0
+    fuel_stations_count: int = 0
+    fire_stations_count: int = 0
+    nearest_hospital_km: Optional[float] = None
+    nearest_police_km: Optional[float] = None
+    nearest_fuel_km: Optional[float] = None
+    facilities_geojson: Optional[Dict[str, Any]] = None
+    preference_rankings: Dict[str, Any] = Field(default_factory=dict)
+    data_completeness: bool = True
 
 
 class PlannedRouteResponse(BaseModel):
