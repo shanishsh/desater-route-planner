@@ -1,5 +1,6 @@
 """Unit tests for external data providers and the centralized Provider Registry."""
 import pytest
+from app.config import settings
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.opencellid import opencellid_client
@@ -48,8 +49,9 @@ def test_parse_firms_modis_csv():
 
 
 @pytest.mark.asyncio
-async def test_unconfigured_firms_graceful_handling():
+async def test_unconfigured_firms_graceful_handling(monkeypatch):
     # When MAP_KEY is unconfigured, it must report UNCONFIGURED and not raise an exception
+    monkeypatch.setattr(settings, "NASA_FIRMS_MAP_KEY", "")
     result = await nasa_firms_client.fetch_active_fires(32.0, 77.0, 32.5, 77.5)
     assert result["record_count"] == 0
     assert result["provider_status"] == "UNCONFIGURED"

@@ -119,3 +119,4 @@ async def test_sync_sachet_alerts_ingestion_and_cancellation(test_db):
         res_cancel = await test_db.execute(stmt)
         updated_alert = res_cancel.scalar_one()
         assert updated_alert.status == "cancelled"
+
