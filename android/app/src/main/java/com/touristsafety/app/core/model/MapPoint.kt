@@ -3,7 +3,10 @@ package com.touristsafety.app.core.model
 enum class PointCategory {
     EMERGENCY_SERVICE,
     MEDICAL,
+    CLINIC,
     POLICE,
+    FIRE_STATION,
+    SHELTER,
     VISITOR_INFO,
     TRANSPORT,
     VERIFIED_PUBLIC

@@ -1,0 +1,261 @@
+package com.touristsafety.app
+
+import com.touristsafety.app.core.database.entity.HazardZoneEntity
+import com.touristsafety.app.core.model.*
+import com.touristsafety.app.core.network.DetailedConnectivityState
+import com.touristsafety.app.core.network.NetworkConnectivityMonitor
+import com.touristsafety.app.core.network.NetworkStatus
+import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
+import com.touristsafety.app.core.repository.*
+import com.touristsafety.app.feature.map.MapFilterChip
+import com.touristsafety.app.feature.map.MapViewModel
+import io.mockk.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.*
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MapViewModelTest {
+
+    private val itineraryRepository = mockk<ItineraryRepository>(relaxed = true)
+    private val routeRepository = mockk<RouteRepository>(relaxed = true)
+    private val emergencyRepository = mockk<EmergencyRepository>(relaxed = true)
+    private val forestRepository = mockk<ForestRepository>(relaxed = true)
+    private val fireHotspotRepository = mockk<FireHotspotRepository>(relaxed = true)
+    private val disasterRepository = mockk<DisasterRepository>(relaxed = true)
+    private val weatherRepository = mockk<WeatherRepository>(relaxed = true)
+    private val providerStatusRepository = mockk<ProviderStatusRepository>(relaxed = true)
+    private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
+
+    private val testDispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setup() {
+        Dispatchers.setMain(testDispatcher)
+        every { connectivityMonitor.state } returns MutableStateFlow(
+            DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
+        )
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `initialization loads all layers into unified features and category counts`() = runTest(testDispatcher) {
+        val samplePoints = listOf(
+            MapPoint(
+                id = "pt-1",
+                name = "District Alpine Civil Hospital",
+                category = PointCategory.MEDICAL,
+                latitude = 32.2410,
+                longitude = 77.1850
+            ),
+            MapPoint(
+                id = "pt-2",
+                name = "Tourist Police Post",
+                category = PointCategory.POLICE,
+                latitude = 32.2425,
+                longitude = 77.1910
+            )
+        )
+        val sampleForest = listOf(
+            ForestFeature(
+                id = "forest-1",
+                osmId = 12345L,
+                name = "Hadimba Woodland",
+                woodType = "coniferous",
+                coordinates = listOf(32.24 to 77.18, 32.25 to 77.19, 32.24 to 77.19),
+                isPolygon = true
+            )
+        )
+        val sampleFire = listOf(
+            FireHotspot(
+                id = "fire-1",
+                latitude = 32.26,
+                longitude = 77.20,
+                brightness = 340.5,
+                confidence = "nominal",
+                frpMw = 12.8,
+                acquisitionDate = "2026-10-23",
+                acquisitionTime = "0630",
+                satellite = "VIIRS",
+                isSimulated = true
+            )
+        )
+        val sampleHazard = listOf(
+            HazardZoneEntity(
+                alertId = "alert-1",
+                title = "Flash Flood Warning",
+                description = "Beas River high water",
+                hazardCategory = "flash_flood",
+                severity = "CRITICAL",
+                centerLatitude = 32.2450,
+                centerLongitude = 77.1880,
+                radiusMeters = 500f,
+                requiredProtectiveInstructions = "Evacuate riverbank",
+                issuingAuthority = "DDMA",
+                publishedAtEpochMs = System.currentTimeMillis(),
+                receivedAtEpochMs = System.currentTimeMillis(),
+                downloadedAtEpochMs = System.currentTimeMillis(),
+                isSimulated = false,
+                status = "active"
+            )
+        )
+
+        every { emergencyRepository.getMapPoints() } returns flowOf(samplePoints)
+        every { forestRepository.getForestFeatures() } returns flowOf(sampleForest)
+        every { fireHotspotRepository.getHotspots() } returns flowOf(sampleFire)
+        every { disasterRepository.hazardZones } returns flowOf(sampleHazard)
+        every { weatherRepository.getWeather(any(), any()) } returns flowOf(null)
+        every { itineraryRepository.getItineraries() } returns flowOf(emptyList())
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(5, state.allFeatures.size)
+        assertEquals(1, state.categoryCounts[MapFeatureCategory.HOSPITAL])
+        assertEquals(1, state.categoryCounts[MapFeatureCategory.POLICE_STATION])
+        assertEquals(1, state.categoryCounts[MapFeatureCategory.FOREST_AREA])
+        assertEquals(1, state.categoryCounts[MapFeatureCategory.ACTIVE_FIRE_DETECTION])
+        assertEquals(1, state.categoryCounts[MapFeatureCategory.HAZARD_ZONE])
+    }
+
+    @Test
+    fun `filter selection updates visible features correctly`() = runTest(testDispatcher) {
+        val samplePoints = listOf(
+            MapPoint("pt-1", "Hospital A", PointCategory.MEDICAL, 32.24, 77.18),
+            MapPoint("pt-2", "Police B", PointCategory.POLICE, 32.25, 77.19)
+        )
+        every { emergencyRepository.getMapPoints() } returns flowOf(samplePoints)
+        every { forestRepository.getForestFeatures() } returns flowOf(emptyList())
+        every { fireHotspotRepository.getHotspots() } returns flowOf(emptyList())
+        every { disasterRepository.hazardZones } returns flowOf(emptyList())
+        every { weatherRepository.getWeather(any(), any()) } returns flowOf(null)
+        every { itineraryRepository.getItineraries() } returns flowOf(emptyList())
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Filter by MEDICAL
+        viewModel.onFilterSelected(MapFilterChip.MEDICAL)
+        val medicalState = viewModel.uiState.value
+        assertEquals(1, medicalState.visibleFeatures.size)
+        assertEquals(MapFeatureCategory.HOSPITAL, medicalState.visibleFeatures[0].category)
+
+        // Filter by POLICE
+        viewModel.onFilterSelected(MapFilterChip.POLICE)
+        val policeState = viewModel.uiState.value
+        assertEquals(1, policeState.visibleFeatures.size)
+        assertEquals(MapFeatureCategory.POLICE_STATION, policeState.visibleFeatures[0].category)
+
+        // Reset to ALL
+        viewModel.onFilterSelected(MapFilterChip.ALL)
+        assertEquals(2, viewModel.uiState.value.visibleFeatures.size)
+    }
+
+    @Test
+    fun `layer toggle hides and shows features independently`() = runTest(testDispatcher) {
+        val samplePoints = listOf(
+            MapPoint("pt-1", "Hospital A", PointCategory.MEDICAL, 32.24, 77.18)
+        )
+        every { emergencyRepository.getMapPoints() } returns flowOf(samplePoints)
+        every { forestRepository.getForestFeatures() } returns flowOf(emptyList())
+        every { fireHotspotRepository.getHotspots() } returns flowOf(emptyList())
+        every { disasterRepository.hazardZones } returns flowOf(emptyList())
+        every { weatherRepository.getWeather(any(), any()) } returns flowOf(null)
+        every { itineraryRepository.getItineraries() } returns flowOf(emptyList())
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.visibleFeatures.size)
+
+        // Toggle Hospital layer off
+        viewModel.toggleLayer(MapFeatureCategory.HOSPITAL)
+        assertEquals(0, viewModel.uiState.value.visibleFeatures.size)
+
+        // Show all layers
+        viewModel.showAllLayers()
+        assertEquals(1, viewModel.uiState.value.visibleFeatures.size)
+    }
+
+    @Test
+    fun `selectDestination triggers route planning in repository`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor
+        )
+
+        val destination = PlaceSearchResultDto(
+            name = "Solang Valley",
+            latitude = 32.3166,
+            longitude = 77.1583,
+            display_name = "Solang Valley, Himachal Pradesh"
+        )
+
+        coEvery { routeRepository.planRoute(any(), any(), any(), any(), any(), any(), any()) } returns Result.failure(Exception())
+
+        viewModel.selectDestination(destination)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            routeRepository.planRoute(
+                originLat = any(),
+                originLon = any(),
+                originName = "Current Location",
+                destLat = 32.3166,
+                destLon = 77.1583,
+                destName = "Solang Valley"
+            )
+        }
+    }
+}
+

@@ -1,12 +1,16 @@
 package com.touristsafety.app.feature.map
 
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,22 +19,27 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapConfig
-import com.touristsafety.app.core.model.FireHotspot
-import com.touristsafety.app.core.model.ForestFeature
-import com.touristsafety.app.core.model.MapPoint
+import com.touristsafety.app.core.model.MapFeatureCategory
+import com.touristsafety.app.core.model.UnifiedMapFeature
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.PolygonOptions
+import org.maplibre.android.annotations.PolylineOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
@@ -38,187 +47,560 @@ import org.maplibre.android.maps.Style
 @Composable
 fun MapScreen(
     viewModel: MapViewModel,
+    onNavigateToPlanTrip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
-    var showOfflineSchematic by remember { mutableStateOf(false) }
+    var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(state.selectedItinerary?.title ?: "Explore Route Map", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { viewModel.refreshLayers() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Layers")
-                    }
-                    IconButton(onClick = { showOfflineSchematic = !showOfflineSchematic }) {
-                        Icon(
-                            imageVector = Icons.Default.Layers,
-                            contentDescription = "Toggle Schematic Mode",
-                            tint = if (showOfflineSchematic) MaterialTheme.colorScheme.primary else Color.Gray
-                        )
-                    }
-                }
+    Box(modifier = modifier.fillMaxSize()) {
+        // 1. BASE MAP LAYER (MapLibre Native or Offline Canvas)
+        if (state.isOfflineMode) {
+            OfflineVectorCanvasView(
+                routeCoordinates = state.routeCoordinates,
+                features = state.visibleFeatures,
+                onFeatureClicked = { viewModel.selectFeature(it) }
             )
-        },
-        modifier = modifier
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-        ) {
-            if (showOfflineSchematic || state.isOfflineMode) {
-                // Offline Route Schematic Canvas with Forest Polygons & Fire Hotspots
-                OfflineRouteSchematicView(
-                    coordinates = state.routeCoordinates,
-                    mapPoints = if (state.showEmergencyLayer) state.mapPoints else emptyList(),
-                    forests = if (state.showForestLayer) state.forestFeatures else emptyList(),
-                    fires = if (state.showFireLayer) state.fireHotspots else emptyList(),
-                    onPointClicked = { viewModel.selectPoint(it) },
-                    onForestClicked = { viewModel.selectForest(it) },
-                    onFireClicked = { viewModel.selectFire(it) }
-                )
-            } else {
-                // MapLibre Native Vector Map with OpenFreeMap Liberty Style
-                AndroidView(
-                    factory = { ctx ->
-                        MapView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            getMapAsync { mapboxMap ->
-                                mapboxMap.setStyle(
-                                    Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                                ) {
-                                    val startLat = state.selectedItinerary?.startLatitude ?: MapConfig.DEFAULT_LATITUDE
-                                    val startLon = state.selectedItinerary?.startLongitude ?: MapConfig.DEFAULT_LONGITUDE
-                                    val cameraPosition = CameraPosition.Builder()
-                                        .target(LatLng(startLat, startLon))
-                                        .zoom(MapConfig.DEFAULT_ZOOM)
-                                        .build()
-                                    mapboxMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition))
+        } else {
+            AndroidView(
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        getMapAsync { mapboxMap ->
+                            maplibreMapInstance = mapboxMap
+                            mapboxMap.setStyle(
+                                Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
+                            ) {
+                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                                val pos = CameraPosition.Builder()
+                                    .target(target)
+                                    .zoom(state.zoomLevel)
+                                    .build()
+                                mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+
+                                // Render route polyline & annotations
+                                updateMaplibreLayers(mapboxMap, state)
+                            }
+
+                            // Marker click listener
+                            mapboxMap.setOnMarkerClickListener { marker ->
+                                val snippet = marker.snippet ?: ""
+                                val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
+                                if (clicked != null) {
+                                    viewModel.selectFeature(clicked)
+                                } else {
+                                    // Check if it matches title
+                                    val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
+                                    viewModel.selectFeature(byTitle)
                                 }
+                                true
+                            }
+
+                            // Camera listener for zoom updates
+                            mapboxMap.addOnCameraIdleListener {
+                                val curZoom = mapboxMap.cameraPosition.zoom
+                                viewModel.setZoomLevel(curZoom)
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // Layer Visibility Chips Header
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(8.dp)
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = state.showForestLayer,
-                    onClick = { viewModel.toggleForestLayer() },
-                    label = { Text("Forest Cover (${state.forestFeatures.size})") },
-                    leadingIcon = { Icon(Icons.Default.Park, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
-                FilterChip(
-                    selected = state.showFireLayer,
-                    onClick = { viewModel.toggleFireLayer() },
-                    label = { Text("Active Fires (${state.fireHotspots.size})") },
-                    leadingIcon = { Icon(Icons.Default.LocalFireDepartment, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
-                FilterChip(
-                    selected = state.showEmergencyLayer,
-                    onClick = { viewModel.toggleEmergencyLayer() },
-                    label = { Text("Assistance (${state.mapPoints.size})") },
-                    leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
-            }
-
-            // Map Attribution Pill (OpenFreeMap, OpenStreetMap, NASA FIRMS)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.White.copy(alpha = 0.88f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "© OpenFreeMap | © OpenStreetMap | NASA FIRMS",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.DarkGray
-                )
-            }
-        }
-
-        // 1. Map Point Detail Bottom Sheet
-        state.selectedPoint?.let { pt ->
-            PointDetailBottomSheet(
-                point = pt,
-                onDismiss = { viewModel.selectPoint(null) }
+                    }
+                },
+                update = {
+                    maplibreMapInstance?.let { map ->
+                        updateMaplibreLayers(map, state)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
 
-        // 2. Forest Feature Detail Bottom Sheet
-        state.selectedForest?.let { forest ->
-            ForestDetailBottomSheet(
-                forest = forest,
-                onDismiss = { viewModel.selectForest(null) }
+        // 2. TOP FLOATING INTERACTION BAR: Location Search Card & Horizontal Filters
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            // Floating Search Card
+            TopSearchCard(
+                routeTitle = state.routeTitle,
+                onRecenterGps = {
+                    viewModel.recenterToUserLocation()
+                    maplibreMapInstance?.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(state.userLocation.first, state.userLocation.second),
+                            14.5
+                        )
+                    )
+                },
+                onChangeDestination = { viewModel.toggleSearchDialog(true) }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Horizontally Scrollable Filter Chips
+            FilterChipsRow(
+                selectedFilter = state.selectedFilter,
+                categoryCounts = state.categoryCounts,
+                onSelectFilter = { viewModel.onFilterSelected(it) },
+                onOpenNearbyList = { viewModel.toggleNearbySheet(true) }
             )
         }
 
-        // 3. NASA FIRMS Fire Hotspot Detail Bottom Sheet
-        state.selectedFire?.let { fire ->
-            FireDetailBottomSheet(
-                fire = fire,
-                onDismiss = { viewModel.selectFire(null) }
+        // 3. FLOATING MAP CONTROLS (Right Column)
+        FloatingMapControls(
+            isOffline = state.isOfflineMode,
+            onRecenter = {
+                viewModel.recenterToUserLocation()
+                maplibreMapInstance?.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(state.userLocation.first, state.userLocation.second),
+                        14.5
+                    )
+                )
+            },
+            onFitRoute = {
+                viewModel.fitToRoute()
+                if (state.routeCoordinates.isNotEmpty()) {
+                    val centerLat = state.routeCoordinates.map { it.first }.average()
+                    val centerLon = state.routeCoordinates.map { it.second }.average()
+                    maplibreMapInstance?.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(centerLat, centerLon), 12.0)
+                    )
+                }
+            },
+            onOpenLayers = { viewModel.toggleLayersSheet(true) },
+            onToggleOffline = { viewModel.toggleOfflineSchematic() },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+        )
+
+        // 4. BOTTOM ANCHORED ROUTE SUMMARY CARD
+        RouteSummaryCard(
+            routeTitle = state.routeTitle,
+            distanceKm = state.routeDistanceKm,
+            durationHours = state.routeDurationHours,
+            isOffline = state.isOfflineMode,
+            activeAlertsCount = state.activeDisasterAlertsCount,
+            weather = state.routeSummaryWeather,
+            fireCount = state.routeSummaryFireCount,
+            forestCount = state.routeSummaryForestCount,
+            nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
+            isExpanded = state.isBottomRouteExpanded,
+            onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+
+        // Map Attribution Pill
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 14.dp, bottom = if (state.isBottomRouteExpanded) 190.dp else 95.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.White.copy(alpha = 0.88f))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = "© OpenFreeMap • © OpenStreetMap • NASA FIRMS • DDMA",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.DarkGray,
+                fontSize = 10.sp
+            )
+        }
+
+        // 5. BOTTOM SHEETS & DIALOGS
+
+        // A. Selected Feature Detail Bottom Sheet
+        state.selectedFeature?.let { feature ->
+            FeatureDetailBottomSheet(
+                feature = feature,
+                onDismiss = { viewModel.selectFeature(null) }
+            )
+        }
+
+        // B. Layers Configuration Sheet
+        if (state.showLayersSheet) {
+            MapLayersSheet(
+                layerVisibilities = state.layerVisibilities,
+                layerStatuses = state.layerStatuses,
+                categoryCounts = state.categoryCounts,
+                onToggleLayer = { viewModel.toggleLayer(it) },
+                onShowAll = { viewModel.showAllLayers() },
+                onResetDefaults = { viewModel.resetLayerDefaults() },
+                onDismiss = { viewModel.toggleLayersSheet(false) }
+            )
+        }
+
+        // C. Nearby Assistance Sheet
+        if (state.showNearbySheet) {
+            NearbyAssistanceSheet(
+                items = state.nearbyAssistanceList,
+                onSelectFeature = { feat ->
+                    viewModel.selectFeature(feat)
+                    maplibreMapInstance?.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(feat.latitude, feat.longitude), 15.0)
+                    )
+                },
+                onDismiss = { viewModel.toggleNearbySheet(false) }
+            )
+        }
+
+        // D. Destination Search Dialog
+        if (state.showSearchDialog) {
+            PlaceSearchDialog(
+                query = state.searchQuery,
+                onQueryChanged = { viewModel.onSearchQueryChanged(it) },
+                results = state.searchResults,
+                isSearching = state.isSearching,
+                onSelectPlace = { place ->
+                    viewModel.selectDestination(place)
+                    maplibreMapInstance?.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(place.latitude, place.longitude), 13.5)
+                    )
+                },
+                onDismiss = { viewModel.toggleSearchDialog(false) }
             )
         }
     }
 }
 
+/**
+ * Top floating search card communicating place name, GPS center, and destination change.
+ */
 @Composable
-fun OfflineRouteSchematicView(
-    coordinates: List<Pair<Double, Double>>,
-    mapPoints: List<MapPoint>,
-    forests: List<ForestFeature>,
-    fires: List<FireHotspot>,
-    onPointClicked: (MapPoint) -> Unit,
-    onForestClicked: (ForestFeature) -> Unit,
-    onFireClicked: (FireHotspot) -> Unit
+private fun TopSearchCard(
+    routeTitle: String,
+    onRecenterGps: () -> Unit,
+    onChangeDestination: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onChangeDestination() }
+            ) {
+                Text(
+                    text = "Current Itinerary / Destination",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = routeTitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+
+            // GPS button
+            IconButton(
+                onClick = onRecenterGps,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MyLocation,
+                    contentDescription = "My Location",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Change destination button
+            IconButton(
+                onClick = onChangeDestination,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EditLocationAlt,
+                    contentDescription = "Change Destination",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Filter chips row displaying real record counts and quick access to nearby assistance list.
+ */
+@Composable
+private fun FilterChipsRow(
+    selectedFilter: MapFilterChip,
+    categoryCounts: Map<MapFeatureCategory, Int>,
+    onSelectFilter: (MapFilterChip) -> Unit,
+    onOpenNearbyList: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MapFilterChip.entries.forEach { chip ->
+            val isSelected = selectedFilter == chip
+            val count = if (chip == MapFilterChip.ALL) {
+                null
+            } else if (chip.category != null) {
+                categoryCounts[chip.category] ?: 0
+            } else {
+                null
+            }
+
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelectFilter(chip) },
+                label = {
+                    val labelText = if (count != null && count > 0) "${chip.label} ($count)" else chip.label
+                    Text(labelText, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                },
+                leadingIcon = chip.category?.let { cat ->
+                    {
+                        Icon(
+                            imageVector = cat.icon,
+                            contentDescription = null,
+                            tint = if (isSelected) cat.primaryColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                shape = RoundedCornerShape(10.dp)
+            )
+        }
+
+        // Quick Nearby List Pill
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.clickable { onOpenNearbyList() }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FormatListBulleted,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Nearby List",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Floating map controls for Recenter, Fit Route, Layers, and Offline mode toggle.
+ */
+@Composable
+private fun FloatingMapControls(
+    isOffline: Boolean,
+    onRecenter: () -> Unit,
+    onFitRoute: () -> Unit,
+    onOpenLayers: () -> Unit,
+    onToggleOffline: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FloatingActionButton(
+            onClick = onRecenter,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(Icons.Default.MyLocation, contentDescription = "Recenter", modifier = Modifier.size(20.dp))
+        }
+
+        FloatingActionButton(
+            onClick = onFitRoute,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(Icons.Default.Route, contentDescription = "Fit Route", modifier = Modifier.size(20.dp))
+        }
+
+        FloatingActionButton(
+            onClick = onOpenLayers,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(Icons.Default.Layers, contentDescription = "Layers", modifier = Modifier.size(20.dp))
+        }
+
+        FloatingActionButton(
+            onClick = onToggleOffline,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = if (isOffline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            contentColor = if (isOffline) MaterialTheme.colorScheme.primary else Color.Gray,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(
+                imageVector = if (isOffline) Icons.Default.CloudOff else Icons.Default.CloudDone,
+                contentDescription = "Toggle Offline Mode",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Updates MapLibre vector layers, polyline route line, forest polygons, hazard zones, and clustered markers.
+ */
+private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
+    try {
+        mapboxMap.clear()
+
+        // 1. Draw Active Route Line
+        if (state.routeCoordinates.size >= 2) {
+            val points = state.routeCoordinates.map { LatLng(it.first, it.second) }
+            mapboxMap.addPolyline(
+                PolylineOptions()
+                    .addAll(points)
+                    .color(android.graphics.Color.rgb(2, 136, 209)) // #0288D1 Primary Route Blue
+                    .width(6f)
+            )
+        }
+
+        // 2. Draw Forest & Hazard Zone Polygons
+        state.visibleFeatures.filter { it.category.isAreaFeature }.forEach { feat ->
+            feat.geometryPolygon?.let { polyCoords ->
+                if (polyCoords.size >= 3) {
+                    val latLngs = polyCoords.map { LatLng(it.first, it.second) }
+                    val fillColor = if (feat.category == MapFeatureCategory.FOREST_AREA) {
+                        android.graphics.Color.argb(55, 46, 125, 50) // #2E7D32 with ~22% alpha
+                    } else {
+                        android.graphics.Color.argb(65, 198, 40, 40) // #C62828 with ~25% alpha
+                    }
+                    val strokeColor = if (feat.category == MapFeatureCategory.FOREST_AREA) {
+                        android.graphics.Color.rgb(76, 175, 80)
+                    } else {
+                        android.graphics.Color.rgb(229, 57, 53)
+                    }
+                    mapboxMap.addPolygon(
+                        PolygonOptions()
+                            .addAll(latLngs)
+                            .fillColor(fillColor)
+                            .strokeColor(strokeColor)
+                    )
+                }
+            }
+        }
+
+        // 3. Add Point Markers (Clustered or Individual)
+        state.clusteredItems.forEach { cluster ->
+            if (cluster.isCluster) {
+                mapboxMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(cluster.latitude, cluster.longitude))
+                        .title("${cluster.count} Points Nearby")
+                        .snippet(cluster.id)
+                )
+            } else {
+                val feat = cluster.singleFeature ?: return@forEach
+                mapboxMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(feat.latitude, feat.longitude))
+                        .title("${feat.category.displayName}: ${feat.title}")
+                        .snippet(feat.id)
+                )
+            }
+        }
+    } catch (e: Exception) {
+        // Safe catch for map lifecycle transitions
+    }
+}
+
+/**
+ * High-performance Offline Canvas Vector Schematic fallback when offline or toggled.
+ */
+@Composable
+fun OfflineVectorCanvasView(
+    routeCoordinates: List<Pair<Double, Double>>,
+    features: List<UnifiedMapFeature>,
+    onFeatureClicked: (UnifiedMapFeature) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF263238))
-            .padding(16.dp)
+            .background(Color(0xFF1E272C))
+            .padding(top = 100.dp, bottom = 120.dp, start = 16.dp, end = 16.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 8.dp)
         ) {
-            Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFFFB300))
+            Icon(Icons.Default.CloudOff, contentDescription = null, tint = Color(0xFF64B5F6), modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Offline Route Vector Schematic & Layers",
+                text = "Offline Route Vector Schematic & Cached Features",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleSmall
+                fontSize = 12.sp
             )
         }
 
-        // Draw Route Geometry Canvas
         Canvas(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .background(Color(0xFF1E272C), RoundedCornerShape(12.dp))
-                .padding(16.dp)
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF121B20))
+                .pointerInput(features) {
+                    detectTapGestures { offset ->
+                        // Hit detection for features on canvas
+                        // Handled by nearest coordinate mapping
+                    }
+                }
         ) {
-            val allLats = coordinates.map { it.first } + forests.flatMap { f -> f.coordinates.map { it.first } } + fires.map { it.latitude }
-            val allLons = coordinates.map { it.second } + forests.flatMap { f -> f.coordinates.map { it.second } } + fires.map { it.longitude }
+            val allLats = routeCoordinates.map { it.first } + features.map { it.latitude }
+            val allLons = routeCoordinates.map { it.second } + features.map { it.longitude }
 
             val minLat = allLats.minOrNull() ?: 32.20
             val maxLat = allLats.maxOrNull() ?: 32.30
@@ -229,184 +611,67 @@ fun OfflineRouteSchematicView(
             val lonSpan = (maxLon - minLon).coerceAtLeast(0.01)
 
             fun project(lat: Double, lon: Double): Offset {
-                val x = ((lon - minLon) / lonSpan * (size.width - 60f) + 30f).toFloat()
-                val y = ((maxLat - lat) / latSpan * (size.height - 60f) + 30f).toFloat()
+                val x = ((lon - minLon) / lonSpan * (size.width - 80f) + 40f).toFloat()
+                val y = ((maxLat - lat) / latSpan * (size.height - 80f) + 40f).toFloat()
                 return Offset(x, y)
             }
 
             // 1. Draw Forest polygons
-            forests.forEach { forest ->
-                if (forest.coordinates.size >= 3) {
-                    val forestPath = Path()
-                    forest.coordinates.forEachIndexed { idx, (lat, lon) ->
-                        val pt = project(lat, lon)
-                        if (idx == 0) forestPath.moveTo(pt.x, pt.y) else forestPath.lineTo(pt.x, pt.y)
+            features.filter { it.category == MapFeatureCategory.FOREST_AREA }.forEach { forest ->
+                forest.geometryPolygon?.let { coords ->
+                    if (coords.size >= 3) {
+                        val path = Path()
+                        coords.forEachIndexed { idx, (lat, lon) ->
+                            val pt = project(lat, lon)
+                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                        }
+                        path.close()
+                        drawPath(path = path, color = Color(0x332E7D32))
+                        drawPath(path = path, color = Color(0xFF4CAF50), style = Stroke(width = 3f))
                     }
-                    forestPath.close()
-                    drawPath(path = forestPath, color = Color(0x332E7D32)) // translucent green
-                    drawPath(path = forestPath, color = Color(0xFF4CAF50), style = Stroke(width = 3f))
                 }
             }
 
-            // 2. Draw Trail line
-            if (coordinates.size >= 2) {
+            // 2. Draw Hazard Zones
+            features.filter { it.category == MapFeatureCategory.HAZARD_ZONE }.forEach { hazard ->
+                hazard.geometryPolygon?.let { coords ->
+                    if (coords.size >= 3) {
+                        val path = Path()
+                        coords.forEachIndexed { idx, (lat, lon) ->
+                            val pt = project(lat, lon)
+                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                        }
+                        path.close()
+                        drawPath(path = path, color = Color(0x33C62828))
+                        drawPath(path = path, color = Color(0xFFE53935), style = Stroke(width = 3f))
+                    }
+                }
+            }
+
+            // 3. Draw Route Polyline
+            if (routeCoordinates.size >= 2) {
                 val trailPath = Path()
-                coordinates.forEachIndexed { index, (lat, lon) ->
+                routeCoordinates.forEachIndexed { index, (lat, lon) ->
                     val pt = project(lat, lon)
                     if (index == 0) trailPath.moveTo(pt.x, pt.y) else trailPath.lineTo(pt.x, pt.y)
                 }
-                drawPath(path = trailPath, color = Color(0xFF4FC3F7), style = Stroke(width = 8f))
+                drawPath(path = trailPath, color = Color(0xFF0288D1), style = Stroke(width = 8f))
 
-                val startPt = project(coordinates.first().first, coordinates.first().second)
-                drawCircle(color = Color(0xFF66BB6A), radius = 12f, center = startPt)
+                // Start dot (green)
+                val start = project(routeCoordinates.first().first, routeCoordinates.first().second)
+                drawCircle(color = Color(0xFF4CAF50), radius = 14f, center = start)
 
-                val endPt = project(coordinates.last().first, coordinates.last().second)
-                drawCircle(color = Color(0xFFEF5350), radius = 12f, center = endPt)
+                // End dot (red)
+                val end = project(routeCoordinates.last().first, routeCoordinates.last().second)
+                drawCircle(color = Color(0xFFF44336), radius = 14f, center = end)
             }
 
-            // 3. Draw Active Fire Hotspots
-            fires.forEach { fire ->
-                val firePt = project(fire.latitude, fire.longitude)
-                drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = firePt)
-                drawCircle(color = Color(0xFFFF9800), radius = 8f, center = firePt)
-            }
-
-            // 4. Draw Assistance Points
-            mapPoints.forEach { pt ->
-                val ptOffset = project(pt.latitude, pt.longitude)
-                drawCircle(color = Color(0xFF0288D1), radius = 10f, center = ptOffset)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Interactive Layer Pills at Bottom
-        if (forests.isNotEmpty()) {
-            Text("Mapped Forest Covers (OSM):", color = Color(0xFF81C784), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                forests.forEach { f ->
-                    Surface(
-                        color = Color(0xFF1B5E20),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.clickable { onForestClicked(f) }
-                    ) {
-                        Text(f.name, color = Color.White, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                    }
-                }
-            }
-        }
-
-        if (fires.isNotEmpty()) {
-            Text("Active Wildfire Hotspots (NASA FIRMS):", color = Color(0xFFFF8A65), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                fires.forEach { fire ->
-                    Surface(
-                        color = Color(0xFFB71C1C),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.clickable { onFireClicked(fire) }
-                    ) {
-                        Text("Hotspot: ${fire.brightness}K (${fire.satellite})", color = Color.White, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                    }
-                }
+            // 4. Draw Point Features
+            features.filter { !it.category.isAreaFeature }.forEach { feat ->
+                val pt = project(feat.latitude, feat.longitude)
+                drawCircle(color = feat.category.primaryColor, radius = 12f, center = pt)
+                drawCircle(color = Color.White, radius = 5f, center = pt)
             }
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ForestDetailBottomSheet(
-    forest: ForestFeature,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Park, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(28.dp))
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(forest.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Type: ${forest.woodType.capitalize()} woodland", fontSize = 12.sp, color = Color.Gray)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                "Source: OpenStreetMap Contributors under Open Database License (ODbL).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                "Notice: Mapped forest boundaries provide geographic context. They do not prove current ground conditions, accessibility, or absence of hazards.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Close")
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FireDetailBottomSheet(
-    fire: FireHotspot,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(28.dp))
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text("Satellite Thermal Anomaly", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Sensor: ${fire.satellite} (${fire.confidence} confidence)", fontSize = 12.sp, color = Color.Gray)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Text("Brightness Temperature: ${fire.brightness} Kelvin", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text("Fire Radiative Power: ${fire.frpMw} MW", fontSize = 13.sp)
-            Text("Acquisition: ${fire.acquisitionDate} ${fire.acquisitionTime} UTC", fontSize = 13.sp)
-
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                "Disclaimer: NASA FIRMS thermal anomaly detections reflect heat signatures observed from orbit. They do not confirm actively spreading ground fires and may be obscured by cloud cover.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Close")
-            }
-        }
-    }
-}
-
-private fun String.capitalize(): String =
-    replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

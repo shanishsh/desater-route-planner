@@ -68,9 +68,12 @@ class EmergencyRepository @Inject constructor(
     private fun MapPointEntity.toDomainModel(): MapPoint {
         val cat = when (category.lowercase()) {
             "emergency_service" -> PointCategory.EMERGENCY_SERVICE
-            "medical" -> PointCategory.MEDICAL
+            "medical", "hospital" -> PointCategory.MEDICAL
+            "clinic" -> PointCategory.CLINIC
             "police" -> PointCategory.POLICE
-            "visitor_info" -> PointCategory.VISITOR_INFO
+            "fire_station", "fire" -> PointCategory.FIRE_STATION
+            "shelter" -> PointCategory.SHELTER
+            "visitor_info", "tourist_assistance" -> PointCategory.VISITOR_INFO
             "transport" -> PointCategory.TRANSPORT
             else -> PointCategory.VERIFIED_PUBLIC
         }
