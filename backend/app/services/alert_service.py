@@ -20,6 +20,7 @@ class AlertService:
         itinerary_id: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
+        include_simulated: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[AlertResponse], int]:
@@ -27,6 +28,7 @@ class AlertService:
             itinerary_id=itinerary_id,
             severity=severity,
             category=category,
+            include_simulated=include_simulated,
             limit=limit,
             offset=offset,
         )

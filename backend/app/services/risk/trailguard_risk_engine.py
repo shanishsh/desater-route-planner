@@ -208,7 +208,7 @@ class TrailGuardRiskEngine:
         ):
             level = "CAUTION"
         else:
-            level = "SAFE"
+            level = "NORMAL"
 
         all_factors = w_res["factors"] + s_res["factors"] + h_res["factors"] + f_res["factors"]
 
@@ -234,7 +234,7 @@ class TrailGuardRiskEngine:
         if not segment_evaluations:
             return {
                 "overall_score": 10.0,
-                "overall_status": "SAFE",
+                "overall_status": "NORMAL",
                 "max_segment_score": 10.0,
                 "critical_segments_count": 0,
                 "caution_segments_count": 0,
@@ -257,7 +257,7 @@ class TrailGuardRiskEngine:
         elif overall_score >= 28.0 or caution_count >= 1:
             status = "CAUTION"
         else:
-            status = "SAFE"
+            status = "NORMAL"
 
         return {
             "overall_score": round(overall_score, 1),
@@ -290,11 +290,10 @@ class TrailGuardRiskEngine:
             else "Standard mountain trail conditions with no severe weather or active hazards."
         )
 
-        if status == "SAFE":
+        if status in ["NORMAL", "SAFE"]:
             explanation = (
-                f"TrailGuard assessment confirms this route is currently Safe (Risk Score: {score:.1f}/100). "
-                f"Waypoints demonstrate manageable slopes and stable atmospheric conditions. "
-                f"Contributing notes: {factor_summary}."
+                f"Trail analysis indicates normal baseline conditions ({score:.1f}/100) with no active official hazard advisories detected along the surveyed corridor. "
+                f"Contributing notes: {factor_summary}. An absence of active alerts does not guarantee disaster-free conditions."
             )
         elif status == "CAUTION":
             explanation = (

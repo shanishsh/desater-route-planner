@@ -20,6 +20,8 @@ from app.models.disaster_alert import DisasterAlert
 from app.services.spatial.route_corridor_service import route_corridor_service
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.open_meteo import open_meteo_client
+from app.services.routing.base import RouteResult, Waypoint, RouteAlternative
+from app.services.route_condition_analyzer import route_condition_analyzer
 
 
 @pytest.mark.asyncio
@@ -616,4 +618,67 @@ async def test_alternative_route_comparative_ranking(test_db):
     assert planned.hazards_geojson is not None
     assert planned.fires_geojson is not None
     assert planned.facilities_geojson is not None
+
+
+@pytest.mark.asyncio
+async def test_simulated_alerts_excluded_from_route_corridor_analysis(client, test_db):
+    """Verify that alerts flagged with is_simulated=True are completely ignored by corridor analyzer."""
+    now = datetime.now(timezone.utc)
+    # Insert simulated alert right along the route
+    sim_alert = DisasterAlert(
+        title="[SIMULATED] Simulated Rockslide on Trail",
+        description="This is a test simulation and must not be shown in real corridor analysis",
+        hazard_category="landslide",
+        severity="SEVERE",
+        status="active",
+        issuing_authority="Test Simulation Agency",
+        required_protective_instructions="Avoid trail",
+        center_latitude=32.29,
+        center_longitude=77.17,
+        affected_radius_meters=3000.0,
+        polygon_geojson=json.dumps({
+            "type": "Polygon",
+            "coordinates": [[[77.16, 32.28], [77.18, 32.28], [77.18, 32.30], [77.16, 32.30], [77.16, 32.28]]]
+        }),
+        is_simulated=True,
+        published_at=now,
+    )
+    test_db.add(sim_alert)
+    await test_db.commit()
+
+    route_res = RouteResult(
+        route_id="test-sim-filter-route",
+        title="Manali to Solang Sim Test",
+        origin_name="Manali",
+        origin_lat=32.2396,
+        origin_lon=77.1887,
+        destination_name="Solang",
+        destination_lat=32.3166,
+        destination_lon=77.1583,
+        travel_mode="hiking",
+        distance_km=12.0,
+        duration_minutes=150.0,
+        geometry_geojson={
+            "type": "LineString",
+            "coordinates": [[77.1887, 32.2396], [77.1700, 32.2700], [77.1583, 32.3166]]
+        },
+        waypoints=[
+            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Mid", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+        ]
+    )
+
+    planned = await route_condition_analyzer.analyze_route(test_db, route_res, corridor_distance_meters=5000.0)
+
+    # Simulated alert must NOT be included in corridor hazards
+    hazard_features = planned.hazards_geojson.get("features", [])
+    sim_features = [f for f in hazard_features if "SIM-MOCK" in str(f) or "Simulated" in str(f)]
+    assert len(sim_features) == 0
+
+    # Ensure overall safety status does NOT give false guarantee of absolute safety ("SAFE"),
+    # but rather calibrated status "NORMAL".
+    assert planned.overall_safety_status in ("NORMAL", "MODERATE", "SEVERE", "CRITICAL")
+    assert planned.overall_safety_status != "SAFE"
+
 

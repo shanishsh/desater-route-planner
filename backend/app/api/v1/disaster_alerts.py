@@ -53,12 +53,19 @@ async def list_disaster_alerts(
     hazard_category: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     include_cancelled: bool = Query(False),
+    include_simulated: bool = Query(False, description="Only return genuine non-simulated alerts unless explicitly requested"),
+    include_expired: bool = Query(False, description="Exclude expired alerts by default"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List active and updated disaster alerts, optionally filtered by category and severity."""
+    """List genuine active and updated disaster alerts, optionally filtered by category and severity."""
+    now = datetime.now(timezone.utc)
     stmt = select(DisasterAlert)
     if not include_cancelled:
         stmt = stmt.where(DisasterAlert.status.in_(["active", "updated"]))
+    if not include_simulated:
+        stmt = stmt.where(DisasterAlert.is_simulated.is_(False))
+    if not include_expired:
+        stmt = stmt.where(or_(DisasterAlert.expires_at.is_(None), DisasterAlert.expires_at > now))
     if hazard_category:
         stmt = stmt.where(DisasterAlert.hazard_category == hazard_category)
     if severity:

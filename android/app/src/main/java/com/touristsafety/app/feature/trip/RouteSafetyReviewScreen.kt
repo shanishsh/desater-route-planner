@@ -42,13 +42,13 @@ fun RouteSafetyReviewScreen(
     }
 
     val statusColor = when (state.overallSafetyStatus) {
-        "SAFE" -> Color(0xFF2E7D32)
+        "NORMAL", "SAFE" -> Color(0xFF2E7D32)
         "CAUTION" -> Color(0xFFED6C02)
         else -> Color(0xFFD32F2F)
     }
 
     val statusBg = when (state.overallSafetyStatus) {
-        "SAFE" -> Color(0xFFE8F5E9)
+        "NORMAL", "SAFE" -> Color(0xFFE8F5E9)
         "CAUTION" -> Color(0xFFFFF3E0)
         else -> Color(0xFFFFEBEE)
     }
@@ -177,8 +177,14 @@ fun RouteSafetyReviewScreen(
                                     color = statusBg,
                                     shape = RoundedCornerShape(16.dp)
                                 ) {
+                                    val badgeText = when (state.overallSafetyStatus) {
+                                        "NORMAL", "SAFE" -> "NORMAL CONDITIONS"
+                                        "CAUTION" -> "CAUTION ADVISED"
+                                        "HIGH_RISK" -> "HIGH RISK"
+                                        else -> state.overallSafetyStatus
+                                    }
                                     Text(
-                                        state.overallSafetyStatus,
+                                        badgeText,
                                         color = statusColor,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,

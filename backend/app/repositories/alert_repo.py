@@ -21,6 +21,7 @@ class AlertRepository:
         itinerary_id: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
+        include_simulated: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[Alert], int]:
@@ -28,6 +29,8 @@ class AlertRepository:
         count_query = select(func.count(Alert.id))
 
         filters = []
+        if not include_simulated:
+            filters.append(Alert.is_simulation.is_(False))
         if itinerary_id:
             filters.append(Alert.affected_itinerary_id == itinerary_id)
         if severity:

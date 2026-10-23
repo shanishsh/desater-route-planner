@@ -7,10 +7,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface AlertDao {
 
-    @Query("SELECT * FROM alerts ORDER BY sourcePublishedAtEpochMs DESC")
+    @Query("SELECT * FROM alerts WHERE isSimulation = 0 ORDER BY sourcePublishedAtEpochMs DESC")
     fun getAllAlerts(): Flow<List<AlertEntity>>
 
-    @Query("SELECT * FROM alerts WHERE affectedItineraryId = :itineraryId ORDER BY sourcePublishedAtEpochMs DESC")
+    @Query("SELECT * FROM alerts WHERE affectedItineraryId = :itineraryId AND isSimulation = 0 ORDER BY sourcePublishedAtEpochMs DESC")
     fun getAlertsForItinerary(itineraryId: String): Flow<List<AlertEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

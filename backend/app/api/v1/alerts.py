@@ -16,6 +16,7 @@ async def list_alerts(
     severity: Optional[str] = Query(None, description="Filter by severity (low, medium, high, critical)"),
     category: Optional[str] = Query(None, description="Filter by category (weather, hazard, transport, crowd)"),
     is_stale: Optional[bool] = Query(None, description="Filter by freshness status"),
+    include_simulated: bool = Query(False, description="Only return genuine non-simulated alerts unless explicitly requested"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -25,6 +26,7 @@ async def list_alerts(
         itinerary_id=itinerary_id,
         severity=severity,
         category=category,
+        include_simulated=include_simulated,
         limit=limit,
         offset=offset,
     )

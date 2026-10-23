@@ -25,7 +25,7 @@ data class RouteSafetyReviewUiState(
     val distanceKm: Double = 0.0,
     val durationMinutes: Double = 0.0,
     val overallHazardScore: Double = 0.0,
-    val overallSafetyStatus: String = "SAFE",
+    val overallSafetyStatus: String = "NORMAL",
     val highRiskSegmentsCount: Int = 0,
     val totalAscentM: Double = 0.0,
     val maxElevationM: Double = 0.0,

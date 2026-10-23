@@ -240,63 +240,72 @@ class MapViewModel @Inject constructor(
         // 2. Emergency Map Points (Hospitals, Clinics, Police, Fire Station, Shelters)
         viewModelScope.launch {
             emergencyRepository.getMapPoints().collect { points ->
-                rawMapPoints = points
-                rebuildUnifiedFeatures()
+                if (_uiState.value.activeRouteId == null) {
+                    rawMapPoints = points
+                    rebuildUnifiedFeatures()
+                }
             }
         }
 
         // 3. Forest Geography (OSM)
         viewModelScope.launch {
             forestRepository.getForestFeatures().collect { forests ->
-                rawForestFeatures = forests
-                _uiState.update { it.copy(routeSummaryForestCount = forests.size) }
-                rebuildUnifiedFeatures()
+                if (_uiState.value.activeRouteId == null) {
+                    rawForestFeatures = forests
+                    _uiState.update { it.copy(routeSummaryForestCount = forests.size) }
+                    rebuildUnifiedFeatures()
+                }
             }
         }
 
         // 4. Wildfire Detections (NASA FIRMS)
         viewModelScope.launch {
             fireHotspotRepository.getHotspots().collect { fires ->
-                rawFireHotspots = fires
-                _uiState.update { it.copy(routeSummaryFireCount = fires.size) }
-                rebuildUnifiedFeatures()
+                if (_uiState.value.activeRouteId == null) {
+                    rawFireHotspots = fires
+                    _uiState.update { it.copy(routeSummaryFireCount = fires.size) }
+                    rebuildUnifiedFeatures()
+                }
             }
         }
 
         // 5. Disaster Hazard Zones (Room / DDMA)
         viewModelScope.launch {
             disasterRepository.hazardZones.collect { zones ->
-                val userLoc = _uiState.value.userLocation
-                rawHazardZones = zones.map { z ->
-                    val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, z.centerLatitude, z.centerLongitude)
-                    // Generate circle perimeter coordinates for map polygon fill
-                    val circleCoords = generateCirclePolygon(z.centerLatitude, z.centerLongitude, z.radiusMeters.toDouble())
-                    UnifiedMapFeature(
-                        id = "hazard_${z.alertId}",
-                        category = MapFeatureCategory.HAZARD_ZONE,
-                        title = z.title,
-                        subtitle = "Severity: ${z.severity} • Radius: ${(z.radiusMeters / 1000f).toInt()} km",
-                        latitude = z.centerLatitude,
-                        longitude = z.centerLongitude,
-                        distanceMeters = dist,
-                        sourceName = z.issuingAuthority,
-                        sourceTimestampEpochMs = z.publishedAtEpochMs,
-                        isVerified = true,
-                        isSimulated = z.isSimulated,
-                        isCached = true,
-                        details = mapOf(
-                            "Severity" to z.severity,
-                            "Category" to z.hazardCategory.replace('_', ' ').uppercase(),
-                            "Affected Radius" to "${z.radiusMeters.toInt()} meters",
-                            "Instructions" to z.requiredProtectiveInstructions,
-                            "Issuing Authority" to z.issuingAuthority,
-                            "Status" to z.status
-                        ),
-                        geometryPolygon = circleCoords
-                    )
+                // When a route is actively planned, corridor-filtered alerts from route analysis take precedence.
+                // Never overwrite route-corridor alerts with global database hazards.
+                if (_uiState.value.activeRouteId == null) {
+                    val userLoc = _uiState.value.userLocation
+                    rawHazardZones = zones.map { z ->
+                        val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, z.centerLatitude, z.centerLongitude)
+                        val circleCoords = generateCirclePolygon(z.centerLatitude, z.centerLongitude, z.radiusMeters.toDouble())
+                        UnifiedMapFeature(
+                            id = "hazard_${z.alertId}",
+                            category = MapFeatureCategory.HAZARD_ZONE,
+                            title = z.title,
+                            subtitle = "Severity: ${z.severity} • Radius: ${(z.radiusMeters / 1000f).toInt()} km",
+                            latitude = z.centerLatitude,
+                            longitude = z.centerLongitude,
+                            distanceMeters = dist,
+                            sourceName = z.issuingAuthority,
+                            sourceTimestampEpochMs = z.publishedAtEpochMs,
+                            isVerified = true,
+                            isSimulated = z.isSimulated,
+                            isCached = true,
+                            details = mapOf(
+                                "Severity" to z.severity,
+                                "Category" to z.hazardCategory.replace('_', ' ').uppercase(),
+                                "Affected Radius" to "${z.radiusMeters.toInt()} meters",
+                                "Instructions" to z.requiredProtectiveInstructions,
+                                "Issuing Authority" to z.issuingAuthority,
+                                "Status" to z.status
+                            ),
+                            geometryPolygon = circleCoords
+                        )
+                    }
+                    _uiState.update { it.copy(activeDisasterAlertsCount = zones.size) }
+                    rebuildUnifiedFeatures()
                 }
-                _uiState.update { it.copy(activeDisasterAlertsCount = zones.size) }
-                rebuildUnifiedFeatures()
             }
         }
 

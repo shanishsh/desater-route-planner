@@ -70,8 +70,15 @@ async def test_seeded_three_simulated_alerts(client, test_db):
     seeded = await alert_service.seed_demo_alerts()
     assert len(seeded) == 3
 
-    # Query the public /api/v1/alerts endpoint
-    response = await client.get("/api/v1/alerts")
+    # Query public /api/v1/alerts without include_simulated -> MUST BE EMPTY in production mode
+    response_prod = await client.get("/api/v1/alerts")
+    assert response_prod.status_code == 200
+    data_prod = response_prod.json()
+    assert data_prod["total"] == 0
+    assert len(data_prod["items"]) == 0
+
+    # Query with include_simulated=true -> yields the 3 demo alerts
+    response = await client.get("/api/v1/alerts?include_simulated=true")
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 3
