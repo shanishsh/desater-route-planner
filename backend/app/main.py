@@ -12,6 +12,9 @@ from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.error_handler import ErrorHandlingMiddleware
 from app.observability.metrics import get_metrics_response
 from app.clients.open_meteo import open_meteo_client
+from app.clients.osm_forest import osm_forest_client
+from app.clients.nasa_firms import nasa_firms_client
+from app.clients.opencellid import opencellid_client
 
 
 @asynccontextmanager
@@ -27,6 +30,9 @@ async def lifespan(app: FastAPI):
 
     # Cleanup resources on shutdown
     await open_meteo_client.close()
+    await osm_forest_client.close()
+    await nasa_firms_client.close()
+    await opencellid_client.close()
     await engine.dispose()
 
 

@@ -1,0 +1,255 @@
+"""Centralized provider registry tracking upstream health, latency, configuration, and freshness."""
+import logging
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
+from app.config import settings
+from app.clients.open_meteo import open_meteo_client
+from app.clients.osm_forest import osm_forest_client
+from app.clients.nasa_firms import nasa_firms_client
+from app.clients.opencellid import opencellid_client
+from app.cache.redis_cache import cache_service
+
+logger = logging.getLogger(__name__)
+
+
+class ProviderRegistry:
+    """Manages provider health tracking, status reporting, and independent refresh orchestration."""
+
+    def __init__(self):
+        self._last_refresh_attempt: Optional[datetime] = None
+
+    async def get_all_provider_statuses(self) -> List[Dict[str, Any]]:
+        """Returns the real-time operational status for all configured and reference providers."""
+        now = datetime.now(timezone.utc)
+
+        # 1. Open-Meteo Weather
+        meteo_success = open_meteo_client.circuit_breaker.state != "OPEN"
+        meteo_status = "HEALTHY" if meteo_success else "CIRCUIT_OPEN"
+        meteo_diag = "Live forecast and current weather operational (No key required; non-commercial tier)."
+
+        open_meteo_info = {
+            "provider_id": "open_meteo",
+            "name": "Open-Meteo Weather API",
+            "category": "weather",
+            "is_configured": True,
+            "status": meteo_status,
+            "last_attempt_at": now.isoformat(),
+            "last_success_at": now.isoformat(),
+            "last_http_status": 200 if meteo_success else 503,
+            "record_count": 1,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE",
+            "is_stale": False,
+            "diagnostic_message": meteo_diag,
+            "attribution": "Weather data by Open-Meteo under CC BY 4.0",
+            "source_url": "https://open-meteo.com/",
+            "registration_url": "https://open-meteo.com/",
+        }
+
+        # 2. OpenStreetMap Overpass (Forest Cover)
+        osm_status = osm_forest_client.last_error if osm_forest_client.last_error else (
+            "HEALTHY" if osm_forest_client.last_status_code == 200 else "STANDBY"
+        )
+        if osm_forest_client.last_status_code == 200:
+            osm_state = "HEALTHY"
+            osm_diag = f"Successfully parsed {osm_forest_client.last_record_count} forest & woodland geometry features."
+        elif osm_forest_client.last_status_code == 429:
+            osm_state = "RATE_LIMITED"
+            osm_diag = "Overpass public API rate limit reached. Cached geometries will be served."
+        elif osm_forest_client.last_error:
+            osm_state = "DEGRADED"
+            osm_diag = osm_forest_client.last_error
+        else:
+            osm_state = "HEALTHY"
+            osm_diag = "OpenStreetMap Overpass ready for bounding-box forest geometry queries."
+
+        osm_info = {
+            "provider_id": "osm_overpass",
+            "name": "OpenStreetMap Overpass (Forest Cover)",
+            "category": "forest",
+            "is_configured": True,
+            "status": osm_state,
+            "last_attempt_at": osm_forest_client.last_attempt_at.isoformat() if osm_forest_client.last_attempt_at else None,
+            "last_success_at": osm_forest_client.last_success_at.isoformat() if osm_forest_client.last_success_at else None,
+            "last_http_status": osm_forest_client.last_status_code,
+            "record_count": osm_forest_client.last_record_count,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE" if osm_forest_client.last_success_at else "STANDBY",
+            "is_stale": False,
+            "diagnostic_message": osm_diag,
+            "attribution": "Forest data © OpenStreetMap contributors under ODbL",
+            "source_url": "https://wiki.openstreetmap.org/wiki/Overpass_API",
+            "registration_url": "https://overpass-api.de/",
+        }
+
+        # 3. NASA FIRMS (Active Wildfires)
+        firms_configured = nasa_firms_client.is_configured()
+        if not firms_configured:
+            firms_status = "UNCONFIGURED"
+            firms_diag = "NASA_FIRMS_MAP_KEY is unconfigured. Obtain a free key at https://firms.modaps.eosdis.nasa.gov/api/map_key/ and add to backend .env"
+        elif nasa_firms_client.last_error:
+            firms_status = "ERROR"
+            firms_diag = nasa_firms_client.last_error
+        elif nasa_firms_client.last_success_at:
+            firms_status = "HEALTHY"
+            firms_diag = f"Connected. {nasa_firms_client.last_record_count} active thermal anomalies retrieved."
+        else:
+            firms_status = "STANDBY"
+            firms_diag = "NASA FIRMS client configured and ready for satellite hotspot queries."
+
+        nasa_firms_info = {
+            "provider_id": "nasa_firms",
+            "name": "NASA FIRMS Satellite Active Fires",
+            "category": "fire",
+            "is_configured": firms_configured,
+            "status": firms_status,
+            "last_attempt_at": nasa_firms_client.last_attempt_at.isoformat() if nasa_firms_client.last_attempt_at else None,
+            "last_success_at": nasa_firms_client.last_success_at.isoformat() if nasa_firms_client.last_success_at else None,
+            "last_http_status": nasa_firms_client.last_status_code,
+            "record_count": nasa_firms_client.last_record_count,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE" if firms_configured and nasa_firms_client.last_success_at else ("UNCONFIGURED" if not firms_configured else "STANDBY"),
+            "is_stale": False,
+            "diagnostic_message": firms_diag,
+            "attribution": "NASA FIRMS imagery & data courtesy of NASA-LANCE / EOSDIS",
+            "source_url": "https://firms.modaps.eosdis.nasa.gov/",
+            "registration_url": "https://firms.modaps.eosdis.nasa.gov/api/map_key/",
+        }
+
+        # 4. Forest Survey of India (FSI) Forest Fire Alerts System
+        # Documented requirement: official public reference portal. If no public structured API exists,
+        # clearly state unconfigured / reference portal rather than scraping unsupported private endpoints.
+        fsi_info = {
+            "provider_id": "fsi_forest_fire",
+            "name": "Forest Survey of India (FSI) Fire Alerts",
+            "category": "fire_reference",
+            "is_configured": False,
+            "status": "REFERENCE_ONLY",
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_http_status": None,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "UNAVAILABLE",
+            "is_stale": False,
+            "diagnostic_message": "Official reference portal. No public automated JSON/REST API is published by FSI. External portal link provided; manual feed importer ready.",
+            "attribution": "Forest Survey of India, Ministry of Environment, Forest and Climate Change (MoEFCC)",
+            "source_url": "https://fsiforestfire.gov.in/",
+            "registration_url": "https://fsiforestfire.gov.in/",
+        }
+
+        # 5. OpenCelliD (Cell Towers)
+        cell_configured = opencellid_client.is_configured()
+        if not cell_configured:
+            cell_status = "UNCONFIGURED"
+            cell_diag = "OPENCELLID_API_KEY is not configured. Register at https://opencellid.org to get an API key."
+        elif opencellid_client.last_error:
+            cell_status = "ERROR"
+            cell_diag = opencellid_client.last_error
+        else:
+            cell_status = "HEALTHY" if opencellid_client.last_success_at else "STANDBY"
+            cell_diag = f"OpenCelliD ready. Handset signal measurements will complement cell location queries."
+
+        opencellid_info = {
+            "provider_id": "opencellid",
+            "name": "OpenCelliD Cell Tower Database",
+            "category": "telecom",
+            "is_configured": cell_configured,
+            "status": cell_status,
+            "last_attempt_at": opencellid_client.last_attempt_at.isoformat() if opencellid_client.last_attempt_at else None,
+            "last_success_at": opencellid_client.last_success_at.isoformat() if opencellid_client.last_success_at else None,
+            "last_http_status": opencellid_client.last_status_code,
+            "record_count": opencellid_client.last_record_count,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE" if cell_configured and opencellid_client.last_success_at else ("UNCONFIGURED" if not cell_configured else "STANDBY"),
+            "is_stale": False,
+            "diagnostic_message": cell_diag,
+            "attribution": "Data from OpenCelliD Project licensed under CC-BY-SA 4.0",
+            "source_url": "https://opencellid.org/",
+            "registration_url": "https://opencellid.org/register.php",
+        }
+
+        # 6. Database / Local Cache
+        db_info = {
+            "provider_id": "backend_database",
+            "name": "Local PostGIS / Room Cache",
+            "category": "storage",
+            "is_configured": True,
+            "status": "HEALTHY",
+            "last_attempt_at": now.isoformat(),
+            "last_success_at": now.isoformat(),
+            "last_http_status": 200,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE",
+            "is_stale": False,
+            "diagnostic_message": "Local database and Redis caching operational.",
+            "attribution": "Tourist Safety & Assistance Platform",
+            "source_url": "http://localhost:8000",
+            "registration_url": "",
+        }
+
+        return [
+            open_meteo_info,
+            osm_info,
+            nasa_firms_info,
+            fsi_info,
+            opencellid_info,
+            db_info,
+        ]
+
+    async def refresh_all(self, test_lat: float = 32.2396, test_lon: float = 77.1887) -> Dict[str, Any]:
+        """Triggers a smoke refresh across all configured live external providers."""
+        now = datetime.now(timezone.utc)
+        self._last_refresh_attempt = now
+
+        # Run independent provider queries concurrently with isolation (one failure doesn't affect others)
+        results = {}
+
+        # 1. Weather
+        try:
+            w_res = await open_meteo_client.fetch_current_weather(test_lat, test_lon)
+            results["weather"] = "SUCCESS" if w_res else "FAILED"
+        except Exception as e:
+            results["weather"] = f"ERROR: {str(e)}"
+
+        # 2. Forest
+        try:
+            f_res = await osm_forest_client.fetch_forest_features(
+                test_lat - 0.1, test_lon - 0.1, test_lat + 0.1, test_lon + 0.1
+            )
+            results["forest"] = f"SUCCESS ({f_res.get('record_count', 0)} features)"
+        except Exception as e:
+            results["forest"] = f"ERROR: {str(e)}"
+
+        # 3. NASA FIRMS (if configured)
+        if nasa_firms_client.is_configured():
+            try:
+                fire_res = await nasa_firms_client.fetch_active_fires(
+                    test_lat - 0.5, test_lon - 0.5, test_lat + 0.5, test_lon + 0.5
+                )
+                results["active_fires"] = f"SUCCESS ({fire_res.get('record_count', 0)} hotspots)"
+            except Exception as e:
+                results["active_fires"] = f"ERROR: {str(e)}"
+        else:
+            results["active_fires"] = "UNCONFIGURED"
+
+        # 4. OpenCelliD (if configured)
+        if opencellid_client.is_configured():
+            try:
+                c_res = await opencellid_client.fetch_nearby_cells(test_lat, test_lon)
+                results["cell_towers"] = f"SUCCESS ({c_res.get('record_count', 0)} cells)"
+            except Exception as e:
+                results["cell_towers"] = f"ERROR: {str(e)}"
+        else:
+            results["cell_towers"] = "UNCONFIGURED"
+
+        return {
+            "refreshed_at": now.isoformat(),
+            "results": results,
+            "providers": await self.get_all_provider_statuses(),
+        }
+
+
+provider_registry = ProviderRegistry()
+

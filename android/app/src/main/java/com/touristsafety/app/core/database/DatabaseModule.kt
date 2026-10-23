@@ -2,13 +2,7 @@ package com.touristsafety.app.core.database
 
 import android.content.Context
 import androidx.room.Room
-import com.touristsafety.app.core.database.dao.AlertDao
-import com.touristsafety.app.core.database.dao.HazardZoneDao
-import com.touristsafety.app.core.database.dao.ItineraryDao
-import com.touristsafety.app.core.database.dao.MapPointDao
-import com.touristsafety.app.core.database.dao.SubscriberDao
-import com.touristsafety.app.core.database.dao.TriggeredHazardDao
-import com.touristsafety.app.core.database.dao.WeatherDao
+import com.touristsafety.app.core.database.dao.*
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -52,5 +46,14 @@ object DatabaseModule {
 
     @Provides
     fun provideSubscriberDao(db: AppDatabase): SubscriberDao = db.subscriberDao()
+
+    @Provides
+    fun provideForestDao(db: AppDatabase): ForestDao = db.forestDao()
+
+    @Provides
+    fun provideFireHotspotDao(db: AppDatabase): FireHotspotDao = db.fireHotspotDao()
+
+    @Provides
+    fun provideProviderStatusDao(db: AppDatabase): ProviderStatusDao = db.providerStatusDao()
 }
 

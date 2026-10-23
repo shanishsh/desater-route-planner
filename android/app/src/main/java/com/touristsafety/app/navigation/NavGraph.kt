@@ -20,6 +20,8 @@ import com.touristsafety.app.feature.map.MapScreen
 import com.touristsafety.app.feature.map.MapViewModel
 import com.touristsafety.app.feature.offline.SavedTripsScreen
 import com.touristsafety.app.feature.offline.SavedTripsViewModel
+import com.touristsafety.app.feature.providers.ProviderStatusScreen
+import com.touristsafety.app.feature.providers.ProviderStatusViewModel
 
 @Composable
 fun AppNavGraph(
@@ -39,7 +41,8 @@ fun AppNavGraph(
                 onNavigateToMap = { navController.navigate(Screen.Map.route) },
                 onNavigateToAlerts = { navController.navigate(Screen.Alerts.route) },
                 onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
-                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) }
+                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) },
+                onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) }
             )
         }
         composable(Screen.Map.route) {
@@ -64,6 +67,13 @@ fun AppNavGraph(
         composable(Screen.DisasterSafety.route) {
             val viewModel: DisasterSafetyViewModel = hiltViewModel()
             DisasterSafetyScreen(viewModel = viewModel)
+        }
+        composable(Screen.ProviderStatus.route) {
+            val viewModel: ProviderStatusViewModel = hiltViewModel()
+            ProviderStatusScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }

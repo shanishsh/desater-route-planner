@@ -2,11 +2,15 @@ package com.touristsafety.app.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.touristsafety.app.core.network.NetworkConnectivityMonitor
+import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.repository.AlertRepository
 import com.touristsafety.app.core.repository.EmergencyRepository
 import com.touristsafety.app.core.repository.ItineraryRepository
+import com.touristsafety.app.core.repository.ProviderStatusRepository
 import com.touristsafety.app.core.repository.WeatherRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -16,18 +20,31 @@ class HomeViewModel @Inject constructor(
     private val itineraryRepository: ItineraryRepository,
     private val alertRepository: AlertRepository,
     private val weatherRepository: WeatherRepository,
-    private val emergencyRepository: EmergencyRepository
+    private val emergencyRepository: EmergencyRepository,
+    private val providerStatusRepository: ProviderStatusRepository,
+    private val connectivityMonitor: NetworkConnectivityMonitor
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private var weatherJob: Job? = null
+
     init {
+        // Observe default coordinates immediately so weather renders even before itineraries finish loading
+        observeWeather(32.2396, 77.1887)
         observeData()
         refreshAll()
     }
 
     private fun observeData() {
+        viewModelScope.launch {
+            connectivityMonitor.state.collect { conn ->
+                val isOffline = conn.status == NetworkStatus.NO_NETWORK || conn.status == NetworkStatus.CONNECTED_NO_INTERNET
+                _uiState.update { it.copy(isOffline = isOffline) }
+            }
+        }
+
         viewModelScope.launch {
             itineraryRepository.getItineraries().collect { itineraries ->
                 val active = itineraries.firstOrNull()
@@ -51,7 +68,8 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observeWeather(lat: Double, lon: Double) {
-        viewModelScope.launch {
+        weatherJob?.cancel()
+        weatherJob = viewModelScope.launch {
             weatherRepository.getWeather(lat, lon).collect { weather ->
                 _uiState.update { it.copy(weather = weather) }
             }
@@ -62,15 +80,17 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
+            connectivityMonitor.probeBackend()
+
             val itinResult = itineraryRepository.refreshItineraries()
             val alertResult = alertRepository.refreshAlerts()
             val emergencyResult = emergencyRepository.refreshMapPoints()
+            providerStatusRepository.refreshStatuses()
 
             val activeItin = _uiState.value.selectedItinerary
             if (activeItin != null) {
                 weatherRepository.refreshWeather(activeItin.startLatitude, activeItin.startLongitude)
             } else {
-                // Default coordinates if no itinerary loaded yet
                 weatherRepository.refreshWeather(32.2396, 77.1887)
             }
 

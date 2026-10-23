@@ -72,4 +72,30 @@ interface ApiService {
     suspend fun triggerTestAlarm(
         @Body body: TestAlarmRequestDto
     ): Response<DisasterAlertDto>
+
+    @GET("providers/status")
+    suspend fun getProviderStatuses(): Response<List<ProviderStatusDto>>
+
+    @POST("providers/refresh")
+    suspend fun refreshProviders(
+        @Query("lat") lat: Double = 32.2396,
+        @Query("lon") lon: Double = 77.1887
+    ): Response<Map<String, String>>
+
+    @GET("forest-areas")
+    suspend fun getForestAreas(
+        @Query("min_lat") minLat: Double,
+        @Query("min_lon") minLon: Double,
+        @Query("max_lat") maxLat: Double,
+        @Query("max_lon") maxLon: Double
+    ): Response<ForestGeoJsonResponseDto>
+
+    @GET("wildfires")
+    suspend fun getActiveFires(
+        @Query("min_lat") minLat: Double,
+        @Query("min_lon") minLon: Double,
+        @Query("max_lat") maxLat: Double,
+        @Query("max_lon") maxLon: Double,
+        @Query("days") days: Int = 1
+    ): Response<WildfiresResponseDto>
 }

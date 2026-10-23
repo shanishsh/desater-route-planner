@@ -12,6 +12,9 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.disaster_alerts import router as disaster_alerts_router
 from app.api.v1.subscribers import router as subscribers_router
 from app.api.v1.devices import router as devices_router
+from app.api.v1.providers import router as providers_router
+from app.api.v1.forest import router as forest_router
+from app.api.v1.wildfires import router as wildfires_router
 
 api_v1_router = APIRouter()
 
@@ -27,4 +30,7 @@ api_v1_router.include_router(admin_router)
 api_v1_router.include_router(disaster_alerts_router)
 api_v1_router.include_router(subscribers_router)
 api_v1_router.include_router(devices_router)
+api_v1_router.include_router(providers_router)
+api_v1_router.include_router(forest_router)
+api_v1_router.include_router(wildfires_router)
 

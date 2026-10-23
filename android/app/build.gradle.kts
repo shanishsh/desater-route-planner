@@ -23,7 +23,7 @@ android {
             useSupportLibrary = true
         }
 
-        buildConfigField("String", "BACKEND_BASE_URL", "\"http://10.0.2.2:8000/api/v1/\"")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"http://172.168.10.238:8000/api/v1/\"")
         buildConfigField("String", "MAP_STYLE_URL", "\"https://tiles.openfreemap.org/styles/liberty\"")
     }
 

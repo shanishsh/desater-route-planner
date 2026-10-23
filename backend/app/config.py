@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     MAP_POINTS_CACHE_TTL_SECONDS: int = 3600  # 1 hour
     ITINERARY_CACHE_TTL_SECONDS: int = 7200  # 2 hours
 
+    # Environmental & Hazard Providers
+    NASA_FIRMS_MAP_KEY: str = ""
+    NASA_FIRMS_BASE_URL: str = "https://firms.modaps.eosdis.nasa.gov/api"
+    OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
+    OPENCELLID_API_KEY: str = ""
+    OPENCELLID_BASE_URL: str = "https://opencellid.org/cell/get"
+    FOREST_CACHE_TTL_SECONDS: int = 86400  # 24 hours
+    FIRE_CACHE_TTL_SECONDS: int = 1800  # 30 minutes
+    PROVIDER_STATUS_CACHE_TTL_SECONDS: int = 60
+
     # Alert Freshness
     DEFAULT_ALERT_FRESHNESS_SECONDS: int = 3600  # 1 hour
 

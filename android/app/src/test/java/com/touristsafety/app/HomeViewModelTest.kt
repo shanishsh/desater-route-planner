@@ -4,14 +4,19 @@ import com.touristsafety.app.core.model.Alert
 import com.touristsafety.app.core.model.AlertCategory
 import com.touristsafety.app.core.model.AlertSeverity
 import com.touristsafety.app.core.model.Itinerary
+import com.touristsafety.app.core.network.DetailedConnectivityState
+import com.touristsafety.app.core.network.NetworkConnectivityMonitor
+import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.repository.AlertRepository
 import com.touristsafety.app.core.repository.EmergencyRepository
 import com.touristsafety.app.core.repository.ItineraryRepository
+import com.touristsafety.app.core.repository.ProviderStatusRepository
 import com.touristsafety.app.core.repository.WeatherRepository
 import com.touristsafety.app.feature.home.HomeViewModel
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.After
@@ -26,12 +31,18 @@ class HomeViewModelTest {
     private val alertRepository = mockk<AlertRepository>(relaxed = true)
     private val weatherRepository = mockk<WeatherRepository>(relaxed = true)
     private val emergencyRepository = mockk<EmergencyRepository>(relaxed = true)
+    private val providerStatusRepository = mockk<ProviderStatusRepository>(relaxed = true)
+    private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        every { connectivityMonitor.state } returns MutableStateFlow(
+            DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
+        )
+        coEvery { connectivityMonitor.probeBackend() } returns Unit
     }
 
     @After
@@ -76,7 +87,9 @@ class HomeViewModelTest {
             itineraryRepository,
             alertRepository,
             weatherRepository,
-            emergencyRepository
+            emergencyRepository,
+            providerStatusRepository,
+            connectivityMonitor
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
