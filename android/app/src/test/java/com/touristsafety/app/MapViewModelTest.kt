@@ -388,7 +388,7 @@ class MapViewModelTest {
             provider_statuses = emptyMap()
         )
 
-        coEvery { routeRepository.analyzeRoute("route-manali-solang-123") } returns Result.success(sampleAnalysis)
+        coEvery { routeRepository.analyzeRoute("route-manali-solang-123", any(), any()) } returns Result.success(sampleAnalysis)
 
         val viewModel = MapViewModel(
             itineraryRepository,
@@ -417,7 +417,71 @@ class MapViewModelTest {
         assertEquals(RouteLifecycleState.ANALYZED_EMPTY, state.routeLifecycleState)
 
         coVerify(atLeast = 1) {
-            routeRepository.analyzeRoute("route-manali-solang-123")
+            routeRepository.analyzeRoute("route-manali-solang-123", any(), any())
+        }
+    }
+
+    @Test
+    fun `setCorridorDistance updates corridor width and triggers re-analysis for active route`() = runTest(testDispatcher) {
+        val samplePlannedRoute = PlannedRouteResponseDto(
+            route_id = "route-manali-solang-123",
+            route_version = 1,
+            title = "Manali to Solang Pass",
+            origin_name = "Manali Mall Road",
+            origin_lat = 32.2396,
+            origin_lon = 77.1887,
+            destination_name = "Solang Valley",
+            dest_lat = 32.3166,
+            dest_lon = 77.1583,
+            travel_mode = "hiking",
+            distance_km = 12.4,
+            duration_minutes = 180.0,
+            overall_hazard_score = 22.5,
+            overall_safety_status = "SAFE"
+        )
+
+        val analysis5km = RouteAnalysisResponseDto(
+            route_id = "route-manali-solang-123",
+            route_version = 1,
+            corridor_distance_km = 5.0,
+            analysis_timestamp = "2026-10-24T00:00:00Z"
+        )
+        val analysis10km = RouteAnalysisResponseDto(
+            route_id = "route-manali-solang-123",
+            route_version = 1,
+            corridor_distance_km = 10.0,
+            analysis_timestamp = "2026-10-24T00:01:00Z"
+        )
+
+        coEvery { routeRepository.analyzeRoute("route-manali-solang-123", 5.0, 1) } returns Result.success(analysis5km)
+        coEvery { routeRepository.analyzeRoute("route-manali-solang-123", 10.0, 1) } returns Result.success(analysis10km)
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        activeRouteStateFlow.value = samplePlannedRoute
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(5.0, viewModel.uiState.value.corridorDistanceKm, 0.001)
+
+        // Change corridor distance to 10 km
+        viewModel.setCorridorDistance(10.0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(10.0, viewModel.uiState.value.corridorDistanceKm, 0.001)
+        coVerify(exactly = 1) {
+            routeRepository.analyzeRoute("route-manali-solang-123", 10.0, 1)
         }
     }
 

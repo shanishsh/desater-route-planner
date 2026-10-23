@@ -43,6 +43,10 @@ fun RouteSummaryCard(
     overallSafetyStatus: String? = null,
     overallHazardScore: Double? = null,
     onSelectAlternative: (String?) -> Unit = {},
+    corridorDistanceKm: Double = 5.0,
+    isAnalyzingCorridor: Boolean = false,
+    onSelectCorridorDistance: (Double) -> Unit = {},
+    analysisLimitations: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -160,6 +164,52 @@ fun RouteSummaryCard(
                 }
             }
 
+            // Corridor Width Selector (Safety scan: X km each side)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Safety scan (each side):",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                listOf(1.0, 2.0, 5.0, 10.0).forEach { dist ->
+                    val isSelected = (corridorDistanceKm == dist)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectCorridorDistance(dist) },
+                        label = {
+                            Text(
+                                text = "${dist.toInt()} km",
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(26.dp)
+                    )
+                }
+
+                if (isAnalyzingCorridor) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             // Route Alternatives / Comparison Selector (Shortest vs Safest)
             if (plannedRouteAlternatives.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -250,6 +300,32 @@ fun RouteSummaryCard(
                             primaryText = nearestMedicalDistance?.let { "Nearest Clinic: $it" } ?: "Medical Aid Nearby",
                             secondaryText = "Alpine Emergency Support Post"
                         )
+                    }
+
+                    if (analysisLimitations.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = "Data Limitations & Coverage:",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            analysisLimitations.forEach { limitation ->
+                                Text(
+                                    text = "• $limitation",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
                     }
                 }
             }

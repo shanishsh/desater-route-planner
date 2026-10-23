@@ -22,7 +22,15 @@ data class PlanRouteRequestDto(
     val destination_lon: Double,
     val destination_name: String,
     val travel_mode: String? = "hiking",
-    val departure_time: String? = null
+    val departure_time: String? = null,
+    val corridor_distance_km: Double = 5.0
+)
+
+@Serializable
+data class RouteAnalysisRequestDto(
+    val corridor_distance_km: Double = 5.0,
+    val corridor_distance_meters: Double? = null,
+    val route_version: Int? = null
 )
 
 @Serializable
@@ -54,7 +62,10 @@ data class RouteWildfireInfoDto(
     val nearest_fire_distance_km: Double? = null,
     val fire_radiative_power: Double? = null,
     val confidence: String? = null,
-    val acquisition_time: String? = null
+    val acquisition_time: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val brightness: Double? = null
 )
 
 @Serializable
@@ -65,7 +76,11 @@ data class RouteDisasterAlertInfoDto(
     val severity: String,
     val distance_to_alert_km: Double,
     val required_protective_instructions: String,
-    val is_simulated: Boolean = false
+    val is_simulated: Boolean = false,
+    val center_latitude: Double? = null,
+    val center_longitude: Double? = null,
+    val affected_radius_meters: Double? = null,
+    val polygon_geojson: JsonElement? = null
 )
 
 @Serializable
@@ -151,6 +166,10 @@ data class PlannedRouteResponseDto(
     val safe_havens: List<SafeHavenInfoDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val geometry_geojson: JsonElement? = null,
+    val corridor_distance_km: Double = 5.0,
+    val corridor_distance_meters: Double = 5000.0,
+    val corridor_geojson: JsonElement? = null,
+    val analysis_limitations: List<String> = emptyList(),
     val created_at: String = ""
 )
 
@@ -170,6 +189,8 @@ data class ProviderStatusItemDto(
 data class RouteAnalysisResponseDto(
     val route_id: String,
     val route_version: Int = 1,
+    val corridor_distance_km: Double = 5.0,
+    val corridor_distance_meters: Double = 5000.0,
     val analysis_timestamp: String = "",
     val overall_hazard_score: Double = 0.0,
     val overall_safety_status: String = "SAFE",
@@ -182,6 +203,8 @@ data class RouteAnalysisResponseDto(
     val assistance_points: List<SafeHavenInfoDto> = emptyList(),
     val affected_segments: List<RouteWaypointConditionDto> = emptyList(),
     val data_quality_summary: Map<String, JsonElement> = emptyMap(),
+    val corridor_geojson: JsonElement? = null,
+    val analysis_limitations: List<String> = emptyList(),
     val overlays_geojson: JsonElement? = null
 )
 

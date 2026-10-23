@@ -31,6 +31,8 @@ class PlanRouteRequest(BaseModel):
     destination_name: Optional[str] = Field(None, description="Display name for destination")
     travel_mode: Optional[str] = Field("walking", description="'driving', 'walking', or 'hiking'")
     departure_time: Optional[datetime] = Field(None, description="Planned departure time in UTC")
+    corridor_distance_km: Optional[float] = Field(5.0, description="Corridor scan distance on each side in km (1, 2, 5, 10)")
+    corridor_distance_meters: Optional[float] = Field(None, description="Corridor scan distance on each side in meters")
 
     @model_validator(mode="before")
     @classmethod
@@ -105,6 +107,9 @@ class RouteWildfireInfo(BaseModel):
     fire_radiative_power: Optional[float] = None
     confidence: Optional[str] = None
     acquisition_time: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    brightness: Optional[float] = None
 
 
 class RouteDisasterAlertInfo(BaseModel):
@@ -115,6 +120,10 @@ class RouteDisasterAlertInfo(BaseModel):
     distance_to_alert_km: float
     required_protective_instructions: str
     is_simulated: bool = False
+    center_latitude: Optional[float] = None
+    center_longitude: Optional[float] = None
+    affected_radius_meters: Optional[float] = None
+    polygon_geojson: Optional[Dict[str, Any]] = None
 
 
 class ElevationProfilePoint(BaseModel):
@@ -183,6 +192,9 @@ class PlannedRouteResponse(BaseModel):
     origin: Dict[str, Any] = Field(default_factory=dict)
     destination: Dict[str, Any] = Field(default_factory=dict)
     geometry: Dict[str, Any] = Field(default_factory=dict)
+    corridor_distance_km: float = 5.0
+    corridor_distance_meters: float = 5000.0
+    corridor_geojson: Optional[Dict[str, Any]] = None
     distance_meters: float = 0.0
     duration_seconds: float = 0.0
     routing_provider: str = "OSRM"
@@ -252,9 +264,21 @@ class ProviderStatusItem(BaseModel):
     details: Optional[str] = None
 
 
+class RouteAnalysisRequest(BaseModel):
+    route_version: Optional[int] = Field(None, description="Expected route version")
+    corridor_distance_meters: Optional[float] = Field(None, description="Buffer distance on each side in meters (default: 5000)")
+    corridor_distance_km: Optional[float] = Field(None, description="Buffer distance on each side in km (e.g. 1.0, 2.0, 5.0, 10.0)")
+    weather_sample_spacing_km: Optional[float] = Field(None, description="Spacing between weather samples along route")
+    include_safe_havens: bool = True
+    include_wildfires: bool = True
+    include_disaster_alerts: bool = True
+
+
 class RouteAnalysisResponse(BaseModel):
     route_id: str
     route_version: int = 1
+    corridor_distance_meters: float = 5000.0
+    corridor_distance_km: float = 5.0
     analysis_timestamp: str
     overall_hazard_score: float = 0.0
     overall_safety_status: str = "SAFE"
@@ -268,6 +292,8 @@ class RouteAnalysisResponse(BaseModel):
     affected_segments: List[RouteWaypointCondition] = Field(default_factory=list)
     data_quality_summary: Dict[str, Any] = Field(default_factory=dict)
     overlays_geojson: Dict[str, Any] = Field(default_factory=dict)
+    corridor_geojson: Optional[Dict[str, Any]] = None
+    analysis_limitations: List[str] = Field(default_factory=list)
 
 
 class StartTripRequest(BaseModel):

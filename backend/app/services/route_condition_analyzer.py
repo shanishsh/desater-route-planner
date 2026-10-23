@@ -13,6 +13,7 @@ from app.models.disaster_alert import DisasterAlert
 from app.services.routing.base import RouteResult, haversine_distance_km
 from app.services.terrain.elevation_service import elevation_service
 from app.services.risk.trailguard_risk_engine import trailguard_risk_engine
+from app.services.spatial.route_corridor_service import route_corridor_service, DEFAULT_CORRIDOR_METERS
 from app.schemas.route_plan import (
     RouteWaypointCondition,
     RouteWeatherCondition,
@@ -36,6 +37,7 @@ class RouteConditionAnalyzer:
         db: AsyncSession,
         route: RouteResult,
         departure_time: Optional[datetime] = None,
+        corridor_distance_meters: float = DEFAULT_CORRIDOR_METERS,
     ) -> PlannedRouteResponse:
         """Evaluates segment-by-segment conditions and computes TrailGuard mountain hazard index."""
         now = datetime.now(timezone.utc)
@@ -49,7 +51,17 @@ class RouteConditionAnalyzer:
         else:
             route_coords_lat_lon = [(wp.latitude, wp.longitude) for wp in route.waypoints]
 
-        # Sample coordinates for elevation profile (max 100 points for performance)
+        # 1. Compute dynamic geodesic corridor polygon and bounding box
+        corridor_info = route_corridor_service.compute_corridor(
+            route_coords_lat_lon,
+            corridor_distance_meters=corridor_distance_meters,
+        )
+        min_lat, min_lon, max_lat, max_lon = corridor_info["bbox"]
+        corridor_dist_m = corridor_info["corridor_distance_meters"]
+        corridor_dist_km = corridor_info["corridor_distance_km"]
+        corridor_poly_geojson = corridor_info["corridor_polygon_geojson"]
+
+        # Sample coordinates for elevation profile (max 80 points for performance)
         sample_step = max(1, len(route_coords_lat_lon) // 80)
         sampled_coords = [
             route_coords_lat_lon[i] for i in range(0, len(route_coords_lat_lon), sample_step)
@@ -57,32 +69,32 @@ class RouteConditionAnalyzer:
         if sampled_coords[-1] != route_coords_lat_lon[-1]:
             sampled_coords.append(route_coords_lat_lon[-1])
 
-        # 1. Compute DEM Elevation Profile and Tobler hiking speeds
+        # 2. Compute DEM Elevation Profile and Tobler hiking speeds
         elevation_data = await elevation_service.compute_elevation_profile(
             sampled_coords, departure_time=dep_time
         )
         elev_points = elevation_data.get("points", [])
 
-        # Compute bounding box of the entire route for spatial queries
-        lats = [pt[0] for pt in route_coords_lat_lon]
-        lons = [pt[1] for pt in route_coords_lat_lon]
-        min_lat = min(lats) - 0.08
-        max_lat = max(lats) + 0.08
-        min_lon = min(lons) - 0.08
-        max_lon = max(lons) + 0.08
-
-        # 2. Query active disaster alerts from DB
+        # 3. Query active disaster alerts from DB and perform exact spatial corridor filtering
         stmt = select(DisasterAlert).where(
             DisasterAlert.status.in_(["active", "updated"]),
-            DisasterAlert.center_latitude >= min_lat - 0.1,
-            DisasterAlert.center_latitude <= max_lat + 0.1,
-            DisasterAlert.center_longitude >= min_lon - 0.1,
-            DisasterAlert.center_longitude <= max_lon + 0.1,
+            DisasterAlert.center_latitude >= min_lat - 0.05,
+            DisasterAlert.center_latitude <= max_lat + 0.05,
+            DisasterAlert.center_longitude >= min_lon - 0.05,
+            DisasterAlert.center_longitude <= max_lon + 0.05,
         )
         result = await db.execute(stmt)
-        active_alerts: List[DisasterAlert] = list(result.scalars().all())
+        candidate_alerts: List[DisasterAlert] = list(result.scalars().all())
 
-        # 3. Query forest data along corridor
+        filtered_alert_tuples = route_corridor_service.filter_disaster_alerts(
+            candidate_alerts,
+            route_coords_lat_lon,
+            corridor_poly_geojson,
+            corridor_distance_meters=corridor_dist_m,
+        )
+        active_alerts: List[DisasterAlert] = [t[0] for t in filtered_alert_tuples]
+
+        # 4. Query forest data along corridor
         forest_features = []
         try:
             forest_data = await osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon)
@@ -91,41 +103,41 @@ class RouteConditionAnalyzer:
         except Exception as e:
             logger.warning(f"Error querying forest data for route: {e}")
 
-        # 4. Query NASA FIRMS fire detections along corridor
+        # 5. Query NASA FIRMS fire detections along corridor and filter to exact corridor distance
         active_fires = []
         try:
             firms_data = await nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon)
-            if firms_data and "records" in firms_data:
-                active_fires = firms_data["records"]
+            raw_records = firms_data.get("records", []) if firms_data else []
+            active_fires = route_corridor_service.filter_fire_detections(
+                raw_records,
+                route_coords_lat_lon,
+                corridor_distance_meters=corridor_dist_m,
+            )
         except Exception as e:
             logger.warning(f"Error querying FIRMS fire data for route: {e}")
 
-        # 5. Query Emergency Safe Havens (hospitals, shelters, police, mountain posts)
+        # 6. Query Emergency Safe Havens within the configured corridor
         safe_havens: List[SafeHavenInfo] = []
         try:
             amenity_items = await osm_amenities_client.fetch_amenities(min_lat, min_lon, max_lat, max_lon)
-            for item in amenity_items:
-                a_lat = item.get("latitude", 0.0)
-                a_lon = item.get("longitude", 0.0)
-                # Find min distance to route
-                min_route_dist = min(
-                    haversine_distance_km(a_lat, a_lon, wp.latitude, wp.longitude)
-                    for wp in route.waypoints
-                )
-                if min_route_dist <= 8.0:
-                    safe_havens.append(
-                        SafeHavenInfo(
-                            name=item.get("name", "Emergency Assistance Point"),
-                            category=item.get("category", "shelter"),
-                            latitude=a_lat,
-                            longitude=a_lon,
-                            distance_km=round(min_route_dist, 2),
-                            is_egress_point=True,
-                        )
+            filtered_amenities = route_corridor_service.filter_amenities(
+                amenity_items,
+                route_coords_lat_lon,
+                corridor_distance_meters=corridor_dist_m,
+            )
+            for item in filtered_amenities:
+                safe_havens.append(
+                    SafeHavenInfo(
+                        name=item.get("name", "Emergency Assistance Point"),
+                        category=item.get("category", "shelter"),
+                        latitude=item["latitude"],
+                        longitude=item["longitude"],
+                        distance_km=item.get("distance_to_route_km", 0.0),
+                        is_egress_point=True,
                     )
-            # Sort by proximity
+                )
             safe_havens.sort(key=lambda sh: sh.distance_km)
-            safe_havens = safe_havens[:10]
+            safe_havens = safe_havens[:15]
         except Exception as e:
             logger.warning(f"Error querying Safe Havens: {e}")
 
@@ -426,6 +438,22 @@ class RouteConditionAnalyzer:
 
         # Build GeoJSON Overlays FeatureCollection for MapLibre
         overlay_features = []
+
+        # 0. Derived Corridor Polygon (following route turns/bends, separate from route polyline)
+        overlay_features.append({
+            "type": "Feature",
+            "geometry": corridor_poly_geojson,
+            "properties": {
+                "layer": "corridor",
+                "corridor_distance_meters": corridor_dist_m,
+                "corridor_distance_km": corridor_dist_km,
+                "area_sq_km": corridor_info["area_sq_km"],
+                "color": "#4CAF50",
+                "stroke_color": "#2E7D32",
+                "title": f"Safety Scan Corridor ({corridor_dist_km} km each side)",
+            }
+        })
+
         # 1. Route geometry
         overlay_features.append({
             "type": "Feature",
@@ -446,8 +474,8 @@ class RouteConditionAnalyzer:
                     geom = json.loads(alert.polygon_geojson)
                 except Exception:
                     geom = None
-            if not geom:
-                # Generate circular polygon perimeter
+            if not geom and alert.center_latitude and alert.center_longitude:
+                # Generate circular polygon perimeter around center coordinate
                 c_coords = []
                 r_lat = (alert.affected_radius_meters or 5000.0) / 111320.0
                 r_lon = (alert.affected_radius_meters or 5000.0) / (111320.0 * math.cos(math.radians(alert.center_latitude)) + 1e-6)
@@ -461,20 +489,21 @@ class RouteConditionAnalyzer:
                     c_coords.append(c_coords[0])
                 geom = {"type": "Polygon", "coordinates": [c_coords]}
 
-            overlay_features.append({
-                "type": "Feature",
-                "geometry": geom,
-                "properties": {
-                    "layer": "disaster_alert",
-                    "id": alert.id,
-                    "title": alert.title,
-                    "severity": alert.severity,
-                    "category": alert.hazard_category,
-                    "instructions": alert.required_protective_instructions,
-                    "issuing_authority": alert.issuing_authority,
-                    "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
-                }
-            })
+            if geom:
+                overlay_features.append({
+                    "type": "Feature",
+                    "geometry": geom,
+                    "properties": {
+                        "layer": "disaster_alert",
+                        "id": alert.id,
+                        "title": alert.title,
+                        "severity": alert.severity,
+                        "category": alert.hazard_category,
+                        "instructions": alert.required_protective_instructions,
+                        "issuing_authority": alert.issuing_authority,
+                        "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
+                    }
+                })
         # 3. Active fires
         for fire in active_fires:
             f_lat = fire.get("latitude", 0.0)
@@ -488,6 +517,9 @@ class RouteConditionAnalyzer:
                     "brightness": fire.get("brightness"),
                     "frp_mw": fire.get("frp_mw") or fire.get("frp"),
                     "confidence": fire.get("confidence", "nominal"),
+                    "distance_to_route_km": fire.get("distance_to_route_km"),
+                    "distance_along_route_km": fire.get("distance_along_route_km"),
+                    "nearest_segment_index": fire.get("nearest_segment_index"),
                     "acquisition_time": f"{fire.get('acquisition_date', '')} {fire.get('acquisition_time', '')}".strip(),
                     "color": "#E65100",
                 }
@@ -541,12 +573,52 @@ class RouteConditionAnalyzer:
 
         overlays_geojson = {"type": "FeatureCollection", "features": overlay_features}
 
+        corridor_alerts_dto = [
+            RouteDisasterAlertInfo(
+                alert_id=a.id,
+                title=a.title,
+                hazard_category=a.hazard_category,
+                severity=a.severity,
+                distance_to_alert_km=round(
+                    route_corridor_service.distance_point_to_route(
+                        a.center_latitude, a.center_longitude, route_coords_lat_lon
+                    )[0] / 1000.0, 2
+                ) if (a.center_latitude and a.center_longitude) else 0.0,
+                required_protective_instructions=a.required_protective_instructions,
+                is_simulated=a.is_simulated,
+                center_latitude=a.center_latitude,
+                center_longitude=a.center_longitude,
+                affected_radius_meters=a.affected_radius_meters,
+                polygon_geojson=a.polygon_geojson,
+            )
+            for a in active_alerts
+        ]
+
+        corridor_fires_dto = [
+            RouteWildfireInfo(
+                has_fire_within_5km=(f.get("distance_to_route_km", 99.0) <= 5.0),
+                nearest_fire_distance_km=f.get("distance_to_route_km"),
+                fire_radiative_power=f.get("frp_mw") or f.get("frp"),
+                confidence=str(f.get("confidence", "nominal")),
+                acquisition_time=f.get("acquisition_time", "NRT"),
+                latitude=f.get("latitude"),
+                longitude=f.get("longitude"),
+                brightness=f.get("brightness"),
+            )
+            for f in active_fires
+        ]
+
         freshness = {
             "weather_provider": "Open-Meteo Hourly Forecast",
             "weather_retrieved_at": now.isoformat(),
             "elevation_provider": "Copernicus DEM (Open-Meteo 30m Grid)",
             "forest_provider": "OpenStreetMap Overpass",
             "wildfire_provider": "NASA FIRMS (MODIS/VIIRS)",
+            "corridor_distance_km": corridor_dist_km,
+            "corridor_distance_meters": corridor_dist_m,
+            "corridor_geojson": corridor_poly_geojson,
+            "corridor_alerts": [a.model_dump() for a in corridor_alerts_dto],
+            "corridor_fires": [f.model_dump() for f in corridor_fires_dto],
             "disaster_alerts_active_count": len(active_alerts),
             "provider_statuses": provider_statuses,
             "overlays_geojson": overlays_geojson,
@@ -568,6 +640,9 @@ class RouteConditionAnalyzer:
                 "name": route.destination_name,
             },
             geometry=route.geometry_geojson,
+            corridor_distance_km=corridor_dist_km,
+            corridor_distance_meters=corridor_dist_m,
+            corridor_geojson=corridor_poly_geojson,
             distance_meters=round(route.distance_km * 1000.0, 1),
             duration_seconds=round(route.duration_minutes * 60.0, 1),
             routing_provider="OSRM",
@@ -603,6 +678,8 @@ class RouteConditionAnalyzer:
         db: AsyncSession,
         route_id: str,
         departure_time: Optional[datetime] = None,
+        corridor_distance_meters: Optional[float] = None,
+        corridor_distance_km: Optional[float] = None,
     ):
         """Analyzes a persisted route by route_id, increments its route_version, and updates stored analysis."""
         from app.models.planned_route import PlannedRoute
@@ -670,7 +747,10 @@ class RouteConditionAnalyzer:
         )
 
         # Run fresh condition analysis
-        analysis = await self.analyze_route(db, route_result, departure_time)
+        corr_m = corridor_distance_meters or (
+            (corridor_distance_km * 1000.0) if corridor_distance_km else DEFAULT_CORRIDOR_METERS
+        )
+        analysis = await self.analyze_route(db, route_result, departure_time, corridor_distance_meters=corr_m)
 
         # Increment route_version
         new_version = (db_route.route_version or 1) + 1
@@ -691,20 +771,39 @@ class RouteConditionAnalyzer:
             if isinstance(p_val, dict):
                 provider_items[p_key] = ProviderStatusItem(**p_val)
 
-        # Extract forest and wildfire infos from conditions
+        # Extract forest, wildfire, and alerts from corridor analysis
         forest_list = [c.forest for c in analysis.conditions if c.forest and c.forest.in_forest]
-        wildfire_list = [c.wildfire for c in analysis.conditions if c.wildfire and c.wildfire.has_fire_within_5km]
-        alert_list = []
-        for c in analysis.conditions:
-            for al in c.alerts:
-                if not any(existing.alert_id == al.alert_id for existing in alert_list):
-                    alert_list.append(al)
+
+        raw_corr_fires = fresh.get("corridor_fires", [])
+        if raw_corr_fires:
+            wildfire_list = [RouteWildfireInfo(**f) for f in raw_corr_fires]
+        else:
+            wildfire_list = [c.wildfire for c in analysis.conditions if c.wildfire and c.wildfire.has_fire_within_5km]
+
+        raw_corr_alerts = fresh.get("corridor_alerts", [])
+        if raw_corr_alerts:
+            alert_list = [RouteDisasterAlertInfo(**a) for a in raw_corr_alerts]
+        else:
+            alert_list = []
+            for c in analysis.conditions:
+                for al in c.alerts:
+                    if not any(existing.alert_id == al.alert_id for existing in alert_list):
+                        alert_list.append(al)
 
         weather_list = [c.weather for c in analysis.conditions]
+
+        limitations = [
+            f"Geographic search restricted strictly to {round(corr_m / 1000.0, 1)} km corridor on each side of the route polyline.",
+            "NASA FIRMS thermal detections reflect satellite anomalies and have been spatially cross-filtered against the corridor.",
+            "Official advisories reflect valid NDMA SACHET / DDMA bulletins with verified spatial coverage.",
+        ]
 
         return RouteAnalysisResponse(
             route_id=db_route.id,
             route_version=new_version,
+            corridor_distance_meters=corr_m,
+            corridor_distance_km=round(corr_m / 1000.0, 2),
+            corridor_geojson=fresh.get("corridor_geojson"),
             analysis_timestamp=datetime.now(timezone.utc).isoformat(),
             overall_hazard_score=db_route.overall_hazard_score,
             overall_safety_status=db_route.overall_safety_status,
@@ -718,6 +817,7 @@ class RouteConditionAnalyzer:
             affected_segments=analysis.conditions,
             data_quality_summary=fresh,
             overlays_geojson=fresh.get("overlays_geojson", {}),
+            analysis_limitations=limitations,
         )
 
 

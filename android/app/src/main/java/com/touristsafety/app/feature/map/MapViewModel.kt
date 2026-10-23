@@ -18,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.*
 import org.json.JSONObject
 import javax.inject.Inject
 
@@ -89,7 +90,11 @@ data class MapUiState(
     val selectedAlternativeId: String? = null,
     val routeOverallHazardScore: Double? = null,
     val routeSafetyStatus: String? = null,
-    val activeDecisionExplanation: String? = null
+    val activeDecisionExplanation: String? = null,
+    val corridorDistanceKm: Double = 5.0,
+    val corridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
+    val isAnalyzingCorridor: Boolean = false,
+    val analysisLimitations: List<String> = emptyList()
 )
 
 @HiltViewModel
@@ -223,7 +228,7 @@ class MapViewModel @Inject constructor(
                     }
 
                     // Trigger genuine corridor hazard analysis for this route
-                    triggerRouteCorridorAnalysis(activeRoute.route_id, activeRoute.route_version, activeRoute)
+                    triggerRouteCorridorAnalysis(activeRoute.route_id, activeRoute.route_version, _uiState.value.corridorDistanceKm, activeRoute)
                 }
             }
         }
@@ -331,22 +336,44 @@ class MapViewModel @Inject constructor(
         routeRepository.clearActiveRoute()
     }
 
-    private fun triggerRouteCorridorAnalysis(
+    fun setCorridorDistance(distanceKm: Double) {
+        val validDistances = listOf(1.0, 2.0, 5.0, 10.0)
+        val validDistance = if (validDistances.contains(distanceKm)) distanceKm else 5.0
+        if (_uiState.value.corridorDistanceKm == validDistance) return
+
+        _uiState.update { it.copy(corridorDistanceKm = validDistance) }
+
+        val activeId = _uiState.value.activeRouteId
+        val activeVer = _uiState.value.activeRouteVersion
+        if (activeId != null) {
+            triggerRouteCorridorAnalysis(activeId, activeVer, validDistance)
+        }
+    }
+
+    fun triggerRouteCorridorAnalysis(
         routeId: String,
-        version: Int,
-        fallbackRoute: PlannedRouteResponseDto
+        version: Int = 1,
+        corridorDistanceKm: Double = _uiState.value.corridorDistanceKm,
+        fallbackRoute: PlannedRouteResponseDto? = null
     ) {
         currentRouteAnalysisJob?.cancel()
-        val requestId = "${routeId}_$version"
+        val requestId = "${routeId}_${version}_${corridorDistanceKm}"
         activeAnalysisRequestId = requestId
 
         currentRouteAnalysisJob = viewModelScope.launch {
             _uiState.update {
-                it.copy(routeLifecycleState = RouteLifecycleState.ANALYZING_CORRIDOR)
+                it.copy(
+                    routeLifecycleState = RouteLifecycleState.ANALYZING_CORRIDOR,
+                    isAnalyzingCorridor = true
+                )
             }
 
-            val analysisResult = routeRepository.analyzeRoute(routeId)
-            // Ensure this request hasn't been superseded by another route selection
+            val analysisResult = routeRepository.analyzeRoute(
+                routeId = routeId,
+                corridorDistanceKm = corridorDistanceKm,
+                routeVersion = version
+            )
+            // Ensure this request hasn't been superseded by another route selection or corridor change
             if (activeAnalysisRequestId != requestId) {
                 Log.d("MapViewModel", "Discarded stale route analysis for $requestId")
                 return@launch
@@ -357,8 +384,17 @@ class MapViewModel @Inject constructor(
                     applyRouteAnalysisFeatures(analysis)
                 },
                 onFailure = { err ->
-                    Log.w("MapViewModel", "Route analysis API call failed: ${err.message}. Applying fallback from planned route.", err)
-                    applyFallbackRouteAnalysis(fallbackRoute)
+                    Log.w("MapViewModel", "Route analysis API call failed: ${err.message}. Applying fallback.", err)
+                    if (fallbackRoute != null) {
+                        applyFallbackRouteAnalysis(fallbackRoute)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isAnalyzingCorridor = false,
+                                routeLifecycleState = RouteLifecycleState.ANALYSIS_FAILED
+                            )
+                        }
+                    }
                 }
             )
         }
@@ -367,17 +403,74 @@ class MapViewModel @Inject constructor(
     private fun applyRouteAnalysisFeatures(analysis: RouteAnalysisResponseDto) {
         val userLoc = _uiState.value.userLocation
 
-        // 1. Hazard zones from disaster_alerts
-        rawHazardZones = analysis.disaster_alerts.map { a ->
+        // 0. Parse Corridor Polygon from analysis.corridor_geojson
+        val corridorCoords = mutableListOf<List<Pair<Double, Double>>>()
+        try {
+            val corridorGeoJson = analysis.corridor_geojson
+            if (corridorGeoJson != null && corridorGeoJson is JsonObject) {
+                val geom = corridorGeoJson["geometry"] as? JsonObject
+                val geomType = (geom?.get("type") as? JsonPrimitive)?.content
+                val coordsArray = geom?.get("coordinates") as? JsonArray
+                if (geomType == "Polygon" && coordsArray != null) {
+                    for (ringElem in coordsArray) {
+                        val ring = ringElem as? JsonArray ?: continue
+                        val ringPoints = mutableListOf<Pair<Double, Double>>()
+                        for (ptElem in ring) {
+                            val ptArr = ptElem as? JsonArray ?: continue
+                            if (ptArr.size >= 2) {
+                                val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                ringPoints.add(lat to lon)
+                            }
+                        }
+                        if (ringPoints.isNotEmpty()) {
+                            corridorCoords.add(ringPoints)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MapViewModel", "Error parsing corridor polygon", e)
+        }
+
+        // 1. Hazard zones from disaster_alerts with real spatial coordinates
+        rawHazardZones = analysis.disaster_alerts.mapNotNull { a ->
             val dist = (a.distance_to_alert_km * 1000f).toFloat()
-            val circleCoords = generateCirclePolygon(userLoc.first, userLoc.second, 3000.0)
+            val lat = a.center_latitude ?: userLoc.first
+            val lon = a.center_longitude ?: userLoc.second
+
+            var polygonCoords: List<Pair<Double, Double>>? = null
+            try {
+                val pGeom = a.polygon_geojson
+                if (pGeom != null && pGeom is JsonObject) {
+                    val coords = pGeom["coordinates"] as? JsonArray
+                    val ring = coords?.firstOrNull() as? JsonArray
+                    if (ring != null) {
+                        polygonCoords = ring.mapNotNull { ptElem ->
+                            val ptArr = ptElem as? JsonArray ?: return@mapNotNull null
+                            if (ptArr.size >= 2) {
+                                val pLon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: return@mapNotNull null
+                                val pLat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: return@mapNotNull null
+                                pLat to pLon
+                            } else null
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MapViewModel", "Error parsing alert polygon", e)
+            }
+
+            if (polygonCoords == null && a.center_latitude != null && a.center_longitude != null && (a.affected_radius_meters ?: 0.0) > 0.0) {
+                polygonCoords = generateCirclePolygon(lat, lon, a.affected_radius_meters ?: 3000.0)
+            }
+
             UnifiedMapFeature(
                 id = "hazard_${a.alert_id}",
                 category = MapFeatureCategory.HAZARD_ZONE,
                 title = a.title,
                 subtitle = "Severity: ${a.severity} • Category: ${a.hazard_category.uppercase()}",
-                latitude = userLoc.first,
-                longitude = userLoc.second,
+                latitude = lat,
+                longitude = lon,
                 distanceMeters = dist,
                 sourceName = "NDMA SACHET / CAP Official",
                 sourceTimestampEpochMs = System.currentTimeMillis(),
@@ -390,17 +483,17 @@ class MapViewModel @Inject constructor(
                     "Distance to Route" to "${a.distance_to_alert_km} km",
                     "Protective Instructions" to a.required_protective_instructions,
                 ),
-                geometryPolygon = circleCoords
+                geometryPolygon = polygonCoords
             )
         }
 
-        // 2. Active Fires from fire_detections
+        // 2. Active Fires from fire_detections with genuine coordinates
         rawFireHotspots = analysis.fire_detections.mapIndexed { idx, fire ->
             FireHotspot(
                 id = "firms_corridor_$idx",
-                latitude = userLoc.first,
-                longitude = userLoc.second,
-                brightness = 325.0,
+                latitude = fire.latitude ?: userLoc.first,
+                longitude = fire.longitude ?: userLoc.second,
+                brightness = fire.brightness ?: 325.0,
                 confidence = fire.confidence ?: "nominal",
                 satellite = "MODIS/VIIRS",
                 acquisitionDate = fire.acquisition_time ?: "NRT",
@@ -431,14 +524,14 @@ class MapViewModel @Inject constructor(
             )
         }
 
-        // 4. Waypoint Weather
-        val firstWeather = analysis.weather_by_waypoint.firstOrNull()
-        if (firstWeather != null) {
+        // 4. Waypoint Weather - Create sample points along corridor
+        if (analysis.weather_by_waypoint.isNotEmpty()) {
+            val firstWeather = analysis.weather_by_waypoint.first()
             val wModel = Weather(
                 latitude = userLoc.first,
                 longitude = userLoc.second,
                 temperatureC = firstWeather.temperature_c,
-                relativeHumidityPct = firstWeather.relative_humidity_pct.toDouble(),
+                relativeHumidityPct = firstWeather.relative_humidity_pct,
                 precipitationMm = firstWeather.precipitation_mm,
                 windSpeedKmh = firstWeather.wind_speed_kmh,
                 weatherCode = firstWeather.weather_code,
@@ -449,6 +542,32 @@ class MapViewModel @Inject constructor(
                 isCached = false
             )
             _uiState.update { it.copy(routeSummaryWeather = wModel) }
+
+            rawWeatherPoints = analysis.weather_by_waypoint.mapIndexed { idx, wpWeather ->
+                val sampleLat = if (idx < _uiState.value.routeCoordinates.size) _uiState.value.routeCoordinates[idx].first else userLoc.first
+                val sampleLon = if (idx < _uiState.value.routeCoordinates.size) _uiState.value.routeCoordinates[idx].second else userLoc.second
+                UnifiedMapFeature(
+                    id = "weather_route_sample_$idx",
+                    category = MapFeatureCategory.WEATHER_POINT,
+                    title = "Sample ${idx + 1}: ${wpWeather.weather_description}",
+                    subtitle = "${wpWeather.temperature_c}°C • Wind: ${wpWeather.wind_speed_kmh} km/h",
+                    latitude = sampleLat,
+                    longitude = sampleLon,
+                    distanceMeters = 0f,
+                    sourceName = wpWeather.source,
+                    sourceTimestampEpochMs = System.currentTimeMillis(),
+                    isVerified = true,
+                    isCached = false,
+                    details = mapOf(
+                        "Temperature" to "${wpWeather.temperature_c}°C",
+                        "Precipitation" to "${wpWeather.precipitation_mm} mm (${wpWeather.precipitation_probability_pct}%)",
+                        "Wind Speed" to "${wpWeather.wind_speed_kmh} km/h",
+                        "Relative Humidity" to "${wpWeather.relative_humidity_pct}%",
+                        "Forecast Time" to wpWeather.forecast_valid_at,
+                        "Warning Level" to wpWeather.warning_level
+                    )
+                )
+            }
         }
 
         // 5. Update layer statuses from provider_statuses
@@ -482,7 +601,11 @@ class MapViewModel @Inject constructor(
                 routeSummaryFireCount = rawFireHotspots.size,
                 routeOverallHazardScore = analysis.overall_hazard_score,
                 routeSafetyStatus = analysis.overall_safety_status,
-                activeDecisionExplanation = analysis.decision_explanation
+                activeDecisionExplanation = analysis.decision_explanation,
+                corridorDistanceKm = analysis.corridor_distance_km,
+                corridorPolygonCoordinates = corridorCoords,
+                analysisLimitations = analysis.analysis_limitations,
+                isAnalyzingCorridor = false
             )
         }
         rebuildUnifiedFeatures()
@@ -902,7 +1025,8 @@ class MapViewModel @Inject constructor(
                 originName = if (_uiState.value.isUserLocationAcquired) "My Location" else "Current Location",
                 destLat = place.latitude,
                 destLon = place.longitude,
-                destName = place.name
+                destName = place.name,
+                corridorDistanceKm = _uiState.value.corridorDistanceKm
             )
             res.onFailure { err ->
                 _uiState.update {

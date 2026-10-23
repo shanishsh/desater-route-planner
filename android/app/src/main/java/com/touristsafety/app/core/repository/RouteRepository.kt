@@ -123,7 +123,8 @@ class RouteRepository @Inject constructor(
         destLat: Double,
         destLon: Double,
         destName: String,
-        travelMode: String = "driving"
+        travelMode: String = "driving",
+        corridorDistanceKm: Double = 5.0
     ): Result<PlannedRouteResponseDto> {
         return try {
             val request = PlanRouteRequestDto(
@@ -133,7 +134,8 @@ class RouteRepository @Inject constructor(
                 destination_lat = destLat,
                 destination_lon = destLon,
                 destination_name = destName,
-                travel_mode = travelMode
+                travel_mode = travelMode,
+                corridor_distance_km = corridorDistanceKm
             )
             val response = apiService.planRoute(request)
             if (response.isSuccessful && response.body() != null) {
@@ -151,9 +153,21 @@ class RouteRepository @Inject constructor(
         }
     }
 
-    suspend fun analyzeRoute(routeId: String): Result<RouteAnalysisResponseDto> {
+    suspend fun analyzeRoute(
+        routeId: String,
+        corridorDistanceKm: Double = 5.0,
+        routeVersion: Int? = null
+    ): Result<RouteAnalysisResponseDto> {
         return try {
-            val response = apiService.analyzeRoute(routeId)
+            val request = RouteAnalysisRequestDto(
+                corridor_distance_km = corridorDistanceKm,
+                route_version = routeVersion
+            )
+            val response = apiService.analyzeRoute(
+                id = routeId,
+                corridorDistanceKm = corridorDistanceKm,
+                body = request
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {

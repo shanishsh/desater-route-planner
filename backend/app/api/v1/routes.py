@@ -1,6 +1,6 @@
 """Route Planning and Multi-Hazard Corridor Safety Scanning API."""
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database.session import get_db
@@ -12,6 +12,7 @@ from app.schemas.route_plan import (
     PlannedRouteResponse,
     RouteWaypointCondition,
     RouteAlternativeSchema,
+    RouteAnalysisRequest,
     RouteAnalysisResponse,
 )
 
@@ -50,10 +51,14 @@ async def plan_route(
     )
 
     # 2. Analyze corridor conditions (weather at arrival times, fires, forests, disaster alerts)
+    corr_m = request.corridor_distance_meters or (
+        (request.corridor_distance_km * 1000.0) if request.corridor_distance_km else 5000.0
+    )
     analysis = await route_condition_analyzer.analyze_route(
         db=db,
         route=route_result,
         departure_time=request.departure_time,
+        corridor_distance_meters=corr_m,
     )
 
     # 3. Persist PlannedRoute
@@ -88,15 +93,31 @@ async def plan_route(
 @router.post("/{route_id}/analyze", response_model=RouteAnalysisResponse)
 async def analyze_route_corridor(
     route_id: str,
+    request: Optional[RouteAnalysisRequest] = None,
+    corridor_distance_km: Optional[float] = Query(None, description="Buffer distance on each side in km (e.g. 1, 2, 5, 10)"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Retrieves the selected, persisted route geometry from the backend,
-    constructs a bounded route corridor, queries real weather, official disaster advisories,
-    active wildfires, and assistance points, increments the route version, and returns
-    a unified route-analysis response with MapLibre GeoJSON overlays.
+    constructs a dynamic geographic corridor (following all turns and bends),
+    queries real weather samples, official disaster advisories, active wildfires,
+    and emergency safe havens strictly filtered to the corridor, increments
+    the route version, and returns a unified route-analysis response with MapLibre GeoJSON overlays.
     """
-    analysis = await route_condition_analyzer.analyze_persisted_route(db=db, route_id=route_id)
+    corr_m = None
+    if request:
+        if request.corridor_distance_meters:
+            corr_m = request.corridor_distance_meters
+        elif request.corridor_distance_km:
+            corr_m = request.corridor_distance_km * 1000.0
+    if corr_m is None and corridor_distance_km is not None:
+        corr_m = corridor_distance_km * 1000.0
+
+    analysis = await route_condition_analyzer.analyze_persisted_route(
+        db=db,
+        route_id=route_id,
+        corridor_distance_meters=corr_m,
+    )
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
     return analysis

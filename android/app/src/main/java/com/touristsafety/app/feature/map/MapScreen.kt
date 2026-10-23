@@ -60,6 +60,7 @@ fun MapScreen(
         if (state.isOfflineMode || mapLoadFailed) {
             OfflineVectorCanvasView(
                 routeCoordinates = state.routeCoordinates,
+                corridorPolygonCoordinates = state.corridorPolygonCoordinates,
                 features = state.visibleFeatures,
                 onFeatureClicked = { viewModel.selectFeature(it) }
             )
@@ -254,6 +255,10 @@ fun MapScreen(
             overallSafetyStatus = state.routeSafetyStatus,
             overallHazardScore = state.routeOverallHazardScore,
             onSelectAlternative = { viewModel.selectRouteAlternative(it) },
+            corridorDistanceKm = state.corridorDistanceKm,
+            isAnalyzingCorridor = state.isAnalyzingCorridor,
+            onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
+            analysisLimitations = state.analysisLimitations,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
@@ -561,6 +566,21 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
     try {
         mapboxMap.clear()
 
+        // 0. Draw Route Corridor Boundary & Ambient Scan Zone
+        if (state.corridorPolygonCoordinates.isNotEmpty()) {
+            state.corridorPolygonCoordinates.forEach { ring ->
+                if (ring.size >= 3) {
+                    val corridorLatLngs = ring.map { LatLng(it.first, it.second) }
+                    mapboxMap.addPolygon(
+                        PolygonOptions()
+                            .addAll(corridorLatLngs)
+                            .fillColor(android.graphics.Color.argb(25, 3, 169, 244)) // Soft Light Cyan-Blue
+                            .strokeColor(android.graphics.Color.argb(160, 2, 136, 209)) // 5 km Boundary Stroke
+                    )
+                }
+            }
+        }
+
         // 1. Draw Active Route Line & Secondary Comparison Line
         if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
             // Draw original primary route as secondary muted line
@@ -648,6 +668,7 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
 @Composable
 fun OfflineVectorCanvasView(
     routeCoordinates: List<Pair<Double, Double>>,
+    corridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
     features: List<UnifiedMapFeature>,
     onFeatureClicked: (UnifiedMapFeature) -> Unit
 ) {
@@ -698,6 +719,20 @@ fun OfflineVectorCanvasView(
                 val x = ((lon - minLon) / lonSpan * (size.width - 80f) + 40f).toFloat()
                 val y = ((maxLat - lat) / latSpan * (size.height - 80f) + 40f).toFloat()
                 return Offset(x, y)
+            }
+
+            // 0. Draw Route Corridor Polygon (if available)
+            corridorPolygonCoordinates.forEach { ring ->
+                if (ring.size >= 3) {
+                    val cPath = Path()
+                    ring.forEachIndexed { idx, (lat, lon) ->
+                        val pt = project(lat, lon)
+                        if (idx == 0) cPath.moveTo(pt.x, pt.y) else cPath.lineTo(pt.x, pt.y)
+                    }
+                    cPath.close()
+                    drawPath(path = cPath, color = Color(0x2203A9F4))
+                    drawPath(path = cPath, color = Color(0x660288D1), style = Stroke(width = 2f))
+                }
             }
 
             // 1. Draw Forest polygons

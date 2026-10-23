@@ -112,7 +112,9 @@ interface ApiService {
 
     @POST("routes/{id}/analyze")
     suspend fun analyzeRoute(
-        @Path("id") id: String
+        @Path("id") id: String,
+        @Query("corridor_distance_km") corridorDistanceKm: Double? = 5.0,
+        @Body body: RouteAnalysisRequestDto? = null
     ): Response<RouteAnalysisResponseDto>
 
     @GET("routes/{id}")
