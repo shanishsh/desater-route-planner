@@ -35,7 +35,7 @@ class DisasterSafetyViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val isMonitoring: StateFlow<Boolean> = hazardGeofenceManager.isMonitoring
-
+    val isSirenPlaying: StateFlow<Boolean> = disasterRepository.isSirenPlaying
     val lastLocation: StateFlow<Location?> = hazardGeofenceManager.lastKnownLocation
 
     private val _uiState = MutableStateFlow(DisasterUiState())
@@ -146,6 +146,16 @@ class DisasterSafetyViewModel @Inject constructor(
             disasterRepository.triggerTestAlarm()
             _uiState.update { it.copy(infoMessage = "Test alarm siren and notification triggered. Test alarm; no real disaster.") }
         }
+    }
+
+    fun triggerDummyAlert() {
+        disasterRepository.triggerDummyAlert()
+        _uiState.update { it.copy(infoMessage = "🚨 Dummy Disaster Alert triggered! Ringing emergency siren & posting notification.") }
+    }
+
+    fun stopDisasterSiren() {
+        disasterRepository.stopDisasterSiren()
+        _uiState.update { it.copy(infoMessage = "Disaster siren silenced.") }
     }
 
     fun clearMessages() {

@@ -27,6 +27,18 @@ class DisasterRepository @Inject constructor(
 
     val hazardZones: Flow<List<HazardZoneEntity>> = hazardZoneDao.getAllActive()
     val subscriber: Flow<SubscriberEntity?> = subscriberDao.getSubscriber()
+    val isSirenPlaying = notificationManager.isSirenPlaying
+
+    fun triggerDummyAlert(
+        title: String = "Flash Flood & Landslide Warning",
+        instructions: String = "Immediate evacuation advised for Beas & Satluj riverbanks. Seek higher elevation at designated municipal shelters."
+    ) {
+        notificationManager.triggerDummyDisasterAlert(title, instructions)
+    }
+
+    fun stopDisasterSiren() {
+        notificationManager.stopDisasterSiren()
+    }
 
     suspend fun syncDisasterAlerts(): Result<Int> {
         return try {

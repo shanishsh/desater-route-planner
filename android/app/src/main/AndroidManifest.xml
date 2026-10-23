@@ -28,6 +28,14 @@
             android:foregroundServiceType="location"
             android:exported="false" />
 
+        <receiver
+            android:name=".core.notification.DisasterAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.touristsafety.app.ACTION_STOP_DISASTER_ALARM" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

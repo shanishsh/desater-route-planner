@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.touristsafety.app.core.database.entity.HazardZoneEntity
 
@@ -122,9 +123,12 @@ fun DisasterSafetyScreen(
             }
 
             item {
-                // Section 3: Diagnostic Test Alarm Button
+                // Section 3: Diagnostic Test Alarm & Dummy Alert Button
+                val isSirenPlaying by viewModel.isSirenPlaying.collectAsState()
                 TestAlarmCard(
-                    onTriggerTest = { viewModel.triggerTestAlarm() }
+                    isSirenPlaying = isSirenPlaying,
+                    onTriggerTest = { viewModel.triggerDummyAlert() },
+                    onStopSiren = { viewModel.stopDisasterSiren() }
                 )
             }
 
@@ -375,39 +379,62 @@ private fun SmsSubscriptionCard(
 }
 
 @Composable
-private fun TestAlarmCard(onTriggerTest: () -> Unit) {
+private fun TestAlarmCard(
+    isSirenPlaying: Boolean,
+    onTriggerTest: () -> Unit,
+    onStopSiren: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Default.Notifications,
+                    Icons.Default.NotificationsActive,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Diagnostic Siren & Notification Test",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = "Dummy Alert & Emergency Ring Sound",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Verify your handset's audio channel, volume, and vibration pattern for disaster broadcasts.",
+                text = "Simulates a full disaster warning: fires high-priority Android notification, sounds the emergency alarm siren ring tone, and executes pulse vibration.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onTriggerTest,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth()
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Test alarm (Test alarm; no real disaster)")
+                Button(
+                    onClick = onTriggerTest,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Trigger Dummy Alert", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                if (isSirenPlaying) {
+                    Button(
+                        onClick = onStopSiren,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Silence Siren", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
             }
         }
     }

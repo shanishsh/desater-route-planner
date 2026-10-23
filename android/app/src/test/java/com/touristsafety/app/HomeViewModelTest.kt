@@ -8,6 +8,7 @@ import com.touristsafety.app.core.network.DetailedConnectivityState
 import com.touristsafety.app.core.network.NetworkConnectivityMonitor
 import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.repository.AlertRepository
+import com.touristsafety.app.core.repository.DisasterRepository
 import com.touristsafety.app.core.repository.EmergencyRepository
 import com.touristsafety.app.core.repository.ItineraryRepository
 import com.touristsafety.app.core.repository.ProviderStatusRepository
@@ -32,6 +33,7 @@ class HomeViewModelTest {
     private val weatherRepository = mockk<WeatherRepository>(relaxed = true)
     private val emergencyRepository = mockk<EmergencyRepository>(relaxed = true)
     private val providerStatusRepository = mockk<ProviderStatusRepository>(relaxed = true)
+    private val disasterRepository = mockk<DisasterRepository>(relaxed = true)
     private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
@@ -43,6 +45,7 @@ class HomeViewModelTest {
             DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
         )
         coEvery { connectivityMonitor.probeBackend() } returns Unit
+        every { disasterRepository.isSirenPlaying } returns MutableStateFlow(false)
     }
 
     @After
@@ -89,6 +92,7 @@ class HomeViewModelTest {
             weatherRepository,
             emergencyRepository,
             providerStatusRepository,
+            disasterRepository,
             connectivityMonitor
         )
 
@@ -99,6 +103,25 @@ class HomeViewModelTest {
         assertEquals("Rohtang Valley Ridge Trail", state.selectedItinerary?.title)
         assertEquals(1, state.alerts.size)
         assertEquals("[SIMULATED] High Rain-Risk Advisory", state.alerts[0].title)
+    }
+
+    @Test
+    fun `triggerDummyDisasterAlert delegates to disaster repository`() = runTest(testDispatcher) {
+        val viewModel = HomeViewModel(
+            itineraryRepository,
+            alertRepository,
+            weatherRepository,
+            emergencyRepository,
+            providerStatusRepository,
+            disasterRepository,
+            connectivityMonitor
+        )
+
+        viewModel.triggerDummyDisasterAlert()
+        verify(exactly = 1) { disasterRepository.triggerDummyAlert(any(), any()) }
+
+        viewModel.stopDisasterSiren()
+        verify(exactly = 1) { disasterRepository.stopDisasterSiren() }
     }
 }
 

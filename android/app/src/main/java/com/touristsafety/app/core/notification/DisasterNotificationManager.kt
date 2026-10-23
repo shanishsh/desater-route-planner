@@ -6,13 +6,23 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.Ringtone
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.touristsafety.app.MainActivity
 import com.touristsafety.app.R
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,21 +32,37 @@ class DisasterNotificationManager @Inject constructor(
 ) {
 
     companion object {
-        const val CHANNEL_ID = "disaster_alerts_critical_v1"
-        const val CHANNEL_NAME = "Critical Disaster & Hazard Alerts"
-        const val CHANNEL_DESC = "High priority warnings for flash floods, landslides, and hazardous weather."
+        private const val TAG = "DisasterNotification"
+        const val CHANNEL_ID = "disaster_alerts_siren_alarm_v3"
+        const val CHANNEL_NAME = "🚨 Disaster Emergency Sirens & Warnings"
+        const val CHANNEL_DESC = "Maximum priority emergency sirens, alarm tones, and flash flood/landslide warnings."
+        const val DUMMY_NOTIFICATION_ID = 99991
     }
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var activeRingtone: Ringtone? = null
+    private var activeVibrator: Vibrator? = null
+    private var sirenTimeoutJob: Job? = null
+
+    private val _isSirenPlaying = MutableStateFlow(false)
+    val isSirenPlaying: StateFlow<Boolean> = _isSirenPlaying.asStateFlow()
 
     init {
         createNotificationChannel()
     }
 
+    private fun getEmergencySoundUri(): Uri {
+        return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val soundUri = getEmergencySoundUri()
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setUsage(AudioAttributes.USAGE_ALARM)
                 .build()
 
             val channel = NotificationChannel(
@@ -46,12 +72,139 @@ class DisasterNotificationManager @Inject constructor(
             ).apply {
                 description = CHANNEL_DESC
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 250, 500, 250, 800)
+                vibrationPattern = longArrayOf(0, 800, 300, 800, 300, 1200)
                 setSound(soundUri, audioAttributes)
+                setBypassDnd(true)
             }
 
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    /**
+     * Plays a loud emergency alarm ring sound and vibration pattern.
+     * Rings continuously on the ALARM stream until stopped or after 25s timeout.
+     */
+    fun playDisasterSiren() {
+        try {
+            stopDisasterSiren() // Stop any previous playback
+
+            val soundUri = getEmergencySoundUri()
+            val ringtone = RingtoneManager.getRingtone(context, soundUri)
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
+            ringtone?.audioAttributes = audioAttributes
+            ringtone?.play()
+            activeRingtone = ringtone
+
+            // Trigger emergency vibration pattern
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            activeVibrator = vibrator
+
+            val pattern = longArrayOf(0, 800, 300, 800, 300, 1200)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0)) // repeat index 0
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(pattern, 0)
+            }
+
+            _isSirenPlaying.value = true
+
+            // Auto-timeout after 25 seconds to protect battery and user comfort
+            sirenTimeoutJob = scope.launch {
+                delay(25_000L)
+                stopDisasterSiren()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error playing disaster siren ring sound: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Stops the audible siren ring sound and cancels vibration.
+     */
+    fun stopDisasterSiren() {
+        try {
+            sirenTimeoutJob?.cancel()
+            sirenTimeoutJob = null
+
+            activeRingtone?.stop()
+            activeRingtone = null
+
+            activeVibrator?.cancel()
+            activeVibrator = null
+
+            _isSirenPlaying.value = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping disaster siren: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Triggers a complete dummy disaster alert notification with active ring sound and vibration.
+     */
+    fun triggerDummyDisasterAlert(
+        title: String = "Flash Flood & Landslide Warning",
+        instructions: String = "Immediate evacuation advised for Beas & Satluj riverbanks. Seek higher elevation at designated municipal shelters."
+    ) {
+        // 1. Play loud siren ring sound & vibration
+        playDisasterSiren()
+
+        // 2. Build and post emergency notification
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("OPEN_ALERT_ID", "dummy-disaster-alert")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            DUMMY_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action to silence siren right from the notification drawer
+        val silenceIntent = Intent(context, DisasterAlarmReceiver::class.java).apply {
+            action = DisasterAlarmReceiver.ACTION_STOP_ALARM
+        }
+        val silencePendingIntent = PendingIntent.getBroadcast(
+            context,
+            DUMMY_NOTIFICATION_ID + 1,
+            silenceIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val fullBody = "🚨 HAZARD: FLASH FLOOD & LANDSLIDE (CRITICAL)\nAction: $instructions\n\n[DUMMY ALERT DEMO]: Safety siren sound and vibration verified. Test alert; no real disaster."
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("🚨 [DUMMY DISASTER ALERT] $title")
+            .setContentText(fullBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(fullBody))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_delete, "SILENCE ALARM", silencePendingIntent)
+            .build()
+
+        try {
+            val manager = NotificationManagerCompat.from(context)
+            if (manager.areNotificationsEnabled()) {
+                manager.notify(DUMMY_NOTIFICATION_ID, notification)
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Notification permission not granted for dummy alert: ${e.message}")
         }
     }
 
@@ -65,6 +218,11 @@ class DisasterNotificationManager @Inject constructor(
         isSimulated: Boolean = false,
         isTestAlarm: Boolean = false
     ) {
+        // If critical or test alarm, start ring sound
+        if (!isCached || isTestAlarm) {
+            playDisasterSiren()
+        }
+
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("OPEN_ALERT_ID", alertId)
@@ -74,6 +232,16 @@ class DisasterNotificationManager @Inject constructor(
             context,
             alertId.hashCode(),
             intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val silenceIntent = Intent(context, DisasterAlarmReceiver::class.java).apply {
+            action = DisasterAlarmReceiver.ACTION_STOP_ALARM
+        }
+        val silencePendingIntent = PendingIntent.getBroadcast(
+            context,
+            alertId.hashCode() + 100,
+            silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -101,6 +269,7 @@ class DisasterNotificationManager @Inject constructor(
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_delete, "SILENCE ALARM", silencePendingIntent)
             .build()
 
         try {
@@ -109,8 +278,7 @@ class DisasterNotificationManager @Inject constructor(
                 manager.notify(alertId.hashCode(), notification)
             }
         } catch (e: SecurityException) {
-            // Handled gracefully if notification permission is denied
+            Log.w(TAG, "Notification permission not granted: ${e.message}")
         }
     }
 }
-

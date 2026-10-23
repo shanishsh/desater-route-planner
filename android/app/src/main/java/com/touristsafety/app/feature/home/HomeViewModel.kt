@@ -4,11 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.network.NetworkConnectivityMonitor
 import com.touristsafety.app.core.network.NetworkStatus
-import com.touristsafety.app.core.repository.AlertRepository
-import com.touristsafety.app.core.repository.EmergencyRepository
-import com.touristsafety.app.core.repository.ItineraryRepository
-import com.touristsafety.app.core.repository.ProviderStatusRepository
-import com.touristsafety.app.core.repository.WeatherRepository
+import com.touristsafety.app.core.repository.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -22,11 +18,13 @@ class HomeViewModel @Inject constructor(
     private val weatherRepository: WeatherRepository,
     private val emergencyRepository: EmergencyRepository,
     private val providerStatusRepository: ProviderStatusRepository,
+    private val disasterRepository: DisasterRepository,
     private val connectivityMonitor: NetworkConnectivityMonitor
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    val isSirenPlaying: StateFlow<Boolean> = disasterRepository.isSirenPlaying
 
     private var weatherJob: Job? = null
 
@@ -104,6 +102,17 @@ class HomeViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun triggerDummyDisasterAlert() {
+        disasterRepository.triggerDummyAlert(
+            title = "Flash Flood & Landslide Warning",
+            instructions = "Evacuate low-lying riverbanks immediately! Move to higher ground at Ridge Shelter. (Demo Dummy Alert)"
+        )
+    }
+
+    fun stopDisasterSiren() {
+        disasterRepository.stopDisasterSiren()
     }
 }
 
