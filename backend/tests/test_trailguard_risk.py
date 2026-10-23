@@ -140,3 +140,4 @@ def test_sar_uncertainty_circle_polygon():
     # Coordinates should be [lon, lat]
     assert 76.5 <= coords[0][0] <= 78.0
     assert 31.5 <= coords[0][1] <= 33.0
+

@@ -88,3 +88,4 @@ class LocalSpatialEngineTest {
         assertEquals(3515.0, radius, 5.0)
     }
 }
+

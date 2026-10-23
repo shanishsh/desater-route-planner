@@ -128,3 +128,4 @@ object LocalSpatialEngine {
         return min(15000.0, max(lastGpsAccuracyM, lastGpsAccuracyM + expandedDistance))
     }
 }
+
