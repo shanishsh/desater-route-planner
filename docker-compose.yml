@@ -1,0 +1,89 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: tourist_safety_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-tourist_safety}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tourist_safety}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tourist_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tourist_safety_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tourist_network
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tourist_safety_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/tourist_safety
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-temporary-dev-secret-key-32-bytes-minimum-length}
+      - MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
+      - OPEN_METEO_BASE_URL=https://api.open-meteo.com/v1/forecast
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tourist_network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tourist_safety_worker
+    restart: unless-stopped
+    command: python -m app.worker
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/tourist_safety
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-temporary-dev-secret-key-32-bytes-minimum-length}
+      - OPEN_METEO_BASE_URL=https://api.open-meteo.com/v1/forecast
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tourist_network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  tourist_network:
+    driver: bridge
+

@@ -1,0 +1,63 @@
+"""Application configuration settings."""
+from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+
+
+class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
+    LOG_LEVEL: str = "INFO"
+
+    # API Configuration
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
+    API_V1_PREFIX: str = "/api/v1"
+    PROJECT_NAME: str = "Tourist Safety & Assistance Platform"
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://10.0.2.2:8000",  # Android emulator host IP
+    ]
+
+    # Database
+    DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/tourist_safety",
+        description="Async PostgreSQL database URL. Can be overridden with sqlite+aiosqlite for testing.",
+    )
+    DATABASE_ECHO: bool = False
+
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_TIMEOUT_SECONDS: float = 2.0
+
+    # Security
+    SECRET_KEY: str = "tourist-safety-platform-secure-token-key-for-jwt-signing-minimum-32"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ADMIN_EMAIL: str = "admin@touristsafety.local"
+    ADMIN_PASSWORD: str = "Admin@Safety2026!"
+
+    # Rate Limiting
+    RATE_LIMIT_PER_MINUTE: int = 60
+    WEATHER_RATE_LIMIT_PER_MINUTE: int = 20
+
+    # External APIs
+    MAP_STYLE_URL: str = "https://tiles.openfreemap.org/styles/liberty"
+    OPEN_METEO_BASE_URL: str = "https://api.open-meteo.com/v1/forecast"
+    WEATHER_CACHE_TTL_SECONDS: int = 900  # 15 minutes
+    MAP_POINTS_CACHE_TTL_SECONDS: int = 3600  # 1 hour
+    ITINERARY_CACHE_TTL_SECONDS: int = 7200  # 2 hours
+
+    # Alert Freshness
+    DEFAULT_ALERT_FRESHNESS_SECONDS: int = 3600  # 1 hour
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+settings = Settings()
+

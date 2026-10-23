@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Tourist Safety &amp; Assistance</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_map">Explore Map</string>
+    <string name="nav_alerts">Alerts</string>
+    <string name="nav_emergency">Emergency</string>
+    <string name="nav_saved">Saved Offline</string>
+
+    <string name="dial_112_action">Call ERSS Emergency (112)</string>
+    <string name="offline_banner_text">Offline Mode — Showing local cached data</string>
+    <string name="sync_success">Synchronized with server</string>
+    <string name="sync_failed">Sync failed — keeping last known good data</string>
+</resources>
+
