@@ -53,10 +53,11 @@ fun MapScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    var mapLoadFailed by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
         // 1. BASE MAP LAYER (MapLibre Native or Offline Canvas)
-        if (state.isOfflineMode) {
+        if (state.isOfflineMode || mapLoadFailed) {
             OfflineVectorCanvasView(
                 routeCoordinates = state.routeCoordinates,
                 features = state.visibleFeatures,
@@ -65,12 +66,16 @@ fun MapScreen(
         } else {
             AndroidView(
                 factory = { ctx ->
-                    MapView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        getMapAsync { mapboxMap ->
+                    try {
+                        MapView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            onCreate(null)
+                            onStart()
+                            onResume()
+                            getMapAsync { mapboxMap ->
                             maplibreMapInstance = mapboxMap
                             mapboxMap.setStyle(
                                 Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
@@ -107,10 +112,26 @@ fun MapScreen(
                             }
                         }
                     }
+                    } catch (e: Throwable) {
+                        android.util.Log.e("MapScreen", "Failed to initialize MapView, falling back to schematic canvas", e)
+                        mapLoadFailed = true
+                        android.view.View(ctx)
+                    }
                 },
                 update = {
                     maplibreMapInstance?.let { map ->
                         updateMaplibreLayers(map, state)
+                    }
+                },
+                onRelease = { mapView ->
+                    try {
+                        if (mapView is MapView) {
+                            mapView.onPause()
+                            mapView.onStop()
+                            mapView.onDestroy()
+                        }
+                    } catch (e: Throwable) {
+                        // Safe catch
                     }
                 },
                 modifier = Modifier.fillMaxSize()

@@ -21,7 +21,7 @@ import com.touristsafety.app.core.database.entity.*
         PlannedRouteEntity::class,
         ActiveTripEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

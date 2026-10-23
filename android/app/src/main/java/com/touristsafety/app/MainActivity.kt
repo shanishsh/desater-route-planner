@@ -26,8 +26,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Initialize scheduled background synchronization with network constraints
-        syncManager.schedulePeriodicSync()
-        syncManager.triggerOneTimeSync()
+        try {
+            syncManager.schedulePeriodicSync()
+            syncManager.triggerOneTimeSync()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to schedule background sync work", e)
+        }
 
         setContent {
             TouristSafetyTheme {
