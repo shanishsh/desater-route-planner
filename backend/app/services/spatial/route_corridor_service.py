@@ -365,5 +365,165 @@ class RouteCorridorService:
         c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
         return EARTH_RADIUS_METERS * c
 
+    def evaluate_route_exposure(
+        self,
+        route_coords: List[Tuple[float, float]],
+        corridor_distance_meters: float,
+        corridor_polygon_geojson: Dict[str, Any],
+        alerts: List[Any],
+        fires: List[Dict[str, Any]],
+        provider_statuses: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Evaluates explainable exposure for a route polyline against hazards and fires.
+        Distinguishes direct route polyline intersection vs corridor presence.
+        Never reports '100% safe' or 'disaster-free'.
+        """
+        if len(route_coords) < 2:
+            return {
+                "hazard_score": 0.0,
+                "safety_status": "NORMAL",
+                "safety_label": "Normal: Insufficient geometry for corridor analysis",
+                "direct_hazard_intersections_count": 0,
+                "corridor_hazard_count": 0,
+                "fires_within_2km_count": 0,
+                "corridor_fires_count": 0,
+                "is_complete": False,
+                "completeness_label": "INCOMPLETE",
+                "exposure_summary": "Insufficient coordinates for spatial analysis.",
+            }
+
+        # WGS84 GeoJSON coordinate line [lon, lat]
+        route_line_wgs = LineString([(p[1], p[0]) for p in route_coords])
+        corridor_shape = shape(corridor_polygon_geojson)
+
+        direct_intersections = []
+        corridor_presences = []
+
+        direct_sev = {"CRITICAL": 0, "SEVERE": 0, "WARNING": 0, "INFO": 0}
+        corridor_sev = {"CRITICAL": 0, "SEVERE": 0, "WARNING": 0, "INFO": 0}
+
+        for alert in alerts:
+            poly_json = getattr(alert, "polygon_geojson", None)
+            matched_direct = False
+            matched_corridor = False
+
+            if poly_json:
+                try:
+                    alert_dict = json.loads(poly_json) if isinstance(poly_json, str) else poly_json
+                    alert_shape = shape(alert_dict)
+                    if alert_shape.intersects(route_line_wgs):
+                        matched_direct = True
+                    elif alert_shape.intersects(corridor_shape):
+                        matched_corridor = True
+                except Exception as e:
+                    logger.warning(f"Error evaluating alert polygon: {e}")
+
+            if not matched_direct and not matched_corridor:
+                c_lat = getattr(alert, "center_latitude", None)
+                c_lon = getattr(alert, "center_longitude", None)
+                radius_m = getattr(alert, "affected_radius_meters", 5000.0) or 5000.0
+
+                if c_lat is not None and c_lon is not None and not (c_lat == 0.0 and c_lon == 0.0):
+                    dist_m, _, _ = self.distance_point_to_route(c_lat, c_lon, route_coords)
+                    if dist_m <= radius_m:
+                        matched_direct = True
+                    elif dist_m <= (corridor_distance_meters + radius_m):
+                        matched_corridor = True
+
+            sev = getattr(alert, "severity", "WARNING").upper()
+            if sev not in direct_sev:
+                sev = "WARNING"
+
+            if matched_direct:
+                direct_intersections.append(alert)
+                direct_sev[sev] += 1
+            elif matched_corridor:
+                corridor_presences.append(alert)
+                corridor_sev[sev] += 1
+
+        # Evaluate FIRMS active fire proximity
+        fires_within_2km = []
+        corridor_fires = []
+        for fire in fires:
+            f_lat = fire.get("latitude")
+            f_lon = fire.get("longitude")
+            if f_lat is None or f_lon is None:
+                continue
+            dist_m, _, _ = self.distance_point_to_route(float(f_lat), float(f_lon), route_coords)
+            if dist_m <= 2000.0:
+                fires_within_2km.append(fire)
+            elif dist_m <= corridor_distance_meters:
+                corridor_fires.append(fire)
+
+        # Multi-factor exposure score
+        score = 0.0
+        score += direct_sev["CRITICAL"] * 45.0
+        score += direct_sev["SEVERE"] * 30.0
+        score += direct_sev["WARNING"] * 15.0
+        score += direct_sev["INFO"] * 5.0
+        score += corridor_sev["CRITICAL"] * 20.0
+        score += corridor_sev["SEVERE"] * 12.0
+        score += corridor_sev["WARNING"] * 6.0
+        score += corridor_sev["INFO"] * 2.0
+        score += len(fires_within_2km) * 25.0
+        score += len(corridor_fires) * 8.0
+        hazard_score = min(100.0, round(score, 1))
+
+        # Check provider statuses for analysis completeness
+        is_complete = True
+        limitations = []
+        if provider_statuses:
+            for p_key, p_val in provider_statuses.items():
+                p_status = p_val.get("status") if isinstance(p_val, dict) else getattr(p_val, "status", "")
+                if p_status in ["FAILED", "UNAVAILABLE"]:
+                    is_complete = False
+                    p_name = p_val.get("provider_name", p_key) if isinstance(p_val, dict) else p_key
+                    limitations.append(f"{p_name} feed currently unavailable.")
+
+        completeness_label = "COMPLETE" if is_complete else "PARTIAL"
+
+        # Determine safety status and calibrated explainable label
+        if hazard_score >= 60.0 or len(direct_intersections) > 0:
+            safety_status = "HIGH_RISK"
+            if direct_intersections:
+                safety_label = f"High Risk: {len(direct_intersections)} active hazard(s) directly intersect route"
+            else:
+                safety_label = f"High Risk: Major hazard exposure detected along corridor ({hazard_score}/100)"
+        elif hazard_score >= 25.0 or (corridor_sev["CRITICAL"] + corridor_sev["SEVERE"]) > 0 or len(fires_within_2km) > 0:
+            safety_status = "CAUTION"
+            reasons = []
+            if corridor_presences:
+                reasons.append(f"{len(corridor_presences)} alert(s) in corridor")
+            if fires_within_2km:
+                reasons.append(f"{len(fires_within_2km)} fire(s) within 2 km")
+            safety_label = f"Caution: {', '.join(reasons)}" if reasons else "Caution: Environmental hazards in corridor"
+        elif hazard_score > 0.0:
+            safety_status = "LOW_RISK"
+            safety_label = f"Low Risk: Minor advisory in vicinity ({hazard_score}/100)"
+        else:
+            safety_status = "NORMAL"
+            safety_label = "Normal: No active hazards detected in analyzed corridor"
+
+        exposure_summary = (
+            f"{len(direct_intersections)} direct intersections, "
+            f"{len(corridor_presences)} corridor alerts, "
+            f"{len(fires_within_2km)} fires within 2 km."
+        )
+
+        return {
+            "hazard_score": hazard_score,
+            "safety_status": safety_status,
+            "safety_label": safety_label,
+            "direct_hazard_intersections_count": len(direct_intersections),
+            "corridor_hazard_count": len(corridor_presences),
+            "fires_within_2km_count": len(fires_within_2km),
+            "corridor_fires_count": len(corridor_fires),
+            "is_complete": is_complete,
+            "completeness_label": completeness_label,
+            "exposure_summary": exposure_summary,
+            "limitations": limitations,
+        }
+
 
 route_corridor_service = RouteCorridorService()

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapConfig
+import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import org.maplibre.android.annotations.MarkerOptions
@@ -80,7 +81,7 @@ fun MapScreen(
                             maplibreMapInstance = mapboxMap
                             mapboxMap.setStyle(
                                 Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                            ) {
+                            ) { style ->
                                 val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
                                 val pos = CameraPosition.Builder()
                                     .target(target)
@@ -88,8 +89,38 @@ fun MapScreen(
                                     .build()
                                 mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
 
-                                // Render route polyline & annotations
+                                // Render vector layers & markers
                                 updateMaplibreLayers(mapboxMap, state)
+                            }
+
+                            // Query rendered vector features on map tap (polygons, active fires, safe havens)
+                            mapboxMap.addOnMapClickListener { latLng ->
+                                val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
+                                val renderedFeatures = mapboxMap.queryRenderedFeatures(
+                                    screenPoint,
+                                    MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
+                                    MapLibreLayerManager.LAYER_DISASTER_FILL,
+                                    MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_FOREST_FILL
+                                )
+                                if (renderedFeatures.isNotEmpty()) {
+                                    val top = renderedFeatures.first()
+                                    val featId = top.getStringProperty("id") ?: top.id()
+                                    val clicked = state.visibleFeatures.firstOrNull { it.id == featId }
+                                    if (clicked != null) {
+                                        viewModel.selectFeature(clicked)
+                                        return@addOnMapClickListener true
+                                    } else {
+                                        val title = top.getStringProperty("title")
+                                        val clickedByTitle = state.visibleFeatures.firstOrNull { it.title == title }
+                                        if (clickedByTitle != null) {
+                                            viewModel.selectFeature(clickedByTitle)
+                                            return@addOnMapClickListener true
+                                        }
+                                    }
+                                }
+                                false
                             }
 
                             // Marker click listener
@@ -99,7 +130,6 @@ fun MapScreen(
                                 if (clicked != null) {
                                     viewModel.selectFeature(clicked)
                                 } else {
-                                    // Check if it matches title
                                     val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
                                     viewModel.selectFeature(byTitle)
                                 }
@@ -564,90 +594,14 @@ private fun FloatingMapControls(
  */
 private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
     try {
+        val style = mapboxMap.style
+        if (style != null && style.isFullyLoaded) {
+            MapLibreLayerManager.setupSourcesAndLayers(style)
+            MapLibreLayerManager.updateData(style, state)
+        }
+
+        // Manage lightweight GPS position marker via annotation system
         mapboxMap.clear()
-
-        // 0. Draw Route Corridor Boundary & Ambient Scan Zone
-        if (state.corridorPolygonCoordinates.isNotEmpty()) {
-            state.corridorPolygonCoordinates.forEach { ring ->
-                if (ring.size >= 3) {
-                    val corridorLatLngs = ring.map { LatLng(it.first, it.second) }
-                    mapboxMap.addPolygon(
-                        PolygonOptions()
-                            .addAll(corridorLatLngs)
-                            .fillColor(android.graphics.Color.argb(25, 3, 169, 244)) // Soft Light Cyan-Blue
-                            .strokeColor(android.graphics.Color.argb(160, 2, 136, 209)) // 5 km Boundary Stroke
-                    )
-                }
-            }
-        }
-
-        // 1. Draw Active Route Line & Secondary Comparison Line
-        if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
-            // Draw original primary route as secondary muted line
-            val primaryPoints = state.primaryRouteCoordinates.map { LatLng(it.first, it.second) }
-            mapboxMap.addPolyline(
-                PolylineOptions()
-                    .addAll(primaryPoints)
-                    .color(android.graphics.Color.rgb(144, 164, 174)) // Muted Slate Gray
-                    .width(4f)
-            )
-        }
-        if (state.routeCoordinates.size >= 2) {
-            val points = state.routeCoordinates.map { LatLng(it.first, it.second) }
-            mapboxMap.addPolyline(
-                PolylineOptions()
-                    .addAll(points)
-                    .color(android.graphics.Color.rgb(2, 136, 209)) // #0288D1 Primary Route Blue
-                    .width(6f)
-            )
-        }
-
-        // 2. Draw Forest & Hazard Zone Polygons
-        state.visibleFeatures.filter { it.category.isAreaFeature }.forEach { feat ->
-            feat.geometryPolygon?.let { polyCoords ->
-                if (polyCoords.size >= 3) {
-                    val latLngs = polyCoords.map { LatLng(it.first, it.second) }
-                    val fillColor = if (feat.category == MapFeatureCategory.FOREST_AREA) {
-                        android.graphics.Color.argb(55, 46, 125, 50) // #2E7D32 with ~22% alpha
-                    } else {
-                        android.graphics.Color.argb(65, 198, 40, 40) // #C62828 with ~25% alpha
-                    }
-                    val strokeColor = if (feat.category == MapFeatureCategory.FOREST_AREA) {
-                        android.graphics.Color.rgb(76, 175, 80)
-                    } else {
-                        android.graphics.Color.rgb(229, 57, 53)
-                    }
-                    mapboxMap.addPolygon(
-                        PolygonOptions()
-                            .addAll(latLngs)
-                            .fillColor(fillColor)
-                            .strokeColor(strokeColor)
-                    )
-                }
-            }
-        }
-
-        // 3. Add Point Markers (Clustered or Individual)
-        state.clusteredItems.forEach { cluster ->
-            if (cluster.isCluster) {
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(cluster.latitude, cluster.longitude))
-                        .title("${cluster.count} Points Nearby")
-                        .snippet(cluster.id)
-                )
-            } else {
-                val feat = cluster.singleFeature ?: return@forEach
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(feat.latitude, feat.longitude))
-                        .title("${feat.category.displayName}: ${feat.title}")
-                        .snippet(feat.id)
-                )
-            }
-        }
-
-        // 4. Draw Current User Location Marker
         if (state.isUserLocationAcquired) {
             val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
             mapboxMap.addMarker(

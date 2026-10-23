@@ -91,8 +91,12 @@ data class MapUiState(
     val routeOverallHazardScore: Double? = null,
     val routeSafetyStatus: String? = null,
     val activeDecisionExplanation: String? = null,
+    val primaryRouteOverallHazardScore: Double? = null,
+    val primaryRouteSafetyStatus: String? = null,
+    val primaryDecisionExplanation: String? = null,
     val corridorDistanceKm: Double = 5.0,
     val corridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
+    val primaryCorridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
     val isAnalyzingCorridor: Boolean = false,
     val analysisLimitations: List<String> = emptyList()
 )
@@ -400,38 +404,40 @@ class MapViewModel @Inject constructor(
         }
     }
 
-    private fun applyRouteAnalysisFeatures(analysis: RouteAnalysisResponseDto) {
-        val userLoc = _uiState.value.userLocation
-
-        // 0. Parse Corridor Polygon from analysis.corridor_geojson
-        val corridorCoords = mutableListOf<List<Pair<Double, Double>>>()
+    private fun parseGeoJsonPolygonCoordinates(jsonElement: JsonElement?): List<List<Pair<Double, Double>>> {
+        if (jsonElement == null || jsonElement !is JsonObject) return emptyList()
+        val ringsList = mutableListOf<List<Pair<Double, Double>>>()
         try {
-            val corridorGeoJson = analysis.corridor_geojson
-            if (corridorGeoJson != null && corridorGeoJson is JsonObject) {
-                val geom = corridorGeoJson["geometry"] as? JsonObject
-                val geomType = (geom?.get("type") as? JsonPrimitive)?.content
-                val coordsArray = geom?.get("coordinates") as? JsonArray
-                if (geomType == "Polygon" && coordsArray != null) {
-                    for (ringElem in coordsArray) {
-                        val ring = ringElem as? JsonArray ?: continue
-                        val ringPoints = mutableListOf<Pair<Double, Double>>()
-                        for (ptElem in ring) {
-                            val ptArr = ptElem as? JsonArray ?: continue
-                            if (ptArr.size >= 2) {
-                                val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
-                                val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
-                                ringPoints.add(lat to lon)
-                            }
+            val geomObj = (jsonElement["geometry"] as? JsonObject) ?: jsonElement
+            val coordsArray = geomObj["coordinates"] as? JsonArray
+            if (coordsArray != null) {
+                for (ringElem in coordsArray) {
+                    val ring = ringElem as? JsonArray ?: continue
+                    val ringPoints = mutableListOf<Pair<Double, Double>>()
+                    for (ptElem in ring) {
+                        val ptArr = ptElem as? JsonArray ?: continue
+                        if (ptArr.size >= 2) {
+                            val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
+                            val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
+                            ringPoints.add(lat to lon)
                         }
-                        if (ringPoints.isNotEmpty()) {
-                            corridorCoords.add(ringPoints)
-                        }
+                    }
+                    if (ringPoints.isNotEmpty()) {
+                        ringsList.add(ringPoints)
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("MapViewModel", "Error parsing corridor polygon", e)
+            Log.e("MapViewModel", "Error parsing GeoJson polygon coordinates", e)
         }
+        return ringsList
+    }
+
+    private fun applyRouteAnalysisFeatures(analysis: RouteAnalysisResponseDto) {
+        val userLoc = _uiState.value.userLocation
+
+        // 0. Parse Corridor Polygon from analysis.corridor_geojson
+        val corridorCoords = parseGeoJsonPolygonCoordinates(analysis.corridor_geojson)
 
         // 1. Hazard zones from disaster_alerts with real spatial coordinates
         rawHazardZones = analysis.disaster_alerts.mapNotNull { a ->
@@ -602,8 +608,13 @@ class MapViewModel @Inject constructor(
                 routeOverallHazardScore = analysis.overall_hazard_score,
                 routeSafetyStatus = analysis.overall_safety_status,
                 activeDecisionExplanation = analysis.decision_explanation,
+                primaryRouteOverallHazardScore = analysis.overall_hazard_score,
+                primaryRouteSafetyStatus = analysis.overall_safety_status,
+                primaryDecisionExplanation = analysis.decision_explanation,
                 corridorDistanceKm = analysis.corridor_distance_km,
                 corridorPolygonCoordinates = corridorCoords,
+                primaryCorridorPolygonCoordinates = corridorCoords,
+                plannedRouteAlternatives = if (analysis.alternatives.isNotEmpty()) analysis.alternatives else it.plannedRouteAlternatives,
                 analysisLimitations = analysis.analysis_limitations,
                 isAnalyzingCorridor = false
             )
@@ -1046,7 +1057,11 @@ class MapViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     selectedAlternativeId = null,
-                    routeCoordinates = it.primaryRouteCoordinates
+                    routeCoordinates = it.primaryRouteCoordinates,
+                    corridorPolygonCoordinates = it.primaryCorridorPolygonCoordinates,
+                    routeOverallHazardScore = it.primaryRouteOverallHazardScore,
+                    routeSafetyStatus = it.primaryRouteSafetyStatus,
+                    activeDecisionExplanation = it.primaryDecisionExplanation
                 )
             }
             rebuildUnifiedFeatures()
@@ -1056,14 +1071,17 @@ class MapViewModel @Inject constructor(
         val alt = current.plannedRouteAlternatives.find { it.id == altId } ?: return
         val altCoords = parseGeoJsonCoordinates(alt.geometry_geojson?.toString())
         if (altCoords.isNotEmpty()) {
+            val altCorridorRings = parseGeoJsonPolygonCoordinates(alt.corridor_geojson)
             _uiState.update {
                 it.copy(
                     selectedAlternativeId = altId,
                     routeCoordinates = altCoords,
+                    corridorPolygonCoordinates = if (altCorridorRings.isNotEmpty()) altCorridorRings else it.primaryCorridorPolygonCoordinates,
                     routeDistanceKm = alt.distance_km,
                     routeDurationHours = alt.duration_minutes / 60.0,
                     routeOverallHazardScore = alt.hazard_score,
-                    routeSafetyStatus = if (alt.hazard_score < 35.0) "SAFE" else "CAUTION"
+                    routeSafetyStatus = if (alt.hazard_score >= 60.0) "HIGH_RISK" else (if (alt.hazard_score >= 25.0) "CAUTION" else "SAFE"),
+                    activeDecisionExplanation = alt.recommendation_reason ?: alt.safety_label
                 )
             }
             rebuildUnifiedFeatures()

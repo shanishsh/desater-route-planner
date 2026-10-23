@@ -1,7 +1,7 @@
 """Schemas for Route Planning, Corridor Safety Analysis, and Active Trip Tracking."""
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class CoordinatePoint(BaseModel):
@@ -123,7 +123,18 @@ class RouteDisasterAlertInfo(BaseModel):
     center_latitude: Optional[float] = None
     center_longitude: Optional[float] = None
     affected_radius_meters: Optional[float] = None
-    polygon_geojson: Optional[Dict[str, Any]] = None
+    polygon_geojson: Optional[Any] = None
+
+    @field_validator("polygon_geojson", mode="before")
+    @classmethod
+    def parse_polygon_geojson(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                import json
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 class ElevationProfilePoint(BaseModel):
@@ -184,6 +195,13 @@ class RouteAlternativeSchema(BaseModel):
     geometry_geojson: Dict[str, Any]
     hazard_score: float = 0.0
     safety_label: str = "Safe"
+    corridor_geojson: Optional[Dict[str, Any]] = None
+    is_recommended: bool = False
+    direct_hazard_intersections_count: int = 0
+    corridor_hazard_count: int = 0
+    fires_within_2km_count: int = 0
+    recommendation_reason: Optional[str] = None
+    exposure_summary: Optional[str] = None
 
 
 class PlannedRouteResponse(BaseModel):
@@ -195,6 +213,9 @@ class PlannedRouteResponse(BaseModel):
     corridor_distance_km: float = 5.0
     corridor_distance_meters: float = 5000.0
     corridor_geojson: Optional[Dict[str, Any]] = None
+    hazards_geojson: Optional[Dict[str, Any]] = None
+    fires_geojson: Optional[Dict[str, Any]] = None
+    facilities_geojson: Optional[Dict[str, Any]] = None
     distance_meters: float = 0.0
     duration_seconds: float = 0.0
     routing_provider: str = "OSRM"
@@ -293,6 +314,10 @@ class RouteAnalysisResponse(BaseModel):
     data_quality_summary: Dict[str, Any] = Field(default_factory=dict)
     overlays_geojson: Dict[str, Any] = Field(default_factory=dict)
     corridor_geojson: Optional[Dict[str, Any]] = None
+    hazards_geojson: Optional[Dict[str, Any]] = None
+    fires_geojson: Optional[Dict[str, Any]] = None
+    facilities_geojson: Optional[Dict[str, Any]] = None
+    alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     analysis_limitations: List[str] = Field(default_factory=list)
 
 

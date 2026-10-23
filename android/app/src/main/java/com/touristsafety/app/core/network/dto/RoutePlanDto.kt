@@ -133,7 +133,14 @@ data class RouteAlternativeDto(
     val duration_minutes: Double,
     val hazard_score: Double = 0.0,
     val safety_label: String = "Safe",
-    val geometry_geojson: JsonElement? = null
+    val geometry_geojson: JsonElement? = null,
+    val corridor_geojson: JsonElement? = null,
+    val is_recommended: Boolean = false,
+    val direct_hazard_intersections_count: Int = 0,
+    val corridor_hazard_count: Int = 0,
+    val fires_within_2km_count: Int = 0,
+    val recommendation_reason: String? = null,
+    val exposure_summary: String? = null
 )
 
 @Serializable
@@ -169,6 +176,9 @@ data class PlannedRouteResponseDto(
     val corridor_distance_km: Double = 5.0,
     val corridor_distance_meters: Double = 5000.0,
     val corridor_geojson: JsonElement? = null,
+    val hazards_geojson: JsonElement? = null,
+    val fires_geojson: JsonElement? = null,
+    val facilities_geojson: JsonElement? = null,
     val analysis_limitations: List<String> = emptyList(),
     val created_at: String = ""
 )
@@ -204,6 +214,10 @@ data class RouteAnalysisResponseDto(
     val affected_segments: List<RouteWaypointConditionDto> = emptyList(),
     val data_quality_summary: Map<String, JsonElement> = emptyMap(),
     val corridor_geojson: JsonElement? = null,
+    val hazards_geojson: JsonElement? = null,
+    val fires_geojson: JsonElement? = null,
+    val facilities_geojson: JsonElement? = null,
+    val alternatives: List<RouteAlternativeDto> = emptyList(),
     val analysis_limitations: List<String> = emptyList(),
     val overlays_geojson: JsonElement? = null
 )

@@ -445,3 +445,175 @@ async def test_weather_values_for_multiple_route_samples(client):
         assert "weather_description" in s
         assert "forecast_valid_at" in s
         assert s["source"] != ""
+
+
+@pytest.mark.asyncio
+async def test_evaluate_route_exposure_metrics():
+    """Verify explainable exposure evaluation, direct vs corridor intersections, and fire proximity."""
+    route_coords = [
+        (32.2396, 77.1887),
+        (32.2700, 77.1700),
+        (32.3166, 77.1583),
+    ]
+    corridor_info = route_corridor_service.compute_corridor(route_coords, corridor_distance_meters=5000.0)
+    corridor_poly = corridor_info["corridor_polygon_geojson"]
+
+    # 1. Direct intersecting alert (polygon right over route line)
+    direct_alert = DisasterAlert(
+        id="alert-direct-1",
+        title="Direct Flash Flood Intersection",
+        hazard_category="flash_flood",
+        severity="CRITICAL",
+        status="active",
+        center_latitude=32.2700,
+        center_longitude=77.1700,
+        affected_radius_meters=1000.0,
+        polygon_geojson=json.dumps({
+            "type": "Polygon",
+            "coordinates": [[
+                [77.165, 32.265],
+                [77.175, 32.265],
+                [77.175, 32.275],
+                [77.165, 32.275],
+                [77.165, 32.265]
+            ]]
+        })
+    )
+
+    # 2. Corridor alert (in corridor buffer ~3 km away, but not on centerline)
+    corridor_alert = DisasterAlert(
+        id="alert-corridor-2",
+        title="Corridor Warning Alert",
+        hazard_category="heavy_rainfall",
+        severity="WARNING",
+        status="active",
+        center_latitude=32.2700,
+        center_longitude=77.2000,
+        affected_radius_meters=500.0,
+    )
+
+    # 3. Fire within 1 km of route
+    close_fire = {"latitude": 32.2710, "longitude": 77.1710, "confidence": "high", "frp_mw": 25.0}
+
+    # 4. Fire 4 km away in corridor
+    corridor_fire = {"latitude": 32.2700, "longitude": 77.2100, "confidence": "nominal", "frp_mw": 10.0}
+
+    eval_result = route_corridor_service.evaluate_route_exposure(
+        route_coords,
+        corridor_distance_meters=5000.0,
+        corridor_polygon_geojson=corridor_poly,
+        alerts=[direct_alert, corridor_alert],
+        fires=[close_fire, corridor_fire],
+        provider_statuses={"ndma_sachet": {"status": "LOADED"}, "nasa_firms": {"status": "LOADED"}},
+    )
+
+    assert eval_result["direct_hazard_intersections_count"] == 1
+    assert eval_result["corridor_hazard_count"] == 1
+    assert eval_result["fires_within_2km_count"] == 1
+    assert eval_result["corridor_fires_count"] == 1
+    assert eval_result["hazard_score"] > 60.0
+    assert eval_result["safety_status"] == "HIGH_RISK"
+    assert "direct" in eval_result["safety_label"].lower()
+    # Ensure calibrated wording (never claims '100% safe')
+    assert "safe" not in eval_result["safety_label"].lower() or "safest" in eval_result["safety_label"].lower()
+
+
+@pytest.mark.asyncio
+async def test_alternative_route_comparative_ranking(test_db):
+    """Verify that candidate alternatives are evaluated independently and safer ones are recommended."""
+    from app.services.routing.base import RouteResult, Waypoint, RouteAlternative
+    from app.services.route_condition_analyzer import route_condition_analyzer
+
+    now = datetime.now(timezone.utc)
+    # Direct alert on primary route (32.2700, 77.1700)
+    alert = DisasterAlert(
+        id="alert-blocking-trail",
+        title="Direct Mudslide Blocking Trail",
+        description="Trail blocked",
+        hazard_category="landslide",
+        severity="CRITICAL",
+        status="active",
+        issuing_authority="SDMA",
+        required_protective_instructions="Evacuate",
+        center_latitude=32.2700,
+        center_longitude=77.1700,
+        affected_radius_meters=1200.0,
+        polygon_geojson=json.dumps({
+            "type": "Polygon",
+            "coordinates": [[
+                [77.165, 32.265],
+                [77.175, 32.265],
+                [77.175, 32.275],
+                [77.165, 32.275],
+                [77.165, 32.265]
+            ]]
+        }),
+        published_at=now,
+    )
+    test_db.add(alert)
+    await test_db.commit()
+
+    primary_geom = {
+        "type": "LineString",
+        "coordinates": [
+            [77.1887, 32.2396],
+            [77.1700, 32.2700],
+            [77.1583, 32.3166],
+        ]
+    }
+
+    # Alternative that detours 6 km east away from the mudslide
+    alt_geom = {
+        "type": "LineString",
+        "coordinates": [
+            [77.1887, 32.2396],
+            [77.2400, 32.2700],
+            [77.1583, 32.3166],
+        ]
+    }
+
+    route_res = RouteResult(
+        route_id="test-route-alternatives",
+        title="Manali to Solang",
+        origin_name="Manali",
+        origin_lat=32.2396,
+        origin_lon=77.1887,
+        destination_name="Solang",
+        destination_lat=32.3166,
+        destination_lon=77.1583,
+        travel_mode="hiking",
+        distance_km=12.0,
+        duration_minutes=150.0,
+        geometry_geojson=primary_geom,
+        waypoints=[
+            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Hazard Point", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+        ],
+        alternatives=[
+            RouteAlternative(
+                id="alt-bypass-mudslide",
+                title="Eastern Ridge Bypass",
+                description="Detours east of active landslide corridor",
+                distance_km=14.5,
+                duration_minutes=175.0,
+                geometry_geojson=alt_geom,
+            )
+        ]
+    )
+
+    planned = await route_condition_analyzer.analyze_route(test_db, route_res, corridor_distance_meters=3000.0)
+
+    assert len(planned.alternatives) == 1
+    alt_res = planned.alternatives[0]
+    # The alternative bypasses the mudslide, so it should have a significantly lower hazard score
+    assert alt_res.hazard_score < planned.overall_hazard_score
+    # Should be flagged as recommended
+    assert alt_res.is_recommended is True
+    assert alt_res.recommendation_reason is not None
+    assert "Bypasses" in alt_res.recommendation_reason
+    assert alt_res.corridor_geojson is not None
+    assert planned.hazards_geojson is not None
+    assert planned.fires_geojson is not None
+    assert planned.facilities_geojson is not None
+

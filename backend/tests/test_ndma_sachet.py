@@ -120,3 +120,107 @@ async def test_sync_sachet_alerts_ingestion_and_cancellation(test_db):
         updated_alert = res_cancel.scalar_one()
         assert updated_alert.status == "cancelled"
 
+
+SAMPLE_POLYGON_AND_CIRCLE_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <cap:identifier>TEST_SACHET_POLY_002</cap:identifier>
+  <cap:sender>HP-SDMA</cap:sender>
+  <cap:sent>2026-10-24T05:00:00+05:30</cap:sent>
+  <cap:status>Actual</cap:status>
+  <cap:msgType>Alert</cap:msgType>
+  <cap:info>
+    <cap:event>Landslide</cap:event>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:severity>Severe</cap:severity>
+    <cap:certainty>Observed</cap:certainty>
+    <cap:effective>2026-10-24T05:00:00+05:30</cap:effective>
+    <cap:expires>2026-10-25T18:00:00+05:30</cap:expires>
+    <cap:headline>Active Landslide along Rohtang Access Road.</cap:headline>
+    <cap:description>Rockfall blocking corridor.</cap:description>
+    <cap:instruction>Halt all ascent until clearance.</cap:instruction>
+    <cap:area>
+      <cap:areaDesc>Rohtang Pass Highway</cap:areaDesc>
+      <cap:circle>32.35,77.20 5.0</cap:circle>
+      <cap:polygon>32.34,77.19 32.36,77.19 32.36,77.21 32.34,77.21</cap:polygon>
+    </cap:area>
+  </cap:info>
+</cap:alert>
+"""
+
+SAMPLE_EXPIRED_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <cap:identifier>TEST_SACHET_EXPIRED_003</cap:identifier>
+  <cap:sender>HP-SDMA</cap:sender>
+  <cap:sent>2026-10-20T05:00:00+05:30</cap:sent>
+  <cap:status>Actual</cap:status>
+  <cap:msgType>Alert</cap:msgType>
+  <cap:info>
+    <cap:event>Heavy Rainfall</cap:event>
+    <cap:urgency>Past</cap:urgency>
+    <cap:severity>Moderate</cap:severity>
+    <cap:certainty>Observed</cap:certainty>
+    <cap:effective>2026-10-20T05:00:00+05:30</cap:effective>
+    <cap:expires>2026-10-21T12:00:00+05:30</cap:expires>
+    <cap:headline>Past heavy rain bulletin.</cap:headline>
+    <cap:description>Rain event concluded.</cap:description>
+    <cap:instruction>None.</cap:instruction>
+    <cap:area>
+      <cap:areaDesc>Kullu</cap:areaDesc>
+      <cap:circle>31.96,77.11 10.0</cap:circle>
+    </cap:area>
+  </cap:info>
+</cap:alert>
+"""
+
+
+@pytest.mark.asyncio
+async def test_parse_cap_xml_polygon_preservation_and_closure():
+    """Verify that <cap:polygon> is not dropped when <cap:circle> is present, and polygon is closed."""
+    import json
+    parsed = ndma_sachet_client.parse_cap_xml(SAMPLE_POLYGON_AND_CIRCLE_CAP_XML)
+    assert parsed is not None
+    assert parsed["polygon_geojson"] is not None
+    poly = json.loads(parsed["polygon_geojson"])
+    assert poly["type"] == "Polygon"
+    ring = poly["coordinates"][0]
+    # 4 input coordinates + 1 closure point = 5 points
+    assert len(ring) == 5
+    # Verify RFC 7946 GeoJSON [longitude, latitude] coordinate ordering
+    assert ring[0][0] == 77.19
+    assert ring[0][1] == 32.34
+    # Closed ring: first point == last point
+    assert ring[0] == ring[-1]
+    # Verify effective and expires datetime parsing
+    assert parsed["effective_at"] is not None
+    assert parsed["expires_at"] is not None
+    assert parsed["expires_at"].year == 2026
+
+
+@pytest.mark.asyncio
+async def test_sync_sachet_expired_alert_status(test_db):
+    """Verify that an already-expired CAP alert is marked status='expired' upon ingestion."""
+    expired_rss = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>All India: CAP Disaster Alert Feeds</title>
+    <item>
+      <title>Past heavy rain bulletin</title>
+      <link>https://sachet.ndma.gov.in/cap_public_website/FetchXMLFile?identifier=TEST_SACHET_EXPIRED_003</link>
+      <guid>TEST_SACHET_EXPIRED_003</guid>
+    </item>
+  </channel>
+</rss>
+"""
+    with patch.object(ndma_sachet_client, "fetch_rss_feed", new_callable=AsyncMock) as mock_rss, \
+         patch.object(ndma_sachet_client, "fetch_cap_xml", new_callable=AsyncMock) as mock_cap:
+
+        mock_rss.return_value = (expired_rss, True)
+        mock_cap.return_value = SAMPLE_EXPIRED_CAP_XML
+
+        count = await ndma_sachet_client.sync_sachet_alerts(test_db, max_fetch_details=5)
+        assert count == 1
+
+        stmt = select(DisasterAlert).where(DisasterAlert.id == "sachet-TEST_SACHET_EXPIRED_003")
+        res = await test_db.execute(stmt)
+        alert = res.scalar_one()
+        assert alert.status == "expired"
+        assert alert.expires_at is not None
+

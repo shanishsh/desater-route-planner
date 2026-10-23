@@ -47,6 +47,22 @@ INDIA_REGION_CENTROIDS: Dict[str, Tuple[float, float]] = {
 }
 
 
+def _parse_iso_dt(dt_str: Optional[str]) -> Optional[datetime]:
+    """Parses ISO 8601 datetimes with timezone offsets (e.g., CAP 1.2 format)."""
+    if not dt_str:
+        return None
+    try:
+        cleaned = dt_str.strip()
+        if cleaned.endswith("Z"):
+            cleaned = cleaned[:-1] + "+00:00"
+        dt = datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 class NDMASachetClient:
     """Official NDMA SACHET Disaster Alerts Client implementing RSS and CAP 1.2 XML parsing."""
 
@@ -201,6 +217,11 @@ class NDMASachetClient:
             headline = info.findtext("cap:headline", default="", namespaces=ns)
             description = info.findtext("cap:description", default="", namespaces=ns)
             instruction = info.findtext("cap:instruction", default="", namespaces=ns)
+            effective_str = info.findtext("cap:effective", default="", namespaces=ns)
+            onset_str = info.findtext("cap:onset", default="", namespaces=ns)
+            expires_str = info.findtext("cap:expires", default="", namespaces=ns)
+            effective_at = _parse_iso_dt(effective_str) or _parse_iso_dt(sent_str)
+            expires_at = _parse_iso_dt(expires_str)
 
             # Area information
             area = info.find("cap:area", ns)
@@ -228,24 +249,32 @@ class NDMASachetClient:
                 except ValueError:
                     pass
 
-            # Resolve coordinates from polygon if provided
+            # Resolve coordinates from polygon if provided (always parse regardless of circle)
             polygon_geojson = None
-            if polygon_str and not (center_lat and center_lon):
+            if polygon_str:
                 pts = []
                 for token in polygon_str.strip().split():
                     if "," in token:
                         sp = token.split(",")
                         try:
+                            # CAP 1.2 polygon format is "latitude,longitude"
                             pts.append((float(sp[0]), float(sp[1])))
                         except ValueError:
                             pass
-                if pts:
-                    center_lat = sum(p[0] for p in pts) / len(pts)
-                    center_lon = sum(p[1] for p in pts) / len(pts)
+                if len(pts) >= 3:
+                    if not (center_lat and center_lon):
+                        center_lat = sum(p[0] for p in pts) / len(pts)
+                        center_lon = sum(p[1] for p in pts) / len(pts)
+                    
+                    # RFC 7946 coordinates: [longitude, latitude]
+                    ring = [[p[1], p[0]] for p in pts]
+                    # Ensure linear ring is closed: first coordinate equals last coordinate
+                    if ring[0] != ring[-1]:
+                        ring.append(list(ring[0]))
                     import json
                     polygon_geojson = json.dumps({
                         "type": "Polygon",
-                        "coordinates": [[[p[1], p[0]] for p in pts]]
+                        "coordinates": [ring]
                     })
 
             # Geographic fallback by matching named district/state in area_desc or headline
@@ -302,6 +331,8 @@ class NDMASachetClient:
                 "affected_radius_meters": radius_m,
                 "polygon_geojson": polygon_geojson,
                 "hazard_category": hazard_cat,
+                "effective_at": effective_at,
+                "expires_at": expires_at,
             }
 
         except Exception as e:
@@ -353,10 +384,14 @@ class NDMASachetClient:
                     synced_count += 1
                 continue
 
+            # Determine lifecycle status
+            expires_at = cap_data.get("expires_at")
+            status_val = "expired" if (expires_at and expires_at < now) else "active"
+
             if existing:
                 # Update existing alert
                 existing.version += 1
-                existing.status = "updated"
+                existing.status = "updated" if status_val == "active" else status_val
                 existing.title = cap_data["headline"][:200]
                 existing.description = cap_data["description"]
                 existing.required_protective_instructions = cap_data["instruction"]
@@ -365,16 +400,22 @@ class NDMASachetClient:
                     existing.center_latitude = cap_data["center_latitude"]
                     existing.center_longitude = cap_data["center_longitude"]
                     existing.affected_radius_meters = cap_data["affected_radius_meters"]
+                if cap_data.get("polygon_geojson"):
+                    existing.polygon_geojson = cap_data["polygon_geojson"]
+                if cap_data.get("effective_at"):
+                    existing.effective_at = cap_data["effective_at"]
+                if cap_data.get("expires_at"):
+                    existing.expires_at = cap_data["expires_at"]
                 synced_count += 1
             else:
-                # Only insert if coordinates could be reasonably established or centroid known
+                published_dt = _parse_iso_dt(cap_data.get("sent_str")) or now
                 new_alert = DisasterAlert(
                     id=alert_id,
                     title=cap_data["headline"][:200],
                     description=cap_data["description"],
                     hazard_category=cap_data["hazard_category"],
                     severity=cap_data["severity"],
-                    status="active",
+                    status=status_val,
                     version=1,
                     is_simulated=False,
                     issuing_authority=f"NDMA SACHET / {cap_data['sender']}"[:150],
@@ -385,8 +426,10 @@ class NDMASachetClient:
                     center_longitude=cap_data["center_longitude"] or 78.9629,
                     affected_radius_meters=cap_data["affected_radius_meters"],
                     polygon_geojson=cap_data.get("polygon_geojson"),
-                    published_at=now,
+                    published_at=published_dt,
                     received_at=now,
+                    effective_at=cap_data.get("effective_at"),
+                    expires_at=cap_data.get("expires_at"),
                 )
                 db.add(new_alert)
                 synced_count += 1

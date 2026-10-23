@@ -1,9 +1,10 @@
 """Service for analyzing environmental conditions and multi-hazard risks along a route corridor."""
+import os
 import math
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
@@ -76,13 +77,19 @@ class RouteConditionAnalyzer:
         elev_points = elevation_data.get("points", [])
 
         # 3. Query active disaster alerts from DB and perform exact spatial corridor filtering
-        stmt = select(DisasterAlert).where(
+        allow_simulated = os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
+        alert_filters = [
             DisasterAlert.status.in_(["active", "updated"]),
+            or_(DisasterAlert.expires_at.is_(None), DisasterAlert.expires_at > now),
             DisasterAlert.center_latitude >= min_lat - 0.05,
             DisasterAlert.center_latitude <= max_lat + 0.05,
             DisasterAlert.center_longitude >= min_lon - 0.05,
             DisasterAlert.center_longitude <= max_lon + 0.05,
-        )
+        ]
+        if not allow_simulated:
+            alert_filters.append(DisasterAlert.is_simulated.is_(False))
+
+        stmt = select(DisasterAlert).where(*alert_filters)
         result = await db.execute(stmt)
         candidate_alerts: List[DisasterAlert] = list(result.scalars().all())
 
@@ -306,83 +313,6 @@ class RouteConditionAnalyzer:
         # Aggregate overall route risk
         agg_risk = trailguard_risk_engine.aggregate_route_risk(segment_evaluations)
 
-        # Prepare alternatives with comparative real hazard scoring
-        alt_schemas: List[RouteAlternativeSchema] = []
-        for alt in route.alternatives:
-            alt_score = 10.0
-            alt_hazards: List[str] = []
-
-            alt_coords = alt.geometry_geojson.get("coordinates", [])
-            step = max(1, len(alt_coords) // 20)
-            sampled_alt_pts = [alt_coords[i] for i in range(0, len(alt_coords), step)]
-
-            for pt in sampled_alt_pts:
-                p_lon, p_lat = pt[0], pt[1]
-                for alert in active_alerts:
-                    d_km = haversine_distance_km(p_lat, p_lon, alert.center_latitude, alert.center_longitude)
-                    r_km = (alert.affected_radius_meters or 5000.0) / 1000.0
-                    if d_km <= r_km:
-                        if alert.severity == "CRITICAL":
-                            alt_score = max(alt_score, 90.0)
-                            alt_hazards.append(f"Critical: {alert.title}")
-                        elif alert.severity == "SEVERE":
-                            alt_score = max(alt_score, 75.0)
-                            alt_hazards.append(f"Severe: {alert.title}")
-                        else:
-                            alt_score = max(alt_score, 45.0)
-                            alt_hazards.append(f"Warning: {alert.title}")
-                for fire in active_fires:
-                    f_lat = fire.get("latitude", 0.0)
-                    f_lon = fire.get("longitude", 0.0)
-                    d_f = haversine_distance_km(p_lat, p_lon, f_lat, f_lon)
-                    if d_f <= 2.0:
-                        alt_score = max(alt_score, 85.0)
-                        alt_hazards.append("Active wildfire within 2 km")
-                    elif d_f <= 5.0:
-                        alt_score = max(alt_score, 60.0)
-
-            if alt_score >= 70.0:
-                safety_label = f"High Risk: {len(alt_hazards)} hazards detected"
-            elif alt_score >= 35.0:
-                safety_label = "Caution: Secondary hazards nearby"
-            elif agg_risk["overall_score"] >= 50.0 and alt_score < 30.0:
-                safety_label = "Recommended: Bypasses hazard corridor (Safest Path)"
-            else:
-                safety_label = "Clear & Safe Alternative"
-
-            alt_schemas.append(
-                RouteAlternativeSchema(
-                    id=alt.id,
-                    title=alt.title,
-                    description=alt.description,
-                    distance_km=alt.distance_km,
-                    duration_minutes=alt.duration_minutes,
-                    geometry_geojson=alt.geometry_geojson,
-                    hazard_score=round(alt_score, 1),
-                    safety_label=safety_label,
-                )
-            )
-
-        # Generate contrastive explanation
-        decision_explanation = trailguard_risk_engine.generate_contrastive_explanation(
-            agg_risk, segment_evaluations, [a.model_dump() for a in alt_schemas]
-        )
-
-        elevation_profile_points = [
-            ElevationProfilePoint(
-                index=p["index"],
-                latitude=p["latitude"],
-                longitude=p["longitude"],
-                elevation_m=p["elevation_m"],
-                distance_from_start_km=p["distance_from_start_km"],
-                slope_degrees=p["slope_degrees"],
-                hiking_speed_kmh=p["hiking_speed_kmh"],
-                cumulative_minutes=p["cumulative_minutes"],
-                estimated_arrival_iso=p["estimated_arrival_iso"],
-            )
-            for p in elev_points
-        ]
-
         provider_statuses = {
             "open_meteo": {
                 "provider_name": "Open-Meteo Hourly Forecast",
@@ -435,6 +365,99 @@ class RouteConditionAnalyzer:
                 "details": "Verified emergency safe havens and forest conservation boundaries.",
             },
         }
+
+        # 1. Evaluate primary route multi-hazard exposure
+        primary_exposure = route_corridor_service.evaluate_route_exposure(
+            route_coords_lat_lon,
+            corridor_distance_meters=corridor_dist_m,
+            corridor_polygon_geojson=corridor_poly_geojson,
+            alerts=active_alerts,
+            fires=active_fires,
+            provider_statuses=provider_statuses,
+        )
+
+        # 2. Evaluate candidate alternatives with individual corridors and identical spatial criteria
+        alt_schemas: List[RouteAlternativeSchema] = []
+        best_alt_idx = -1
+        lowest_hazard_score = primary_exposure["hazard_score"]
+
+        for alt_idx, alt in enumerate(route.alternatives):
+            alt_coords_raw = alt.geometry_geojson.get("coordinates", [])
+            alt_coords_lat_lon = [(pt[1], pt[0]) for pt in alt_coords_raw] if alt_coords_raw else []
+
+            alt_corridor_poly = None
+            if len(alt_coords_lat_lon) >= 2:
+                try:
+                    alt_corr_info = route_corridor_service.compute_corridor(
+                        alt_coords_lat_lon,
+                        corridor_distance_meters=corridor_dist_m,
+                    )
+                    alt_corridor_poly = alt_corr_info["corridor_polygon_geojson"]
+                except Exception as e:
+                    logger.warning(f"Error computing corridor for alternative {alt.id}: {e}")
+
+            alt_exposure = route_corridor_service.evaluate_route_exposure(
+                alt_coords_lat_lon,
+                corridor_distance_meters=corridor_dist_m,
+                corridor_polygon_geojson=alt_corridor_poly or corridor_poly_geojson,
+                alerts=active_alerts,
+                fires=active_fires,
+                provider_statuses=provider_statuses,
+            )
+
+            alt_score = alt_exposure["hazard_score"]
+            alt_schemas.append(
+                RouteAlternativeSchema(
+                    id=alt.id,
+                    title=alt.title,
+                    description=alt.description,
+                    distance_km=alt.distance_km,
+                    duration_minutes=alt.duration_minutes,
+                    geometry_geojson=alt.geometry_geojson,
+                    corridor_geojson=alt_corridor_poly,
+                    hazard_score=alt_score,
+                    safety_label=alt_exposure["safety_label"],
+                    direct_hazard_intersections_count=alt_exposure["direct_hazard_intersections_count"],
+                    corridor_hazard_count=alt_exposure["corridor_hazard_count"],
+                    fires_within_2km_count=alt_exposure["fires_within_2km_count"],
+                    exposure_summary=alt_exposure["exposure_summary"],
+                    is_recommended=False,
+                )
+            )
+
+            if alt_score < lowest_hazard_score and alt_exposure["is_complete"]:
+                lowest_hazard_score = alt_score
+                best_alt_idx = alt_idx
+
+        # If a candidate alternative provides lower hazard exposure than a risky primary route, recommend it
+        if best_alt_idx >= 0 and (primary_exposure["hazard_score"] >= 25.0 or primary_exposure["direct_hazard_intersections_count"] > 0):
+            rec_alt = alt_schemas[best_alt_idx]
+            rec_alt.is_recommended = True
+            diff_score = primary_exposure["hazard_score"] - rec_alt.hazard_score
+            rec_alt.recommendation_reason = (
+                f"Bypasses {primary_exposure['direct_hazard_intersections_count']} direct hazard(s) and reduces exposure by {diff_score:.0f} points."
+            )
+            rec_alt.safety_label = f"Recommended Alternative (Exposure: {rec_alt.hazard_score}/100)"
+
+        # Generate contrastive explanation
+        decision_explanation = trailguard_risk_engine.generate_contrastive_explanation(
+            agg_risk, segment_evaluations, [a.model_dump() for a in alt_schemas]
+        )
+
+        elevation_profile_points = [
+            ElevationProfilePoint(
+                index=p["index"],
+                latitude=p["latitude"],
+                longitude=p["longitude"],
+                elevation_m=p["elevation_m"],
+                distance_from_start_km=p["distance_from_start_km"],
+                slope_degrees=p["slope_degrees"],
+                hiking_speed_kmh=p["hiking_speed_kmh"],
+                cumulative_minutes=p["cumulative_minutes"],
+                estimated_arrival_iso=p["estimated_arrival_iso"],
+            )
+            for p in elev_points
+        ]
 
         # Build GeoJSON Overlays FeatureCollection for MapLibre
         overlay_features = []
@@ -573,6 +596,20 @@ class RouteConditionAnalyzer:
 
         overlays_geojson = {"type": "FeatureCollection", "features": overlay_features}
 
+        # Dedicated FeatureCollections for high-performance MapLibre native source bindings
+        hazards_geojson = {
+            "type": "FeatureCollection",
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "disaster_alert"],
+        }
+        fires_geojson = {
+            "type": "FeatureCollection",
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "active_fire"],
+        }
+        facilities_geojson = {
+            "type": "FeatureCollection",
+            "features": [f for f in overlay_features if f.get("properties", {}).get("layer") == "assistance_point"],
+        }
+
         corridor_alerts_dto = [
             RouteDisasterAlertInfo(
                 alert_id=a.id,
@@ -589,7 +626,7 @@ class RouteConditionAnalyzer:
                 center_latitude=a.center_latitude,
                 center_longitude=a.center_longitude,
                 affected_radius_meters=a.affected_radius_meters,
-                polygon_geojson=a.polygon_geojson,
+                polygon_geojson=(json.loads(a.polygon_geojson) if isinstance(a.polygon_geojson, str) else a.polygon_geojson) if a.polygon_geojson else None,
             )
             for a in active_alerts
         ]
@@ -622,6 +659,9 @@ class RouteConditionAnalyzer:
             "disaster_alerts_active_count": len(active_alerts),
             "provider_statuses": provider_statuses,
             "overlays_geojson": overlays_geojson,
+            "hazards_geojson": hazards_geojson,
+            "fires_geojson": fires_geojson,
+            "facilities_geojson": facilities_geojson,
             "is_stale": False,
             "offline_cached": False,
         }
@@ -643,6 +683,9 @@ class RouteConditionAnalyzer:
             corridor_distance_km=corridor_dist_km,
             corridor_distance_meters=corridor_dist_m,
             corridor_geojson=corridor_poly_geojson,
+            hazards_geojson=hazards_geojson,
+            fires_geojson=fires_geojson,
+            facilities_geojson=facilities_geojson,
             distance_meters=round(route.distance_km * 1000.0, 1),
             duration_seconds=round(route.duration_minutes * 60.0, 1),
             routing_provider="OSRM",
@@ -817,6 +860,10 @@ class RouteConditionAnalyzer:
             affected_segments=analysis.conditions,
             data_quality_summary=fresh,
             overlays_geojson=fresh.get("overlays_geojson", {}),
+            hazards_geojson=analysis.hazards_geojson,
+            fires_geojson=analysis.fires_geojson,
+            facilities_geojson=analysis.facilities_geojson,
+            alternatives=analysis.alternatives,
             analysis_limitations=limitations,
         )
 
