@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
+import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,6 +29,7 @@ fun RouteSafetyReviewScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var showExplanationDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.eventFlow.collect { event ->
@@ -52,7 +54,7 @@ fun RouteSafetyReviewScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Route Safety Review", fontWeight = FontWeight.Bold) },
+                title = { Text("TrailGuard Route Safety", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -202,10 +204,80 @@ fun RouteSafetyReviewScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    "Open-Meteo Hourly • NASA FIRMS Hotspots • OSM Forests",
+                                    "Open-Meteo Hourly • NASA FIRMS Hotspots • Copernicus DEM",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // 2. Elevation Profile Canvas
+                if (state.elevationProfile.isNotEmpty()) {
+                    item {
+                        ElevationProfileCard(
+                            profilePoints = state.elevationProfile,
+                            totalAscentM = state.totalAscentM,
+                            maxElevationM = state.maxElevationM
+                        )
+                    }
+                }
+
+                // 3. TrailGuard Contrastive Decision Breakdown ("Why this route?")
+                if (state.decisionExplanation.isNotBlank()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Psychology,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "TrailGuard Intelligence: Safety Explanation",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Text(
+                                    text = state.decisionExplanation,
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Safe Havens & Emergency Egress Points
+                if (state.safeHavens.isNotEmpty()) {
+                    item {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Emergency Safe Havens along Corridor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            state.safeHavens.take(3).forEach { haven ->
+                                SafeHavenCard(haven)
+                                Spacer(modifier = Modifier.height(6.dp))
                             }
                         }
                     }
@@ -279,6 +351,27 @@ fun RouteSafetyReviewScreen(
 }
 
 @Composable
+fun SafeHavenCard(haven: SafeHavenInfoDto) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Cabin, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(haven.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF1B5E20))
+                Text("Safe Haven • ${haven.distance_km} km egress distance", fontSize = 11.sp, color = Color(0xFF388E3C))
+            }
+        }
+    }
+}
+
+@Composable
 fun StatItem(label: String, value: String) {
     Column {
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -324,7 +417,7 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Weather row
+            // Weather & Terrain row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -339,11 +432,13 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
                     label = { Text("${wp.weather.precipitation_probability_pct.toInt()}% Rain", fontSize = 11.sp) },
                     leadingIcon = { Icon(Icons.Default.WaterDrop, contentDescription = null, modifier = Modifier.size(14.dp)) }
                 )
-                AssistChip(
-                    onClick = {},
-                    label = { Text("${wp.weather.wind_speed_kmh.toInt()} km/h", fontSize = 11.sp) },
-                    leadingIcon = { Icon(Icons.Default.Air, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                )
+                if (wp.elevation_m > 0) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("${wp.elevation_m.toInt()}m (${wp.slope_degrees.toInt()}°)", fontSize = 11.sp) },
+                        leadingIcon = { Icon(Icons.Default.Landscape, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                    )
+                }
             }
 
             Text(
@@ -352,6 +447,14 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp)
             )
+
+            // Contributing factors callout
+            if (wp.contributing_factors.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                wp.contributing_factors.take(2).forEach { factor ->
+                    Text("• $factor", fontSize = 11.sp, color = wpColor, fontWeight = FontWeight.Medium)
+                }
+            }
 
             // Forest badge
             if (wp.forest != null && wp.forest.in_forest) {
@@ -416,4 +519,3 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
         }
     }
 }
-

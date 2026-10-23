@@ -22,7 +22,11 @@ data class PlannedRouteEntity(
     val conditionsJson: String,
     val alternativesJson: String,
     val routeGeoJson: String? = null,
+    val elevationProfileJson: String? = null,
+    val safeHavensJson: String? = null,
+    val decisionExplanation: String? = null,
+    val totalAscentM: Double = 0.0,
+    val maxElevationM: Double = 0.0,
     val isSavedOffline: Boolean = true,
     val cachedAt: Long = System.currentTimeMillis()
 )
-

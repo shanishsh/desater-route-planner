@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
+import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
+import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 import com.touristsafety.app.core.repository.RouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -25,7 +27,12 @@ data class RouteSafetyReviewUiState(
     val overallHazardScore: Double = 0.0,
     val overallSafetyStatus: String = "SAFE",
     val highRiskSegmentsCount: Int = 0,
+    val totalAscentM: Double = 0.0,
+    val maxElevationM: Double = 0.0,
+    val decisionExplanation: String = "",
     val conditions: List<RouteWaypointConditionDto> = emptyList(),
+    val elevationProfile: List<ElevationProfilePointDto> = emptyList(),
+    val safeHavens: List<SafeHavenInfoDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val selectedAlternativeId: String? = null,
     val isOfflineSaved: Boolean = false,
@@ -80,6 +87,22 @@ class RouteSafetyReviewViewModel @Inject constructor(
             emptyList()
         }
 
+        val elevPoints = try {
+            if (!entity.elevationProfileJson.isNullOrBlank()) {
+                json.decodeFromString<List<ElevationProfilePointDto>>(entity.elevationProfileJson)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val havens = try {
+            if (!entity.safeHavensJson.isNullOrBlank()) {
+                json.decodeFromString<List<SafeHavenInfoDto>>(entity.safeHavensJson)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
         _uiState.update {
             it.copy(
                 routeId = entity.routeId,
@@ -91,7 +114,12 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 overallHazardScore = entity.overallHazardScore,
                 overallSafetyStatus = entity.overallSafetyStatus,
                 highRiskSegmentsCount = entity.highRiskSegmentsCount,
+                totalAscentM = entity.totalAscentM,
+                maxElevationM = entity.maxElevationM,
+                decisionExplanation = entity.decisionExplanation ?: "",
                 conditions = waypoints,
+                elevationProfile = elevPoints,
+                safeHavens = havens,
                 alternatives = alts,
                 isOfflineSaved = entity.isSavedOffline,
                 isLoading = false
@@ -110,7 +138,6 @@ class RouteSafetyReviewViewModel @Inject constructor(
             val result = routeRepository.startTrip(state.routeId)
             result.fold(
                 onSuccess = { tripDto ->
-                    // Start ongoing foreground tracking service
                     ActiveTripTrackingService.start(
                         context = context,
                         tripId = tripDto.trip_id,
@@ -136,7 +163,7 @@ class RouteSafetyReviewViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 isOfflineSaved = true,
-                message = "Route and sensor forecast corridor saved offline in Room."
+                message = "TrailGuard: Route, elevation profile, and hazard corridor saved in offline Room database."
             )
         }
     }
@@ -145,4 +172,3 @@ class RouteSafetyReviewViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 }
-

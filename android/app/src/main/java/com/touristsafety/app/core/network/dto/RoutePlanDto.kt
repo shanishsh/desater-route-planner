@@ -21,7 +21,7 @@ data class PlanRouteRequestDto(
     val destination_lat: Double,
     val destination_lon: Double,
     val destination_name: String,
-    val travel_mode: String? = "driving",
+    val travel_mode: String? = "hiking",
     val departure_time: String? = null
 )
 
@@ -69,6 +69,29 @@ data class RouteDisasterAlertInfoDto(
 )
 
 @Serializable
+data class ElevationProfilePointDto(
+    val index: Int,
+    val latitude: Double,
+    val longitude: Double,
+    val elevation_m: Double,
+    val distance_from_start_km: Double,
+    val slope_degrees: Double = 0.0,
+    val hiking_speed_kmh: Double = 4.0,
+    val cumulative_minutes: Double = 0.0,
+    val estimated_arrival_iso: String = ""
+)
+
+@Serializable
+data class SafeHavenInfoDto(
+    val name: String,
+    val category: String, // mountain_hut, shelter, ranger_station, hospital, police
+    val latitude: Double,
+    val longitude: Double,
+    val distance_km: Double,
+    val is_egress_point: Boolean = true
+)
+
+@Serializable
 data class RouteWaypointConditionDto(
     val index: Int,
     val name: String,
@@ -77,10 +100,13 @@ data class RouteWaypointConditionDto(
     val distance_from_start_km: Double,
     val estimated_arrival_at: String,
     val hazard_level: String,
+    val elevation_m: Double = 0.0,
+    val slope_degrees: Double = 0.0,
     val weather: RouteWeatherConditionDto,
     val forest: RouteForestInfoDto? = null,
     val wildfire: RouteWildfireInfoDto? = null,
-    val alerts: List<RouteDisasterAlertInfoDto> = emptyList()
+    val alerts: List<RouteDisasterAlertInfoDto> = emptyList(),
+    val contributing_factors: List<String> = emptyList()
 )
 
 @Serializable
@@ -111,7 +137,14 @@ data class PlannedRouteResponseDto(
     val overall_hazard_score: Double,
     val overall_safety_status: String,
     val high_risk_segments_count: Int = 0,
+    val total_ascent_m: Double = 0.0,
+    val total_descent_m: Double = 0.0,
+    val min_elevation_m: Double = 0.0,
+    val max_elevation_m: Double = 0.0,
+    val decision_explanation: String = "",
     val conditions: List<RouteWaypointConditionDto> = emptyList(),
+    val elevation_profile: List<ElevationProfilePointDto> = emptyList(),
+    val safe_havens: List<SafeHavenInfoDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val geometry_geojson: JsonElement? = null,
     val created_at: String
@@ -172,3 +205,50 @@ data class TripStatusResponseDto(
     val completed_at: String? = null
 )
 
+@Serializable
+data class TrekkerCheckInRequestDto(
+    val trip_id: String,
+    val device_id: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val elevation_m: Double? = 0.0,
+    val gps_accuracy_m: Double? = 10.0,
+    val battery_pct: Int? = 100,
+    val status: String = "OK",
+    val notes: String? = null,
+    val timestamp: String? = null
+)
+
+@Serializable
+data class TrekkerCheckInResponseDto(
+    val checkin_id: String,
+    val trip_id: String,
+    val status: String,
+    val received_at: String,
+    val next_check_in_due: String,
+    val message: String
+)
+
+@Serializable
+data class EmergencySOSRequestDto(
+    val trip_id: String,
+    val device_id: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val elevation_m: Double? = 0.0,
+    val battery_pct: Int? = 100,
+    val emergency_type: String = "MEDICAL",
+    val details: String? = null,
+    val route_id: String? = null
+)
+
+@Serializable
+data class EmergencySOSResponseDto(
+    val incident_id: String,
+    val trip_id: String,
+    val status: String,
+    val escalation_level: String,
+    val broadcast_timestamp: String,
+    val sar_export_url: String,
+    val message: String
+)

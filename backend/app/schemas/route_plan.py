@@ -20,7 +20,7 @@ class PlanRouteRequest(BaseModel):
     destination_lat: float = Field(..., description="Destination latitude in WGS84")
     destination_lon: float = Field(..., description="Destination longitude in WGS84")
     destination_name: str = Field(..., description="Display name for destination")
-    travel_mode: Optional[str] = Field("driving", description="'driving' or 'walking' or 'hiking'")
+    travel_mode: Optional[str] = Field("hiking", description="'driving' or 'walking' or 'hiking'")
     departure_time: Optional[datetime] = Field(None, description="Planned departure time in UTC")
 
 
@@ -63,6 +63,37 @@ class RouteDisasterAlertInfo(BaseModel):
     is_simulated: bool = False
 
 
+class ElevationProfilePoint(BaseModel):
+    index: int
+    latitude: float
+    longitude: float
+    elevation_m: float
+    distance_from_start_km: float
+    slope_degrees: float
+    hiking_speed_kmh: float
+    cumulative_minutes: float
+    estimated_arrival_iso: str
+
+
+class SafeHavenInfo(BaseModel):
+    name: str
+    category: str  # mountain_hut, shelter, ranger_station, hospital, police
+    latitude: float
+    longitude: float
+    distance_km: float
+    is_egress_point: bool = True
+
+
+class TrailGuardRiskBreakdown(BaseModel):
+    weather_subscore: float
+    slope_subscore: float
+    hazard_subscore: float
+    fire_subscore: float
+    composite_score: float
+    risk_level: str
+    contributing_factors: List[str] = Field(default_factory=list)
+
+
 class RouteWaypointCondition(BaseModel):
     index: int
     name: str
@@ -71,10 +102,14 @@ class RouteWaypointCondition(BaseModel):
     distance_from_start_km: float
     estimated_arrival_at: str
     hazard_level: str  # LOW, MEDIUM, HIGH, CRITICAL
+    elevation_m: float = 0.0
+    slope_degrees: float = 0.0
     weather: RouteWeatherCondition
     forest: Optional[RouteForestInfo] = None
     wildfire: Optional[RouteWildfireInfo] = None
     alerts: List[RouteDisasterAlertInfo] = Field(default_factory=list)
+    risk_breakdown: Optional[Dict[str, float]] = None
+    contributing_factors: List[str] = Field(default_factory=list)
 
 
 class RouteAlternativeSchema(BaseModel):
@@ -104,7 +139,14 @@ class PlannedRouteResponse(BaseModel):
     overall_hazard_score: float  # 0.0 (Safe) to 100.0 (Extreme Hazard)
     overall_safety_status: str  # "SAFE", "CAUTION", "HIGH_RISK"
     high_risk_segments_count: int = 0
+    total_ascent_m: float = 0.0
+    total_descent_m: float = 0.0
+    min_elevation_m: float = 0.0
+    max_elevation_m: float = 0.0
+    decision_explanation: str = ""
     conditions: List[RouteWaypointCondition] = Field(default_factory=list)
+    elevation_profile: List[ElevationProfilePoint] = Field(default_factory=list)
+    safe_havens: List[SafeHavenInfo] = Field(default_factory=list)
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     data_freshness: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
@@ -158,4 +200,3 @@ class TripStatusResponse(BaseModel):
     current_segment_index: int = 0
     overall_safety_status: str = "SAFE"
     completed_at: Optional[str] = None
-

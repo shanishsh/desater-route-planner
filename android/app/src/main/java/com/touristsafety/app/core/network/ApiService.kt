@@ -145,4 +145,14 @@ interface ApiService {
     suspend fun stopTrip(
         @Path("id") id: String
     ): Response<Map<String, String>>
+
+    @POST("sar/check-in")
+    suspend fun submitCheckIn(
+        @Body body: TrekkerCheckInRequestDto
+    ): Response<TrekkerCheckInResponseDto>
+
+    @POST("sar/sos")
+    suspend fun triggerSos(
+        @Body body: EmergencySOSRequestDto
+    ): Response<EmergencySOSResponseDto>
 }

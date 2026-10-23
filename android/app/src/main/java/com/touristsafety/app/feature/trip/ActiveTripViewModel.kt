@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
+import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.repository.RouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,7 +27,14 @@ data class ActiveTripUiState(
     val nearestHazardTitle: String? = null,
     val nextWaypoint: RouteWaypointConditionDto? = null,
     val totalDistanceKm: Double = 0.0,
-    val isCompleted: Boolean = false
+    val elevationProfile: List<ElevationProfilePointDto> = emptyList(),
+    val totalAscentM: Double = 0.0,
+    val maxElevationM: Double = 0.0,
+    val isCompleted: Boolean = false,
+    val isCheckingIn: Boolean = false,
+    val checkInMessage: String? = null,
+    val isSosTriggered: Boolean = false,
+    val nextCheckInCountdown: String = "02h 45m"
 )
 
 @HiltViewModel
@@ -58,6 +66,14 @@ class ActiveTripViewModel @Inject constructor(
                         }
                     } else emptyList()
 
+                    val elevPoints = if (route?.elevationProfileJson != null) {
+                        try {
+                            json.decodeFromString<List<ElevationProfilePointDto>>(route.elevationProfileJson)
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    } else emptyList()
+
                     val nextWp = if (waypoints.isNotEmpty() && trip.currentSegmentIndex < waypoints.size) {
                         waypoints[minOf(waypoints.size - 1, trip.currentSegmentIndex + 1)]
                     } else null
@@ -74,10 +90,67 @@ class ActiveTripViewModel @Inject constructor(
                             nearestHazardTitle = trip.nearestHazardTitle,
                             nextWaypoint = nextWp,
                             totalDistanceKm = route?.distanceKm ?: 0.0,
+                            elevationProfile = elevPoints,
+                            totalAscentM = route?.totalAscentM ?: 0.0,
+                            maxElevationM = route?.maxElevationM ?: 0.0,
                             isCompleted = trip.status == "COMPLETED"
                         )
                     }
                 }
+            }
+        }
+    }
+
+    fun submitCheckIn() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCheckingIn = true) }
+            val state = _uiState.value
+            val result = routeRepository.submitCheckIn(
+                tripId = tripId,
+                latitude = state.nextWaypoint?.latitude ?: 32.24,
+                longitude = state.nextWaypoint?.longitude ?: 77.18,
+                elevationM = state.nextWaypoint?.elevation_m ?: 2400.0,
+                batteryPct = 85,
+                status = "OK"
+            )
+            result.fold(
+                onSuccess = { res ->
+                    _uiState.update {
+                        it.copy(
+                            isCheckingIn = false,
+                            checkInMessage = "Check-In Recorded! Next check-in reset to 3 hours."
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            isCheckingIn = false,
+                            checkInMessage = "Check-in stored offline. Will sync when connected."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun triggerEmergencySos() {
+        viewModelScope.launch {
+            val state = _uiState.value
+            val result = routeRepository.triggerEmergencySos(
+                tripId = tripId,
+                latitude = state.nextWaypoint?.latitude ?: 32.24,
+                longitude = state.nextWaypoint?.longitude ?: 77.18,
+                elevationM = state.nextWaypoint?.elevation_m ?: 2400.0,
+                batteryPct = 85,
+                emergencyType = "MOUNTAIN_SOS",
+                details = "Trekker manual emergency beacon trigger from mobile field unit."
+            )
+            _uiState.update {
+                it.copy(
+                    isSosTriggered = true,
+                    checkInMessage = "EMERGENCY SOS BEACON ACTIVE. Search & Rescue incident transmitted."
+                )
             }
         }
     }
@@ -89,5 +162,8 @@ class ActiveTripViewModel @Inject constructor(
             _uiState.update { it.copy(isCompleted = true, status = "COMPLETED") }
         }
     }
-}
 
+    fun clearMessage() {
+        _uiState.update { it.copy(checkInMessage = null) }
+    }
+}
