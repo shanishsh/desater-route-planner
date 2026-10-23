@@ -128,15 +128,21 @@ class RouteConditionAnalyzer:
             alert_filters.append(DisasterAlert.is_simulated.is_(False))
 
         stmt = select(DisasterAlert).where(*alert_filters)
-        db_task = db.execute(stmt)
 
-        (elevation_data, forest_features, raw_records, amenity_items), db_result = await asyncio.gather(
+        async def _safe_db_alerts():
+            try:
+                res = await db.execute(stmt)
+                return list(res.scalars().all())
+            except Exception as e:
+                logger.warning(f"Database disaster alerts query failed: {e}")
+                return []
+
+        (elevation_data, forest_features, raw_records, amenity_items), candidate_alerts = await asyncio.gather(
             asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities()),
-            db_task,
+            _safe_db_alerts(),
         )
 
         elev_points = elevation_data.get("points", []) if elevation_data else []
-        candidate_alerts: List[DisasterAlert] = list(db_result.scalars().all())
 
         filtered_alert_tuples = route_corridor_service.filter_disaster_alerts(
             candidate_alerts,

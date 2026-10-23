@@ -83,9 +83,13 @@ async def plan_route(
         alternatives_data=[a.model_dump() for a in analysis.alternatives],
         data_freshness_data=analysis.data_freshness,
     )
-    db.add(db_route)
-    await db.commit()
-    await db.refresh(db_route)
+    try:
+        db.add(db_route)
+        await db.commit()
+        await db.refresh(db_route)
+    except Exception as e:
+        logger.error(f"Failed to persist planned route to database cache: {e}")
+        await db.rollback()
 
     return analysis
 
