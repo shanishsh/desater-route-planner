@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.clients.open_meteo import open_meteo_client
 from app.models.weather import WeatherSnapshot
+from app.cache.redis_cache import cache_service
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,7 @@ async def test_weather_success_and_caching(client, test_db):
 
 @pytest.mark.asyncio
 async def test_weather_fallback_to_postgres_snapshot(client, test_db):
+    await cache_service.delete("weather:32.24:77.19")
     now = datetime.now(timezone.utc)
     # Seed a historical weather snapshot in DB
     snapshot = WeatherSnapshot(

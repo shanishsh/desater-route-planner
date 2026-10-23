@@ -52,8 +52,17 @@ async def client(test_db):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Clean in-memory cache between tests
+    # Clean in-memory and Redis cache between tests
     cache_service._in_memory_cache.clear()
+    redis_cli = await cache_service.get_client()
+    if redis_cli:
+        try:
+            for pattern in ["weather:*", "route:*", "firms:*", "forest:*", "amenity:*", "lock:*", "rate:*"]:
+                keys = await redis_cli.keys(pattern)
+                if keys:
+                    await redis_cli.delete(*keys)
+        except Exception:
+            pass
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:

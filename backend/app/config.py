@@ -1,5 +1,5 @@
 """Application configuration settings."""
-from typing import List
+from typing import List, Optional, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
@@ -38,9 +38,24 @@ class Settings(BaseSettings):
                 return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
+    # Upstash Redis
+    UPSTASH_REDIS_REST_URL: Optional[str] = "https://viable-bluegill-237463.upstash.io"
+    UPSTASH_REDIS_REST_TOKEN: Optional[str] = "gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg"
+
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_TIMEOUT_SECONDS: float = 2.0
+    REDIS_URL: str = Field(
+        default="rediss://default:gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg@viable-bluegill-237463.upstash.io:6379",
+        description="Redis connection URL. Supports rediss:// (TLS) and redis://.",
+    )
+    REDIS_TIMEOUT_SECONDS: float = 3.0
+
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def assemble_redis_url(cls, v: Any, info: Any) -> str:
+        # If user explicitly sets REDIS_URL in env (not default localhost), use it
+        if isinstance(v, str) and v and not v.startswith("redis://localhost"):
+            return v
+        return "rediss://default:gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg@viable-bluegill-237463.upstash.io:6379"
 
     # Security
     SECRET_KEY: str = "tourist-safety-platform-secure-token-key-for-jwt-signing-minimum-32"

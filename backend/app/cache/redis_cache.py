@@ -1,4 +1,5 @@
 """Redis caching layer with graceful degradation and stampede lock."""
+import asyncio
 import json
 import logging
 from typing import Optional, Any
@@ -24,9 +25,22 @@ class CacheService:
         self._redis_client: Optional[aioredis.Redis] = None
         self._in_memory_cache: dict = {}
         self._is_redis_available: bool = True
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def get_client(self) -> Optional[aioredis.Redis]:
-        """Initializes or returns the active Redis client."""
+        """Initializes or returns the active Redis client bound to the current running event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._redis_client is not None and self._loop != current_loop:
+            try:
+                await self._redis_client.aclose()
+            except Exception:
+                pass
+            self._redis_client = None
+
         if not self._is_redis_available:
             return None
 
@@ -39,6 +53,8 @@ class CacheService:
                     socket_connect_timeout=settings.REDIS_TIMEOUT_SECONDS,
                 )
                 await self._redis_client.ping()
+                self._loop = current_loop
+                self._is_redis_available = True
             except Exception as e:
                 logger.warning(f"Redis unavailable, operating in degraded memory-cache mode: {e}")
                 self._is_redis_available = False
