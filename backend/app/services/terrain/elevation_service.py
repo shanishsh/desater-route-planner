@@ -58,7 +58,7 @@ class ElevationTerrainService:
             lons_str = ",".join(f"{pt[1]:.5f}" for pt in batch)
 
             try:
-                async with httpx.AsyncClient(timeout=8.0) as client:
+                async with httpx.AsyncClient(timeout=3.5) as client:
                     resp = await client.get(
                         self.elevation_api_url,
                         params={"latitude": lats_str, "longitude": lons_str},

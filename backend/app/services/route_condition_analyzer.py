@@ -1,6 +1,7 @@
 """Service for analyzing environmental conditions and multi-hazard risks along a route corridor."""
 import os
 import math
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
@@ -70,13 +71,50 @@ class RouteConditionAnalyzer:
         if sampled_coords[-1] != route_coords_lat_lon[-1]:
             sampled_coords.append(route_coords_lat_lon[-1])
 
-        # 2. Compute DEM Elevation Profile and Tobler hiking speeds
-        elevation_data = await elevation_service.compute_elevation_profile(
-            sampled_coords, departure_time=dep_time
-        )
-        elev_points = elevation_data.get("points", [])
+        # 2. Concurrently fetch DEM Elevation, Forest geometries, NASA FIRMS, and Safe Havens
+        async def _safe_elev():
+            try:
+                return await asyncio.wait_for(
+                    elevation_service.compute_elevation_profile(sampled_coords, departure_time=dep_time),
+                    timeout=4.0
+                )
+            except Exception as e:
+                logger.warning(f"Elevation query failed or timed out: {e}")
+                return {"points": []}
 
-        # 3. Query active disaster alerts from DB and perform exact spatial corridor filtering
+        async def _safe_forest():
+            try:
+                res = await asyncio.wait_for(
+                    osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon),
+                    timeout=3.5
+                )
+                return res.get("features", []) if res else []
+            except Exception as e:
+                logger.warning(f"Forest query failed or timed out: {e}")
+                return []
+
+        async def _safe_fires():
+            try:
+                res = await asyncio.wait_for(
+                    nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon),
+                    timeout=3.5
+                )
+                return res.get("records", []) if res else []
+            except Exception as e:
+                logger.warning(f"FIRMS fire query failed or timed out: {e}")
+                return []
+
+        async def _safe_amenities():
+            try:
+                return await asyncio.wait_for(
+                    osm_amenities_client.fetch_amenities(min_lat, min_lon, max_lat, max_lon),
+                    timeout=3.5
+                )
+            except Exception as e:
+                logger.warning(f"Safe havens query failed or timed out: {e}")
+                return []
+
+        # 3. Query active disaster alerts from DB and run network queries concurrently
         allow_simulated = os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
         alert_filters = [
             DisasterAlert.status.in_(["active", "updated"]),
@@ -90,8 +128,15 @@ class RouteConditionAnalyzer:
             alert_filters.append(DisasterAlert.is_simulated.is_(False))
 
         stmt = select(DisasterAlert).where(*alert_filters)
-        result = await db.execute(stmt)
-        candidate_alerts: List[DisasterAlert] = list(result.scalars().all())
+        db_task = db.execute(stmt)
+
+        (elevation_data, forest_features, raw_records, amenity_items), db_result = await asyncio.gather(
+            asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities()),
+            db_task,
+        )
+
+        elev_points = elevation_data.get("points", []) if elevation_data else []
+        candidate_alerts: List[DisasterAlert] = list(db_result.scalars().all())
 
         filtered_alert_tuples = route_corridor_service.filter_disaster_alerts(
             candidate_alerts,
@@ -101,59 +146,41 @@ class RouteConditionAnalyzer:
         )
         active_alerts: List[DisasterAlert] = [t[0] for t in filtered_alert_tuples]
 
-        # 4. Query forest data along corridor
-        forest_features = []
-        try:
-            forest_data = await osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon)
-            if forest_data and "features" in forest_data:
-                forest_features = forest_data["features"]
-        except Exception as e:
-            logger.warning(f"Error querying forest data for route: {e}")
+        # Filter fire detections to corridor
+        active_fires = route_corridor_service.filter_fire_detections(
+            raw_records,
+            route_coords_lat_lon,
+            corridor_distance_meters=corridor_dist_m,
+        )
 
-        # 5. Query NASA FIRMS fire detections along corridor and filter to exact corridor distance
-        active_fires = []
-        try:
-            firms_data = await nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon)
-            raw_records = firms_data.get("records", []) if firms_data else []
-            active_fires = route_corridor_service.filter_fire_detections(
-                raw_records,
-                route_coords_lat_lon,
-                corridor_distance_meters=corridor_dist_m,
-            )
-        except Exception as e:
-            logger.warning(f"Error querying FIRMS fire data for route: {e}")
-
-        # 6. Query Emergency Safe Havens within the configured corridor
+        # Filter safe havens to corridor
+        filtered_amenities = route_corridor_service.filter_amenities(
+            amenity_items,
+            route_coords_lat_lon,
+            corridor_distance_meters=corridor_dist_m,
+        )
         safe_havens: List[SafeHavenInfo] = []
-        try:
-            amenity_items = await osm_amenities_client.fetch_amenities(min_lat, min_lon, max_lat, max_lon)
-            filtered_amenities = route_corridor_service.filter_amenities(
-                amenity_items,
-                route_coords_lat_lon,
-                corridor_distance_meters=corridor_dist_m,
-            )
-            for item in filtered_amenities:
-                safe_havens.append(
-                    SafeHavenInfo(
-                        name=item.get("name", "Emergency Assistance Point"),
-                        category=item.get("category", "shelter"),
-                        latitude=item["latitude"],
-                        longitude=item["longitude"],
-                        distance_km=item.get("distance_to_route_km", 0.0),
-                        is_egress_point=True,
-                    )
+        for item in filtered_amenities:
+            safe_havens.append(
+                SafeHavenInfo(
+                    name=item.get("name", "Emergency Assistance Point"),
+                    category=item.get("category", "shelter"),
+                    latitude=item["latitude"],
+                    longitude=item["longitude"],
+                    distance_km=item.get("distance_to_route_km", 0.0),
+                    is_egress_point=True,
                 )
-            safe_havens.sort(key=lambda sh: sh.distance_km)
-            safe_havens = safe_havens[:15]
-        except Exception as e:
-            logger.warning(f"Error querying Safe Havens: {e}")
+            )
+        safe_havens.sort(key=lambda sh: sh.distance_km)
+        safe_havens = safe_havens[:15]
 
         # Analyze each waypoint with terrain and TrailGuard Risk Engine
         waypoint_conditions: List[RouteWaypointCondition] = []
         segment_evaluations: List[Dict[str, Any]] = []
 
+        # Precompute arrival times and closest elevation points for all waypoints
+        wp_info_list = []
         for wp in route.waypoints:
-            # Find closest elevation profile point to estimate elevation and slope
             closest_elev_pt = None
             min_dist_to_elev = 999.0
             for ep in elev_points:
@@ -162,17 +189,43 @@ class RouteConditionAnalyzer:
                     min_dist_to_elev = d
                     closest_elev_pt = ep
 
-            wp_elevation = closest_elev_pt["elevation_m"] if closest_elev_pt else 0.0
-            wp_slope_deg = closest_elev_pt["slope_degrees"] if closest_elev_pt else 0.0
-
-            # Compute estimated arrival time based on Tobler hiking speed if available
             if closest_elev_pt and "cumulative_minutes" in closest_elev_pt:
                 arr_time = dep_time + timedelta(minutes=closest_elev_pt["cumulative_minutes"])
             else:
                 arr_time = dep_time + timedelta(minutes=wp.estimated_travel_time_minutes)
 
-            # Weather forecast at calculated arrival time
-            w_dict = await open_meteo_client.get_forecast_for_waypoint(wp.latitude, wp.longitude, arr_time)
+            wp_info_list.append((wp, closest_elev_pt, arr_time))
+
+        # Concurrently fetch weather forecasts for all waypoints
+        weather_tasks = [
+            open_meteo_client.get_forecast_for_waypoint(wp.latitude, wp.longitude, arr_time)
+            for wp, _, arr_time in wp_info_list
+        ]
+        weather_results = await asyncio.gather(*weather_tasks, return_exceptions=True)
+
+        for i, (wp, closest_elev_pt, arr_time) in enumerate(wp_info_list):
+            wp_elevation = closest_elev_pt["elevation_m"] if closest_elev_pt else 0.0
+            wp_slope_deg = closest_elev_pt["slope_degrees"] if closest_elev_pt else 0.0
+
+            w_raw = weather_results[i]
+            if isinstance(w_raw, Exception) or not isinstance(w_raw, dict):
+                logger.warning(f"Weather fetch for waypoint {wp.name} failed: {w_raw}")
+                w_dict = {
+                    "temperature_c": 18.0,
+                    "relative_humidity_pct": 50.0,
+                    "wind_speed_kmh": 10.0,
+                    "precipitation_mm": 0.0,
+                    "precipitation_probability_pct": 0.0,
+                    "weather_code": 0,
+                    "weather_description": "Clear sky",
+                    "warning_level": "NONE",
+                    "forecast_valid_at": arr_time,
+                    "source": "Offline Estimate",
+                    "is_simulated": False,
+                }
+            else:
+                w_dict = w_raw
+
             weather_cond = RouteWeatherCondition(
                 temperature_c=w_dict["temperature_c"],
                 relative_humidity_pct=w_dict["relative_humidity_pct"],

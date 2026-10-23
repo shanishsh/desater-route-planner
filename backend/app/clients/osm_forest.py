@@ -33,7 +33,7 @@ class OSMForestClient:
         if self._client is None or self._client.is_closed or self._loop != loop:
             self._loop = loop
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=3.0, read=10.0, write=3.0, pool=3.0),
+                timeout=httpx.Timeout(connect=2.5, read=4.0, write=2.5, pool=2.5),
                 headers={"User-Agent": "TouristSafetyPlatform/1.0 (Safety-Research; OSM-Overpass)"},
             )
         return self._client
