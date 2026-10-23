@@ -43,6 +43,7 @@ data class RouteSafetyReviewUiState(
 
 sealed interface RouteReviewEvent {
     data class NavigateToActiveTrip(val tripId: String) : RouteReviewEvent
+    data object NavigateToMap : RouteReviewEvent
 }
 
 @HiltViewModel
@@ -75,6 +76,7 @@ class RouteSafetyReviewViewModel @Inject constructor(
     }
 
     private fun populateFromEntity(entity: PlannedRouteEntity) {
+        routeRepository.activateSavedRoute(entity)
         val waypoints = try {
             json.decodeFromString<List<RouteWaypointConditionDto>>(entity.conditionsJson)
         } catch (e: Exception) {
@@ -165,6 +167,12 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 isOfflineSaved = true,
                 message = "TrailGuard: Route, elevation profile, and hazard corridor saved in offline Room database."
             )
+        }
+    }
+
+    fun viewOnMap() {
+        viewModelScope.launch {
+            _eventFlow.emit(RouteReviewEvent.NavigateToMap)
         }
     }
 

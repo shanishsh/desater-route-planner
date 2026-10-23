@@ -9,8 +9,11 @@ import com.touristsafety.app.core.network.NetworkConnectivityMonitor
 import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 import com.touristsafety.app.core.repository.*
+import com.touristsafety.app.core.network.dto.PlannedRouteResponseDto
+import com.touristsafety.app.core.network.dto.RouteAnalysisResponseDto
 import com.touristsafety.app.feature.map.MapFilterChip
 import com.touristsafety.app.feature.map.MapViewModel
+import com.touristsafety.app.feature.map.RouteLifecycleState
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,16 +39,19 @@ class MapViewModelTest {
     private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
     private val deviceLocationRepository = mockk<DeviceLocationRepository>(relaxed = true)
     private val locationStateFlow = MutableStateFlow(DeviceLocationState())
+    private val activeRouteStateFlow = MutableStateFlow<PlannedRouteResponseDto?>(null)
 
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        activeRouteStateFlow.value = null
         every { connectivityMonitor.state } returns MutableStateFlow(
             DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
         )
         every { deviceLocationRepository.locationState } returns locationStateFlow
+        every { routeRepository.activeRouteFlow } returns activeRouteStateFlow
         coEvery { deviceLocationRepository.getCurrentLocationFix(any(), any()) } returns Result.failure(Exception("No GPS fix in mock setup"))
         coEvery { deviceLocationRepository.getCurrentLocationFix() } returns Result.failure(Exception("No GPS fix in mock setup"))
         coEvery { emergencyRepository.refreshMapPoints() } returns Result.success(Unit)
@@ -350,6 +356,88 @@ class MapViewModelTest {
 
         viewModel.selectRouteAlternative(null)
         assertNull(viewModel.uiState.value.selectedAlternativeId)
+    }
+
+    @Test
+    fun `activeRouteFlow emission transitions routeLifecycleState to ROUTE_AVAILABLE and triggers corridor analysis`() = runTest(testDispatcher) {
+        val samplePlannedRoute = PlannedRouteResponseDto(
+            route_id = "route-manali-solang-123",
+            route_version = 1,
+            title = "Manali to Solang Pass",
+            origin_name = "Manali Mall Road",
+            origin_lat = 32.2396,
+            origin_lon = 77.1887,
+            destination_name = "Solang Valley",
+            dest_lat = 32.3166,
+            dest_lon = 77.1583,
+            travel_mode = "hiking",
+            distance_km = 12.4,
+            duration_minutes = 180.0,
+            overall_hazard_score = 22.5,
+            overall_safety_status = "SAFE"
+        )
+
+        val sampleAnalysis = RouteAnalysisResponseDto(
+            route_id = "route-manali-solang-123",
+            route_version = 1,
+            analysis_timestamp = "2026-10-24T00:00:00Z",
+            disaster_alerts = emptyList(),
+            fire_detections = emptyList(),
+            assistance_points = emptyList(),
+            weather_by_waypoint = emptyList(),
+            provider_statuses = emptyMap()
+        )
+
+        coEvery { routeRepository.analyzeRoute("route-manali-solang-123") } returns Result.success(sampleAnalysis)
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(RouteLifecycleState.NO_ROUTE_SELECTED, viewModel.uiState.value.routeLifecycleState)
+
+        // Emit new active route
+        activeRouteStateFlow.value = samplePlannedRoute
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("route-manali-solang-123", state.activeRouteId)
+        assertEquals(1, state.activeRouteVersion)
+        assertEquals("Manali to Solang Pass", state.routeTitle)
+        assertEquals(RouteLifecycleState.ANALYZED_EMPTY, state.routeLifecycleState)
+
+        coVerify(atLeast = 1) {
+            routeRepository.analyzeRoute("route-manali-solang-123")
+        }
+    }
+
+    @Test
+    fun `clearRoute invokes routeRepository clearActiveRoute`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        viewModel.clearRoute()
+        verify(exactly = 1) { routeRepository.clearActiveRoute() }
     }
 }
 

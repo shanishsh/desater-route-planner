@@ -110,6 +110,11 @@ interface ApiService {
         @Body body: PlanRouteRequestDto
     ): Response<PlannedRouteResponseDto>
 
+    @POST("routes/{id}/analyze")
+    suspend fun analyzeRoute(
+        @Path("id") id: String
+    ): Response<RouteAnalysisResponseDto>
+
     @GET("routes/{id}")
     suspend fun getPlannedRoute(
         @Path("id") id: String

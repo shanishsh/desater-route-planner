@@ -25,6 +25,7 @@ import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 fun RouteSafetyReviewScreen(
     onNavigateBack: () -> Unit,
     onNavigateToActiveTrip: (String) -> Unit,
+    onNavigateToMap: () -> Unit = {},
     viewModel: RouteSafetyReviewViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -35,6 +36,7 @@ fun RouteSafetyReviewScreen(
         viewModel.eventFlow.collect { event ->
             when (event) {
                 is RouteReviewEvent.NavigateToActiveTrip -> onNavigateToActiveTrip(event.tripId)
+                is RouteReviewEvent.NavigateToMap -> onNavigateToMap()
             }
         }
     }
@@ -61,6 +63,9 @@ fun RouteSafetyReviewScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.viewOnMap() }) {
+                        Icon(Icons.Default.Map, contentDescription = "View on Map")
+                    }
                     IconButton(onClick = { viewModel.saveOffline() }) {
                         Icon(
                             if (state.isOfflineSaved) Icons.Default.CloudDone else Icons.Default.SaveAlt,

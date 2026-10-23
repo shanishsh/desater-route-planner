@@ -10,7 +10,9 @@ import com.touristsafety.app.core.location.DeviceLocationRepository
 import com.touristsafety.app.core.network.NetworkConnectivityMonitor
 import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
+import com.touristsafety.app.core.network.dto.PlannedRouteResponseDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
+import com.touristsafety.app.core.network.dto.RouteAnalysisResponseDto
 import com.touristsafety.app.core.repository.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -18,6 +20,18 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import javax.inject.Inject
+
+enum class RouteLifecycleState {
+    NO_ROUTE_SELECTED,
+    CALCULATING_ROUTE,
+    ROUTE_AVAILABLE,
+    ANALYZING_CORRIDOR,
+    PARTIALLY_ANALYZED,
+    ANALYZED_WITH_FEATURES,
+    ANALYZED_EMPTY,
+    OFFLINE_CACHED,
+    ANALYSIS_FAILED
+}
 
 enum class MapFilterChip(val label: String, val category: MapFeatureCategory?) {
     ALL("All", null),
@@ -33,7 +47,10 @@ enum class MapFilterChip(val label: String, val category: MapFeatureCategory?) {
 
 data class MapUiState(
     val selectedItinerary: Itinerary? = null,
-    val routeTitle: String = "Explore Route Map",
+    val routeLifecycleState: RouteLifecycleState = RouteLifecycleState.NO_ROUTE_SELECTED,
+    val activeRouteId: String? = null,
+    val activeRouteVersion: Int = 1,
+    val routeTitle: String = "Explore Map",
     val routeCoordinates: List<Pair<Double, Double>> = emptyList(),
     val primaryRouteCoordinates: List<Pair<Double, Double>> = emptyList(),
     val routeDistanceKm: Double? = null,
@@ -71,7 +88,8 @@ data class MapUiState(
     val plannedRouteAlternatives: List<RouteAlternativeDto> = emptyList(),
     val selectedAlternativeId: String? = null,
     val routeOverallHazardScore: Double? = null,
-    val routeSafetyStatus: String? = null
+    val routeSafetyStatus: String? = null,
+    val activeDecisionExplanation: String? = null
 )
 
 @HiltViewModel
@@ -98,6 +116,8 @@ class MapViewModel @Inject constructor(
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
 
     private var searchJob: Job? = null
+    private var currentRouteAnalysisJob: Job? = null
+    private var activeAnalysisRequestId: String? = null
 
     init {
         observeConnectivity()
@@ -145,23 +165,66 @@ class MapViewModel @Inject constructor(
     }
 
     private fun observeData() {
-        // 1. Itineraries & Active Route
+        // 1. Observe Real Active Planned Route from RouteRepository
         viewModelScope.launch {
-            itineraryRepository.getItineraries().collect { itineraries ->
-                val active = itineraries.firstOrNull()
-                val coords = parseRouteGeoJson(active?.routeGeoJson)
-                val start = coords.firstOrNull() ?: ((active?.startLatitude ?: 32.2396) to (active?.startLongitude ?: 77.1887))
-                _uiState.update {
-                    it.copy(
-                        selectedItinerary = active,
-                        routeTitle = active?.title ?: "Explore Route Map",
-                        routeCoordinates = coords,
-                        routeDistanceKm = active?.distanceKm,
-                        routeDurationHours = active?.estimatedDurationHours,
-                        cameraTarget = start
-                    )
+            routeRepository.activeRouteFlow.collect { activeRoute ->
+                if (activeRoute == null) {
+                    currentRouteAnalysisJob?.cancel()
+                    activeAnalysisRequestId = null
+                    rawHazardZones = emptyList()
+                    rawFireHotspots = emptyList()
+                    rawWeatherPoints = emptyList()
+                    _uiState.update {
+                        it.copy(
+                            selectedItinerary = null,
+                            routeLifecycleState = RouteLifecycleState.NO_ROUTE_SELECTED,
+                            activeRouteId = null,
+                            activeRouteVersion = 1,
+                            routeTitle = "Explore Map",
+                            routeCoordinates = emptyList(),
+                            primaryRouteCoordinates = emptyList(),
+                            routeDistanceKm = null,
+                            routeDurationHours = null,
+                            routeOverallHazardScore = null,
+                            routeSafetyStatus = null,
+                            activeDecisionExplanation = null,
+                            plannedRouteAlternatives = emptyList(),
+                            selectedAlternativeId = null,
+                            activeDisasterAlertsCount = 0,
+                            routeSummaryFireCount = 0
+                        )
+                    }
+                    rebuildUnifiedFeatures()
+                } else {
+                    val primaryCoords = parseGeoJsonCoordinates(activeRoute.geometry_geojson?.toString())
+                        .ifEmpty { activeRoute.conditions.map { it.latitude to it.longitude } }
+
+                    val start = primaryCoords.firstOrNull() ?: _uiState.value.userLocation
+
+                    _uiState.update {
+                        it.copy(
+                            selectedItinerary = null,
+                            routeLifecycleState = RouteLifecycleState.ROUTE_AVAILABLE,
+                            activeRouteId = activeRoute.route_id,
+                            activeRouteVersion = activeRoute.route_version,
+                            routeTitle = activeRoute.title,
+                            routeCoordinates = primaryCoords,
+                            primaryRouteCoordinates = primaryCoords,
+                            routeDistanceKm = activeRoute.distance_km,
+                            routeDurationHours = activeRoute.duration_minutes / 60.0,
+                            routeOverallHazardScore = activeRoute.overall_hazard_score,
+                            routeSafetyStatus = activeRoute.overall_safety_status,
+                            plannedRouteAlternatives = activeRoute.alternatives,
+                            selectedAlternativeId = null,
+                            activeDecisionExplanation = activeRoute.decision_explanation,
+                            cameraTarget = start,
+                            zoomLevel = 13.0
+                        )
+                    }
+
+                    // Trigger genuine corridor hazard analysis for this route
+                    triggerRouteCorridorAnalysis(activeRoute.route_id, activeRoute.route_version, activeRoute)
                 }
-                rebuildUnifiedFeatures()
             }
         }
 
@@ -262,6 +325,235 @@ class MapViewModel @Inject constructor(
                 rebuildUnifiedFeatures()
             }
         }
+    }
+
+    fun clearRoute() {
+        routeRepository.clearActiveRoute()
+    }
+
+    private fun triggerRouteCorridorAnalysis(
+        routeId: String,
+        version: Int,
+        fallbackRoute: PlannedRouteResponseDto
+    ) {
+        currentRouteAnalysisJob?.cancel()
+        val requestId = "${routeId}_$version"
+        activeAnalysisRequestId = requestId
+
+        currentRouteAnalysisJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(routeLifecycleState = RouteLifecycleState.ANALYZING_CORRIDOR)
+            }
+
+            val analysisResult = routeRepository.analyzeRoute(routeId)
+            // Ensure this request hasn't been superseded by another route selection
+            if (activeAnalysisRequestId != requestId) {
+                Log.d("MapViewModel", "Discarded stale route analysis for $requestId")
+                return@launch
+            }
+
+            analysisResult.fold(
+                onSuccess = { analysis ->
+                    applyRouteAnalysisFeatures(analysis)
+                },
+                onFailure = { err ->
+                    Log.w("MapViewModel", "Route analysis API call failed: ${err.message}. Applying fallback from planned route.", err)
+                    applyFallbackRouteAnalysis(fallbackRoute)
+                }
+            )
+        }
+    }
+
+    private fun applyRouteAnalysisFeatures(analysis: RouteAnalysisResponseDto) {
+        val userLoc = _uiState.value.userLocation
+
+        // 1. Hazard zones from disaster_alerts
+        rawHazardZones = analysis.disaster_alerts.map { a ->
+            val dist = (a.distance_to_alert_km * 1000f).toFloat()
+            val circleCoords = generateCirclePolygon(userLoc.first, userLoc.second, 3000.0)
+            UnifiedMapFeature(
+                id = "hazard_${a.alert_id}",
+                category = MapFeatureCategory.HAZARD_ZONE,
+                title = a.title,
+                subtitle = "Severity: ${a.severity} • Category: ${a.hazard_category.uppercase()}",
+                latitude = userLoc.first,
+                longitude = userLoc.second,
+                distanceMeters = dist,
+                sourceName = "NDMA SACHET / CAP Official",
+                sourceTimestampEpochMs = System.currentTimeMillis(),
+                isVerified = true,
+                isSimulated = a.is_simulated,
+                isCached = false,
+                details = mapOf(
+                    "Severity" to a.severity,
+                    "Category" to a.hazard_category.replace('_', ' ').uppercase(),
+                    "Distance to Route" to "${a.distance_to_alert_km} km",
+                    "Protective Instructions" to a.required_protective_instructions,
+                ),
+                geometryPolygon = circleCoords
+            )
+        }
+
+        // 2. Active Fires from fire_detections
+        rawFireHotspots = analysis.fire_detections.mapIndexed { idx, fire ->
+            FireHotspot(
+                id = "firms_corridor_$idx",
+                latitude = userLoc.first,
+                longitude = userLoc.second,
+                brightness = 325.0,
+                confidence = fire.confidence ?: "nominal",
+                satellite = "MODIS/VIIRS",
+                acquisitionDate = fire.acquisition_time ?: "NRT",
+                acquisitionTime = "",
+                frpMw = fire.fire_radiative_power ?: 15.0,
+                isSimulated = false
+            )
+        }
+
+        // 3. Assistance points from assistance_points (Safe Havens)
+        rawMapPoints = analysis.assistance_points.mapIndexed { idx, sh ->
+            val cat = when (sh.category.lowercase()) {
+                "hospital", "clinic" -> PointCategory.MEDICAL
+                "police" -> PointCategory.POLICE
+                "shelter", "mountain_hut" -> PointCategory.SHELTER
+                else -> PointCategory.VISITOR_INFO
+            }
+            MapPoint(
+                id = "haven_$idx",
+                name = sh.name,
+                category = cat,
+                latitude = sh.latitude,
+                longitude = sh.longitude,
+                description = "Emergency Safe Haven • ${sh.distance_km} km from trail corridor",
+                provenance = "OpenStreetMap Overpass Verified",
+                verificationStatus = "verified",
+                verificationTimestampEpochMs = System.currentTimeMillis()
+            )
+        }
+
+        // 4. Waypoint Weather
+        val firstWeather = analysis.weather_by_waypoint.firstOrNull()
+        if (firstWeather != null) {
+            val wModel = Weather(
+                latitude = userLoc.first,
+                longitude = userLoc.second,
+                temperatureC = firstWeather.temperature_c,
+                relativeHumidityPct = firstWeather.relative_humidity_pct.toDouble(),
+                precipitationMm = firstWeather.precipitation_mm,
+                windSpeedKmh = firstWeather.wind_speed_kmh,
+                weatherCode = firstWeather.weather_code,
+                weatherDescription = firstWeather.weather_description,
+                forecastValidAtEpochMs = System.currentTimeMillis(),
+                retrievedAtEpochMs = System.currentTimeMillis(),
+                providerNotice = firstWeather.source,
+                isCached = false
+            )
+            _uiState.update { it.copy(routeSummaryWeather = wModel) }
+        }
+
+        // 5. Update layer statuses from provider_statuses
+        val updatedStatuses = _uiState.value.layerStatuses.toMutableMap()
+        analysis.provider_statuses.forEach { (pKey, pVal) ->
+            val statusEnum = when (pVal.status.uppercase()) {
+                "LOADED" -> LayerDataStatus.LOADED
+                "EMPTY" -> LayerDataStatus.EMPTY
+                "CACHED" -> LayerDataStatus.CACHED
+                "UNAVAILABLE" -> LayerDataStatus.UNAVAILABLE
+                else -> LayerDataStatus.FAILED
+            }
+            when (pKey) {
+                "nasa_firms" -> updatedStatuses[MapFeatureCategory.ACTIVE_FIRE_DETECTION] = statusEnum
+                "ndma_sachet" -> updatedStatuses[MapFeatureCategory.HAZARD_ZONE] = statusEnum
+                "open_meteo" -> updatedStatuses[MapFeatureCategory.WEATHER_POINT] = statusEnum
+                "osm_overpass" -> {
+                    updatedStatuses[MapFeatureCategory.HOSPITAL] = statusEnum
+                    updatedStatuses[MapFeatureCategory.SHELTER] = statusEnum
+                    updatedStatuses[MapFeatureCategory.FOREST_AREA] = statusEnum
+                }
+            }
+        }
+
+        val hasHazards = rawHazardZones.isNotEmpty() || rawFireHotspots.isNotEmpty()
+        _uiState.update {
+            it.copy(
+                routeLifecycleState = if (hasHazards) RouteLifecycleState.ANALYZED_WITH_FEATURES else RouteLifecycleState.ANALYZED_EMPTY,
+                layerStatuses = updatedStatuses,
+                activeDisasterAlertsCount = rawHazardZones.size,
+                routeSummaryFireCount = rawFireHotspots.size,
+                routeOverallHazardScore = analysis.overall_hazard_score,
+                routeSafetyStatus = analysis.overall_safety_status,
+                activeDecisionExplanation = analysis.decision_explanation
+            )
+        }
+        rebuildUnifiedFeatures()
+    }
+
+    private fun applyFallbackRouteAnalysis(fallbackRoute: PlannedRouteResponseDto) {
+        val userLoc = _uiState.value.userLocation
+        // Extract conditions alerts
+        val alertList = mutableListOf<UnifiedMapFeature>()
+        fallbackRoute.conditions.forEach { wp ->
+            wp.alerts.forEach { a ->
+                if (alertList.none { it.id == "hazard_${a.alert_id}" }) {
+                    val circleCoords = generateCirclePolygon(wp.latitude, wp.longitude, 3000.0)
+                    alertList.add(
+                        UnifiedMapFeature(
+                            id = "hazard_${a.alert_id}",
+                            category = MapFeatureCategory.HAZARD_ZONE,
+                            title = a.title,
+                            subtitle = "Severity: ${a.severity} • Category: ${a.hazard_category.uppercase()}",
+                            latitude = wp.latitude,
+                            longitude = wp.longitude,
+                            distanceMeters = (a.distance_to_alert_km * 1000f).toFloat(),
+                            sourceName = "NDMA SACHET / CAP (Cached)",
+                            sourceTimestampEpochMs = System.currentTimeMillis(),
+                            isVerified = true,
+                            isSimulated = a.is_simulated,
+                            isCached = true,
+                            details = mapOf(
+                                "Severity" to a.severity,
+                                "Category" to a.hazard_category,
+                                "Protective Instructions" to a.required_protective_instructions
+                            ),
+                            geometryPolygon = circleCoords
+                        )
+                    )
+                }
+            }
+        }
+        rawHazardZones = alertList
+
+        // Extract safe havens
+        rawMapPoints = fallbackRoute.safe_havens.mapIndexed { idx, sh ->
+            val cat = when (sh.category.lowercase()) {
+                "hospital", "clinic" -> PointCategory.MEDICAL
+                "police" -> PointCategory.POLICE
+                "shelter", "mountain_hut" -> PointCategory.SHELTER
+                else -> PointCategory.VISITOR_INFO
+            }
+            MapPoint(
+                id = "haven_$idx",
+                name = sh.name,
+                category = cat,
+                latitude = sh.latitude,
+                longitude = sh.longitude,
+                description = "Emergency Safe Haven • ${sh.distance_km} km",
+                provenance = "Cached Route Plan",
+                verificationStatus = "verified",
+                verificationTimestampEpochMs = System.currentTimeMillis()
+            )
+        }
+
+        _uiState.update {
+            it.copy(
+                routeLifecycleState = RouteLifecycleState.OFFLINE_CACHED,
+                activeDisasterAlertsCount = rawHazardZones.size,
+                routeOverallHazardScore = fallbackRoute.overall_hazard_score,
+                routeSafetyStatus = fallbackRoute.overall_safety_status,
+                activeDecisionExplanation = fallbackRoute.decision_explanation
+            )
+        }
+        rebuildUnifiedFeatures()
     }
 
     private fun rebuildUnifiedFeatures() {
@@ -597,6 +889,7 @@ class MapViewModel @Inject constructor(
                 it.copy(
                     showSearchDialog = false,
                     routeTitle = "Route to ${place.name}",
+                    routeLifecycleState = RouteLifecycleState.CALCULATING_ROUTE,
                     cameraTarget = place.latitude to place.longitude,
                     zoomLevel = 13.5
                 )
@@ -611,25 +904,13 @@ class MapViewModel @Inject constructor(
                 destLon = place.longitude,
                 destName = place.name
             )
-            res.onSuccess { dto ->
-                val primaryCoords = parseGeoJsonCoordinates(dto.geometry_geojson?.toString())
-                    .ifEmpty { dto.conditions.map { it.latitude to it.longitude } }
-
-                _uiState.update { current ->
-                    current.copy(
-                        routeTitle = dto.title,
-                        routeCoordinates = primaryCoords,
-                        primaryRouteCoordinates = primaryCoords,
-                        routeDistanceKm = dto.distance_km,
-                        routeDurationHours = dto.duration_minutes / 60.0,
-                        routeOverallHazardScore = dto.overall_hazard_score,
-                        routeSafetyStatus = dto.overall_safety_status,
-                        plannedRouteAlternatives = dto.alternatives,
-                        selectedAlternativeId = null,
-                        cameraTarget = primaryCoords.firstOrNull() ?: current.cameraTarget
+            res.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        routeLifecycleState = RouteLifecycleState.ANALYSIS_FAILED,
+                        locationErrorMessage = "Failed to calculate route to ${place.name}: ${err.message}"
                     )
                 }
-                rebuildUnifiedFeatures()
             }
         }
     }

@@ -148,6 +148,9 @@ fun AppNavGraph(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToActiveTrip = { tripId ->
                     navController.navigate(Screen.ActiveTrip.createRoute(tripId))
+                },
+                onNavigateToMap = {
+                    navController.navigate(Screen.Map.route)
                 }
             )
         }
@@ -185,6 +188,9 @@ fun AppNavGraph(
                 viewModel = viewModel,
                 onNavigateToReview = { routeId ->
                     navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
+                },
+                onNavigateToMap = {
+                    navController.navigate(Screen.Map.route)
                 }
             )
         }

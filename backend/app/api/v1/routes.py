@@ -12,6 +12,7 @@ from app.schemas.route_plan import (
     PlannedRouteResponse,
     RouteWaypointCondition,
     RouteAlternativeSchema,
+    RouteAnalysisResponse,
 )
 
 router = APIRouter(prefix="/routes", tags=["Route Planning & Safety"])
@@ -26,6 +27,17 @@ async def plan_route(
     Plans a route between origin and destination, performs segment-by-segment corridor hazard scanning,
     correlates hourly weather forecasts at estimated arrival times, and persists the analysis.
     """
+    if request.origin_lat is None or request.origin_lon is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Valid origin coordinates (latitude and longitude) are required.",
+        )
+    if request.destination_lat is None or request.destination_lon is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Valid destination coordinates (latitude and longitude) are required.",
+        )
+
     # 1. Calculate route geometry and waypoints
     route_result = await osrm_routing_provider.calculate_route(
         origin_lat=request.origin_lat,
@@ -60,6 +72,8 @@ async def plan_route(
         geometry_geojson=analysis.geometry_geojson,
         overall_hazard_score=analysis.overall_hazard_score,
         overall_safety_status=analysis.overall_safety_status,
+        route_version=1,
+        routing_provider="OSRM",
         conditions_data=[c.model_dump() for c in analysis.conditions],
         alternatives_data=[a.model_dump() for a in analysis.alternatives],
         data_freshness_data=analysis.data_freshness,
@@ -68,6 +82,23 @@ async def plan_route(
     await db.commit()
     await db.refresh(db_route)
 
+    return analysis
+
+
+@router.post("/{route_id}/analyze", response_model=RouteAnalysisResponse)
+async def analyze_route_corridor(
+    route_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves the selected, persisted route geometry from the backend,
+    constructs a bounded route corridor, queries real weather, official disaster advisories,
+    active wildfires, and assistance points, increments the route version, and returns
+    a unified route-analysis response with MapLibre GeoJSON overlays.
+    """
+    analysis = await route_condition_analyzer.analyze_persisted_route(db=db, route_id=route_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
     return analysis
 
 
@@ -89,6 +120,21 @@ async def get_planned_route(
 
     return PlannedRouteResponse(
         route_id=db_route.id,
+        route_version=db_route.route_version or 1,
+        origin={
+            "latitude": db_route.origin_lat,
+            "longitude": db_route.origin_lon,
+            "name": db_route.origin_name,
+        },
+        destination={
+            "latitude": db_route.dest_lat,
+            "longitude": db_route.dest_lon,
+            "name": db_route.destination_name,
+        },
+        geometry=db_route.geometry_geojson,
+        distance_meters=round((db_route.distance_km or 0.0) * 1000.0, 1),
+        duration_seconds=round((db_route.duration_minutes or 0.0) * 60.0, 1),
+        routing_provider=db_route.routing_provider or "OSRM",
         title=db_route.title,
         origin_name=db_route.origin_name,
         origin_lat=db_route.origin_lat,

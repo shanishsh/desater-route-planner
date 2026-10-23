@@ -68,6 +68,10 @@ class SavedTripsViewModel @Inject constructor(
         }
     }
 
+    fun activateRoute(route: PlannedRouteEntity) {
+        routeRepository.activateSavedRoute(route)
+    }
+
     fun downloadBoundedOfflinePack(itineraryId: String) {
         viewModelScope.launch {
             _uiState.update {

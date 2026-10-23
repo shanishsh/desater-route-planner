@@ -8,6 +8,9 @@ import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.network.ApiService
 import com.touristsafety.app.core.network.dto.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -23,6 +26,81 @@ class RouteRepository @Inject constructor(
 
     val savedRoutesFlow: Flow<List<PlannedRouteEntity>> = plannedRouteDao.getAllRoutesFlow()
     val activeTripFlow: Flow<ActiveTripEntity?> = activeTripDao.getActiveTripFlow()
+
+    private val _activeRouteFlow = MutableStateFlow<PlannedRouteResponseDto?>(null)
+    val activeRouteFlow: StateFlow<PlannedRouteResponseDto?> = _activeRouteFlow.asStateFlow()
+
+    fun setActiveRoute(route: PlannedRouteResponseDto) {
+        _activeRouteFlow.value = route
+    }
+
+    fun clearActiveRoute() {
+        _activeRouteFlow.value = null
+    }
+
+    fun activateSavedRoute(entity: PlannedRouteEntity) {
+        val conditions = try {
+            json.decodeFromString<List<RouteWaypointConditionDto>>(entity.conditionsJson)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val alternatives = try {
+            json.decodeFromString<List<RouteAlternativeDto>>(entity.alternativesJson)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val elevation = try {
+            if (!entity.elevationProfileJson.isNullOrBlank()) {
+                json.decodeFromString<List<ElevationProfilePointDto>>(entity.elevationProfileJson)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val havens = try {
+            if (!entity.safeHavensJson.isNullOrBlank()) {
+                json.decodeFromString<List<SafeHavenInfoDto>>(entity.safeHavensJson)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val geom = try {
+            if (!entity.routeGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.routeGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+
+        val dto = PlannedRouteResponseDto(
+            route_id = entity.routeId,
+            route_version = 1,
+            title = entity.title,
+            origin_name = entity.originName,
+            origin_lat = entity.originLat,
+            origin_lon = entity.originLon,
+            destination_name = entity.destinationName,
+            dest_lat = entity.destLat,
+            dest_lon = entity.destLon,
+            travel_mode = entity.travelMode,
+            distance_km = entity.distanceKm,
+            duration_minutes = entity.durationMinutes,
+            distance_meters = entity.distanceKm * 1000.0,
+            duration_seconds = entity.durationMinutes * 60.0,
+            overall_hazard_score = entity.overallHazardScore,
+            overall_safety_status = entity.overallSafetyStatus,
+            high_risk_segments_count = entity.highRiskSegmentsCount,
+            total_ascent_m = entity.totalAscentM,
+            max_elevation_m = entity.maxElevationM,
+            decision_explanation = entity.decisionExplanation ?: "",
+            conditions = conditions,
+            elevation_profile = elevation,
+            safe_havens = havens,
+            alternatives = alternatives,
+            geometry_geojson = geom,
+            created_at = java.util.Date(entity.cachedAt).toString()
+        )
+        _activeRouteFlow.value = dto
+    }
 
     suspend fun searchPlaces(query: String): Result<List<PlaceSearchResultDto>> {
         return try {
@@ -60,7 +138,8 @@ class RouteRepository @Inject constructor(
             val response = apiService.planRoute(request)
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
-                // Automatically persist in Room for offline resilience
+                // Set as active route and persist in Room for offline resilience
+                _activeRouteFlow.value = dto
                 saveRouteOffline(dto)
                 Result.success(dto)
             } else {
@@ -68,6 +147,20 @@ class RouteRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e("RouteRepository", "Error planning route", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun analyzeRoute(routeId: String): Result<RouteAnalysisResponseDto> {
+        return try {
+            val response = apiService.analyzeRoute(routeId)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Route analysis failed: ${response.code()} ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Log.e("RouteRepository", "Error analyzing route $routeId", e)
             Result.failure(e)
         }
     }

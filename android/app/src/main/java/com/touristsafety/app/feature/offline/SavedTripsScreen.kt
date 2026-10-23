@@ -22,6 +22,7 @@ import com.touristsafety.app.core.model.Itinerary
 fun SavedTripsScreen(
     viewModel: SavedTripsViewModel,
     onNavigateToReview: (String) -> Unit = {},
+    onNavigateToMap: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -102,7 +103,14 @@ fun SavedTripsScreen(
                 items(state.plannedRoutes, key = { it.routeId }) { route ->
                     PlannedRouteItem(
                         route = route,
-                        onReview = { onNavigateToReview(route.routeId) },
+                        onReview = {
+                            viewModel.activateRoute(route)
+                            onNavigateToReview(route.routeId)
+                        },
+                        onViewOnMap = {
+                            viewModel.activateRoute(route)
+                            onNavigateToMap()
+                        },
                         onDelete = { viewModel.deletePlannedRoute(route.routeId) }
                     )
                 }
@@ -161,6 +169,7 @@ fun SavedTripsScreen(
 fun PlannedRouteItem(
     route: com.touristsafety.app.core.database.entity.PlannedRouteEntity,
     onReview: () -> Unit,
+    onViewOnMap: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -204,6 +213,13 @@ fun PlannedRouteItem(
                     Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Review Safety")
+                }
+                FilledTonalButton(
+                    onClick = onViewOnMap
+                ) {
+                    Icon(Icons.Default.Map, contentDescription = "View on Map", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Map")
                 }
                 OutlinedButton(
                     onClick = onDelete

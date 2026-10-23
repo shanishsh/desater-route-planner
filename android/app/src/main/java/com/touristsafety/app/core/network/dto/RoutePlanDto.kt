@@ -124,6 +124,7 @@ data class RouteAlternativeDto(
 @Serializable
 data class PlannedRouteResponseDto(
     val route_id: String,
+    val route_version: Int = 1,
     val title: String,
     val origin_name: String,
     val origin_lat: Double,
@@ -134,6 +135,9 @@ data class PlannedRouteResponseDto(
     val travel_mode: String,
     val distance_km: Double,
     val duration_minutes: Double,
+    val distance_meters: Double = 0.0,
+    val duration_seconds: Double = 0.0,
+    val routing_provider: String = "OSRM",
     val overall_hazard_score: Double,
     val overall_safety_status: String,
     val high_risk_segments_count: Int = 0,
@@ -147,7 +151,38 @@ data class PlannedRouteResponseDto(
     val safe_havens: List<SafeHavenInfoDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val geometry_geojson: JsonElement? = null,
-    val created_at: String
+    val created_at: String = ""
+)
+
+@Serializable
+data class ProviderStatusItemDto(
+    val provider_name: String,
+    val status: String,
+    val last_request_time: String? = null,
+    val last_success_time: String? = null,
+    val http_status: Int? = null,
+    val record_count: Int = 0,
+    val is_stale: Boolean = false,
+    val details: String? = null
+)
+
+@Serializable
+data class RouteAnalysisResponseDto(
+    val route_id: String,
+    val route_version: Int = 1,
+    val analysis_timestamp: String = "",
+    val overall_hazard_score: Double = 0.0,
+    val overall_safety_status: String = "SAFE",
+    val decision_explanation: String = "",
+    val provider_statuses: Map<String, ProviderStatusItemDto> = emptyMap(),
+    val weather_by_waypoint: List<RouteWeatherConditionDto> = emptyList(),
+    val disaster_alerts: List<RouteDisasterAlertInfoDto> = emptyList(),
+    val fire_detections: List<RouteWildfireInfoDto> = emptyList(),
+    val forest_features: List<RouteForestInfoDto> = emptyList(),
+    val assistance_points: List<SafeHavenInfoDto> = emptyList(),
+    val affected_segments: List<RouteWaypointConditionDto> = emptyList(),
+    val data_quality_summary: Map<String, JsonElement> = emptyMap(),
+    val overlays_geojson: JsonElement? = null
 )
 
 @Serializable

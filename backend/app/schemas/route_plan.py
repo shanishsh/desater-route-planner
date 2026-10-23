@@ -1,7 +1,13 @@
 """Schemas for Route Planning, Corridor Safety Analysis, and Active Trip Tracking."""
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class CoordinatePoint(BaseModel):
+    latitude: float = Field(..., description="Latitude in WGS84")
+    longitude: float = Field(..., description="Longitude in WGS84")
+    name: Optional[str] = Field(None, description="Optional location or waypoint label")
 
 
 class PlaceSearchResult(BaseModel):
@@ -14,14 +20,62 @@ class PlaceSearchResult(BaseModel):
 
 
 class PlanRouteRequest(BaseModel):
-    origin_lat: float = Field(..., description="Origin latitude in WGS84")
-    origin_lon: float = Field(..., description="Origin longitude in WGS84")
+    origin: Optional[CoordinatePoint] = None
+    destination: Optional[CoordinatePoint] = None
+    waypoints: List[CoordinatePoint] = Field(default_factory=list)
+    origin_lat: Optional[float] = Field(None, description="Origin latitude in WGS84")
+    origin_lon: Optional[float] = Field(None, description="Origin longitude in WGS84")
     origin_name: Optional[str] = Field("Current Location", description="Display name for origin")
-    destination_lat: float = Field(..., description="Destination latitude in WGS84")
-    destination_lon: float = Field(..., description="Destination longitude in WGS84")
-    destination_name: str = Field(..., description="Display name for destination")
-    travel_mode: Optional[str] = Field("hiking", description="'driving' or 'walking' or 'hiking'")
+    destination_lat: Optional[float] = Field(None, description="Destination latitude in WGS84")
+    destination_lon: Optional[float] = Field(None, description="Destination longitude in WGS84")
+    destination_name: Optional[str] = Field(None, description="Display name for destination")
+    travel_mode: Optional[str] = Field("walking", description="'driving', 'walking', or 'hiking'")
     departure_time: Optional[datetime] = Field(None, description="Planned departure time in UTC")
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_coordinates(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Handle structured origin object
+            orig = data.get("origin")
+            if isinstance(orig, dict):
+                if data.get("origin_lat") is None:
+                    data["origin_lat"] = orig.get("latitude")
+                if data.get("origin_lon") is None:
+                    data["origin_lon"] = orig.get("longitude")
+                if not data.get("origin_name"):
+                    data["origin_name"] = orig.get("name", "Origin")
+
+            # Handle structured destination object
+            dest = data.get("destination")
+            if isinstance(dest, dict):
+                if data.get("destination_lat") is None:
+                    data["destination_lat"] = dest.get("latitude")
+                if data.get("destination_lon") is None:
+                    data["destination_lon"] = dest.get("longitude")
+                if not data.get("destination_name"):
+                    data["destination_name"] = dest.get("name", "Destination")
+
+            # Fallback names
+            if not data.get("origin_name"):
+                data["origin_name"] = "Current Location"
+            if not data.get("destination_name"):
+                data["destination_name"] = "Selected Destination"
+
+            # Populate nested origin / destination if flat ones were passed
+            if not orig and data.get("origin_lat") is not None and data.get("origin_lon") is not None:
+                data["origin"] = {
+                    "latitude": data["origin_lat"],
+                    "longitude": data["origin_lon"],
+                    "name": data.get("origin_name", "Current Location"),
+                }
+            if not dest and data.get("destination_lat") is not None and data.get("destination_lon") is not None:
+                data["destination"] = {
+                    "latitude": data["destination_lat"],
+                    "longitude": data["destination_lon"],
+                    "name": data.get("destination_name", "Selected Destination"),
+                }
+        return data
 
 
 class RouteWeatherCondition(BaseModel):
@@ -125,6 +179,13 @@ class RouteAlternativeSchema(BaseModel):
 
 class PlannedRouteResponse(BaseModel):
     route_id: str
+    route_version: int = 1
+    origin: Dict[str, Any] = Field(default_factory=dict)
+    destination: Dict[str, Any] = Field(default_factory=dict)
+    geometry: Dict[str, Any] = Field(default_factory=dict)
+    distance_meters: float = 0.0
+    duration_seconds: float = 0.0
+    routing_provider: str = "OSRM"
     title: str
     origin_name: str
     origin_lat: float
@@ -136,8 +197,8 @@ class PlannedRouteResponse(BaseModel):
     distance_km: float
     duration_minutes: float
     geometry_geojson: Dict[str, Any]
-    overall_hazard_score: float  # 0.0 (Safe) to 100.0 (Extreme Hazard)
-    overall_safety_status: str  # "SAFE", "CAUTION", "HIGH_RISK"
+    overall_hazard_score: float = 0.0  # 0.0 (Safe) to 100.0 (Extreme Hazard)
+    overall_safety_status: str = "SAFE"  # "SAFE", "CAUTION", "HIGH_RISK"
     high_risk_segments_count: int = 0
     total_ascent_m: float = 0.0
     total_descent_m: float = 0.0
@@ -150,6 +211,63 @@ class PlannedRouteResponse(BaseModel):
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     data_freshness: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_contract_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "route_version" not in data or data["route_version"] is None:
+                data["route_version"] = 1
+            if "routing_provider" not in data or not data["routing_provider"]:
+                data["routing_provider"] = "OSRM"
+            if "geometry" not in data or not data["geometry"]:
+                data["geometry"] = data.get("geometry_geojson", {})
+            if "distance_meters" not in data or data["distance_meters"] == 0.0:
+                data["distance_meters"] = round((data.get("distance_km", 0.0) * 1000.0), 1)
+            if "duration_seconds" not in data or data["duration_seconds"] == 0.0:
+                data["duration_seconds"] = round((data.get("duration_minutes", 0.0) * 60.0), 1)
+            if "origin" not in data or not data["origin"]:
+                data["origin"] = {
+                    "latitude": data.get("origin_lat", 0.0),
+                    "longitude": data.get("origin_lon", 0.0),
+                    "name": data.get("origin_name", "Origin"),
+                }
+            if "destination" not in data or not data["destination"]:
+                data["destination"] = {
+                    "latitude": data.get("dest_lat", 0.0),
+                    "longitude": data.get("dest_lon", 0.0),
+                    "name": data.get("destination_name", "Destination"),
+                }
+        return data
+
+
+class ProviderStatusItem(BaseModel):
+    provider_name: str
+    status: str  # LOADED, EMPTY, CACHED, UNAVAILABLE, FAILED
+    last_request_time: Optional[str] = None
+    last_success_time: Optional[str] = None
+    http_status: Optional[int] = None
+    record_count: int = 0
+    is_stale: bool = False
+    details: Optional[str] = None
+
+
+class RouteAnalysisResponse(BaseModel):
+    route_id: str
+    route_version: int = 1
+    analysis_timestamp: str
+    overall_hazard_score: float = 0.0
+    overall_safety_status: str = "SAFE"
+    decision_explanation: str = ""
+    provider_statuses: Dict[str, ProviderStatusItem] = Field(default_factory=dict)
+    weather_by_waypoint: List[RouteWeatherCondition] = Field(default_factory=list)
+    disaster_alerts: List[RouteDisasterAlertInfo] = Field(default_factory=list)
+    fire_detections: List[RouteWildfireInfo] = Field(default_factory=list)
+    forest_features: List[RouteForestInfo] = Field(default_factory=list)
+    assistance_points: List[SafeHavenInfo] = Field(default_factory=list)
+    affected_segments: List[RouteWaypointCondition] = Field(default_factory=list)
+    data_quality_summary: Dict[str, Any] = Field(default_factory=dict)
+    overlays_geojson: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StartTripRequest(BaseModel):

@@ -124,5 +124,47 @@ class RouteMonitoringTest {
         assertEquals("CRITICAL", dangerousWp.alerts[0].severity)
         assertEquals("SEVERE", dangerousWp.weather.warning_level)
     }
+
+    @Test
+    fun testRouteAnalysisResponseSerialization() {
+        val analysis = RouteAnalysisResponseDto(
+            route_id = "route-abc-123",
+            route_version = 2,
+            analysis_timestamp = "2026-10-24T01:00:00Z",
+            overall_hazard_score = 45.0,
+            overall_safety_status = "CAUTION",
+            decision_explanation = "High gust weather along corridor",
+            provider_statuses = mapOf(
+                "open_meteo" to ProviderStatusItemDto(
+                    provider_name = "Open-Meteo",
+                    status = "LOADED",
+                    record_count = 5
+                )
+            ),
+            weather_by_waypoint = emptyList(),
+            disaster_alerts = emptyList(),
+            fire_detections = emptyList(),
+            forest_features = emptyList(),
+            assistance_points = listOf(
+                SafeHavenInfoDto(
+                    name = "Alpine Mountain Shelter",
+                    category = "shelter",
+                    latitude = 31.10,
+                    longitude = 77.20,
+                    distance_km = 1.5,
+                    is_egress_point = true
+                )
+            )
+        )
+
+        val jsonStr = json.encodeToString(analysis)
+        assertTrue(jsonStr.contains("route-abc-123"))
+        assertTrue(jsonStr.contains("Alpine Mountain Shelter"))
+
+        val decoded = json.decodeFromString<RouteAnalysisResponseDto>(jsonStr)
+        assertEquals(2, decoded.route_version)
+        assertEquals(1, decoded.assistance_points.size)
+        assertEquals("Alpine Mountain Shelter", decoded.assistance_points[0].name)
+    }
 }
 

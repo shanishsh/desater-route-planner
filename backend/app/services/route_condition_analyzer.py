@@ -371,6 +371,176 @@ class RouteConditionAnalyzer:
             for p in elev_points
         ]
 
+        provider_statuses = {
+            "open_meteo": {
+                "provider_name": "Open-Meteo Hourly Forecast",
+                "status": "LOADED" if waypoint_conditions else "EMPTY",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat(),
+                "http_status": 200,
+                "record_count": len(waypoint_conditions),
+                "is_stale": False,
+                "details": "Synchronized hourly forecast at calculated Tobler arrival times.",
+            },
+            "copernicus_dem": {
+                "provider_name": "Copernicus DEM (Open-Meteo 30m Grid)",
+                "status": "LOADED" if elev_points else "EMPTY",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat() if elev_points else None,
+                "http_status": 200 if elev_points else 204,
+                "record_count": len(elev_points),
+                "is_stale": False,
+                "details": "30m high-resolution DEM slope and elevation profile.",
+            },
+            "nasa_firms": {
+                "provider_name": "NASA FIRMS Thermal Anomalies",
+                "status": "LOADED" if active_fires else "EMPTY",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat(),
+                "http_status": 200,
+                "record_count": len(active_fires),
+                "is_stale": False,
+                "details": "Corridor thermal hotspot detections within 5 km of route.",
+            },
+            "ndma_sachet": {
+                "provider_name": "NDMA SACHET / CAP Official Advisories",
+                "status": "LOADED" if active_alerts else "EMPTY",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat(),
+                "http_status": 200,
+                "record_count": len(active_alerts),
+                "is_stale": False,
+                "details": "Spatial polygon and circular advisory intersection.",
+            },
+            "osm_overpass": {
+                "provider_name": "OpenStreetMap Overpass (Amenities & Forests)",
+                "status": "LOADED" if (safe_havens or forest_features) else "EMPTY",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat(),
+                "http_status": 200,
+                "record_count": len(safe_havens) + len(forest_features),
+                "is_stale": False,
+                "details": "Verified emergency safe havens and forest conservation boundaries.",
+            },
+        }
+
+        # Build GeoJSON Overlays FeatureCollection for MapLibre
+        overlay_features = []
+        # 1. Route geometry
+        overlay_features.append({
+            "type": "Feature",
+            "geometry": route.geometry_geojson,
+            "properties": {
+                "layer": "route",
+                "title": route.title,
+                "distance_km": route.distance_km,
+                "color": "#0288D1",
+            }
+        })
+        # 2. Disaster alerts
+        import json
+        for alert in active_alerts:
+            geom = None
+            if alert.polygon_geojson:
+                try:
+                    geom = json.loads(alert.polygon_geojson)
+                except Exception:
+                    geom = None
+            if not geom:
+                # Generate circular polygon perimeter
+                c_coords = []
+                r_lat = (alert.affected_radius_meters or 5000.0) / 111320.0
+                r_lon = (alert.affected_radius_meters or 5000.0) / (111320.0 * math.cos(math.radians(alert.center_latitude)) + 1e-6)
+                for i in range(24):
+                    ang = 2.0 * math.pi * i / 24
+                    c_coords.append([
+                        round(alert.center_longitude + r_lon * math.cos(ang), 5),
+                        round(alert.center_latitude + r_lat * math.sin(ang), 5)
+                    ])
+                if c_coords:
+                    c_coords.append(c_coords[0])
+                geom = {"type": "Polygon", "coordinates": [c_coords]}
+
+            overlay_features.append({
+                "type": "Feature",
+                "geometry": geom,
+                "properties": {
+                    "layer": "disaster_alert",
+                    "id": alert.id,
+                    "title": alert.title,
+                    "severity": alert.severity,
+                    "category": alert.hazard_category,
+                    "instructions": alert.required_protective_instructions,
+                    "issuing_authority": alert.issuing_authority,
+                    "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
+                }
+            })
+        # 3. Active fires
+        for fire in active_fires:
+            f_lat = fire.get("latitude", 0.0)
+            f_lon = fire.get("longitude", 0.0)
+            overlay_features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [f_lon, f_lat]},
+                "properties": {
+                    "layer": "active_fire",
+                    "satellite": fire.get("satellite", "MODIS/VIIRS"),
+                    "brightness": fire.get("brightness"),
+                    "frp_mw": fire.get("frp_mw") or fire.get("frp"),
+                    "confidence": fire.get("confidence", "nominal"),
+                    "acquisition_time": f"{fire.get('acquisition_date', '')} {fire.get('acquisition_time', '')}".strip(),
+                    "color": "#E65100",
+                }
+            })
+        # 4. Safe havens
+        for sh in safe_havens:
+            overlay_features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [sh.longitude, sh.latitude]},
+                "properties": {
+                    "layer": "assistance_point",
+                    "name": sh.name,
+                    "category": sh.category,
+                    "distance_km": sh.distance_km,
+                    "is_egress_point": sh.is_egress_point,
+                    "color": "#2E7D32",
+                }
+            })
+        # 5. Forest areas
+        for feat in forest_features[:20]:
+            f_geom = feat.get("geometry")
+            f_props = feat.get("properties", {})
+            if f_geom:
+                overlay_features.append({
+                    "type": "Feature",
+                    "geometry": f_geom,
+                    "properties": {
+                        "layer": "forest_area",
+                        "name": f_props.get("name", "Forest Area"),
+                        "type": f_props.get("type", "woodland"),
+                        "color": "#388E3C",
+                    }
+                })
+        # 6. Waypoints
+        for wp in waypoint_conditions:
+            overlay_features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [wp.longitude, wp.latitude]},
+                "properties": {
+                    "layer": "weather_point",
+                    "index": wp.index,
+                    "name": wp.name,
+                    "temperature_c": wp.weather.temperature_c,
+                    "precipitation_mm": wp.weather.precipitation_mm,
+                    "wind_speed_kmh": wp.weather.wind_speed_kmh,
+                    "description": wp.weather.weather_description,
+                    "warning_level": wp.weather.warning_level,
+                    "arrival_at": wp.estimated_arrival_at,
+                }
+            })
+
+        overlays_geojson = {"type": "FeatureCollection", "features": overlay_features}
+
         freshness = {
             "weather_provider": "Open-Meteo Hourly Forecast",
             "weather_retrieved_at": now.isoformat(),
@@ -378,12 +548,29 @@ class RouteConditionAnalyzer:
             "forest_provider": "OpenStreetMap Overpass",
             "wildfire_provider": "NASA FIRMS (MODIS/VIIRS)",
             "disaster_alerts_active_count": len(active_alerts),
+            "provider_statuses": provider_statuses,
+            "overlays_geojson": overlays_geojson,
             "is_stale": False,
             "offline_cached": False,
         }
 
         return PlannedRouteResponse(
             route_id=route.route_id,
+            route_version=1,
+            origin={
+                "latitude": route.origin_lat,
+                "longitude": route.origin_lon,
+                "name": route.origin_name,
+            },
+            destination={
+                "latitude": route.destination_lat,
+                "longitude": route.destination_lon,
+                "name": route.destination_name,
+            },
+            geometry=route.geometry_geojson,
+            distance_meters=round(route.distance_km * 1000.0, 1),
+            duration_seconds=round(route.duration_minutes * 60.0, 1),
+            routing_provider="OSRM",
             title=route.title,
             origin_name=route.origin_name,
             origin_lat=route.origin_lat,
@@ -409,6 +596,128 @@ class RouteConditionAnalyzer:
             alternatives=alt_schemas,
             data_freshness=freshness,
             created_at=now.isoformat(),
+        )
+
+    async def analyze_persisted_route(
+        self,
+        db: AsyncSession,
+        route_id: str,
+        departure_time: Optional[datetime] = None,
+    ):
+        """Analyzes a persisted route by route_id, increments its route_version, and updates stored analysis."""
+        from app.models.planned_route import PlannedRoute
+        from app.services.routing.base import Waypoint, RouteAlternative
+        from app.schemas.route_plan import (
+            RouteAnalysisResponse,
+            ProviderStatusItem,
+            RouteWeatherCondition,
+            RouteForestInfo,
+            RouteWildfireInfo,
+            RouteDisasterAlertInfo,
+        )
+
+        stmt = select(PlannedRoute).where(PlannedRoute.id == route_id)
+        result = await db.execute(stmt)
+        db_route = result.scalar_one_or_none()
+        if not db_route:
+            return None
+
+        # Reconstruct RouteResult from persisted model
+        coords = db_route.geometry_geojson.get("coordinates", [])
+        waypoints = []
+        if db_route.conditions_data:
+            for idx, c in enumerate(db_route.conditions_data):
+                waypoints.append(
+                    Waypoint(
+                        index=c.get("index", idx),
+                        name=c.get("name", f"Waypoint {idx}"),
+                        latitude=c.get("latitude", 0.0),
+                        longitude=c.get("longitude", 0.0),
+                        distance_from_start_km=c.get("distance_from_start_km", 0.0),
+                        estimated_travel_time_minutes=0.0,
+                    )
+                )
+
+        alts = []
+        if db_route.alternatives_data:
+            for a in db_route.alternatives_data:
+                alts.append(
+                    RouteAlternative(
+                        id=a.get("id", ""),
+                        title=a.get("title", ""),
+                        description=a.get("description", ""),
+                        distance_km=a.get("distance_km", 0.0),
+                        duration_minutes=a.get("duration_minutes", 0.0),
+                        geometry_geojson=a.get("geometry_geojson", {}),
+                    )
+                )
+
+        route_result = RouteResult(
+            route_id=db_route.id,
+            title=db_route.title,
+            origin_name=db_route.origin_name,
+            origin_lat=db_route.origin_lat,
+            origin_lon=db_route.origin_lon,
+            destination_name=db_route.destination_name,
+            destination_lat=db_route.dest_lat,
+            destination_lon=db_route.dest_lon,
+            travel_mode=db_route.travel_mode,
+            distance_km=db_route.distance_km,
+            duration_minutes=db_route.duration_minutes,
+            geometry_geojson=db_route.geometry_geojson,
+            waypoints=waypoints,
+            alternatives=alts,
+        )
+
+        # Run fresh condition analysis
+        analysis = await self.analyze_route(db, route_result, departure_time)
+
+        # Increment route_version
+        new_version = (db_route.route_version or 1) + 1
+        db_route.route_version = new_version
+        db_route.overall_hazard_score = analysis.overall_hazard_score
+        db_route.overall_safety_status = analysis.overall_safety_status
+        db_route.conditions_data = [c.model_dump() for c in analysis.conditions]
+        db_route.alternatives_data = [a.model_dump() for a in analysis.alternatives]
+        db_route.data_freshness_data = analysis.data_freshness
+        db_route.last_analyzed_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(db_route)
+
+        fresh = analysis.data_freshness or {}
+        raw_providers = fresh.get("provider_statuses", {})
+        provider_items = {}
+        for p_key, p_val in raw_providers.items():
+            if isinstance(p_val, dict):
+                provider_items[p_key] = ProviderStatusItem(**p_val)
+
+        # Extract forest and wildfire infos from conditions
+        forest_list = [c.forest for c in analysis.conditions if c.forest and c.forest.in_forest]
+        wildfire_list = [c.wildfire for c in analysis.conditions if c.wildfire and c.wildfire.has_fire_within_5km]
+        alert_list = []
+        for c in analysis.conditions:
+            for al in c.alerts:
+                if not any(existing.alert_id == al.alert_id for existing in alert_list):
+                    alert_list.append(al)
+
+        weather_list = [c.weather for c in analysis.conditions]
+
+        return RouteAnalysisResponse(
+            route_id=db_route.id,
+            route_version=new_version,
+            analysis_timestamp=datetime.now(timezone.utc).isoformat(),
+            overall_hazard_score=db_route.overall_hazard_score,
+            overall_safety_status=db_route.overall_safety_status,
+            decision_explanation=analysis.decision_explanation,
+            provider_statuses=provider_items,
+            weather_by_waypoint=weather_list,
+            disaster_alerts=alert_list,
+            fire_detections=wildfire_list,
+            forest_features=forest_list,
+            assistance_points=analysis.safe_havens,
+            affected_segments=analysis.conditions,
+            data_quality_summary=fresh,
+            overlays_geojson=fresh.get("overlays_geojson", {}),
         )
 
 

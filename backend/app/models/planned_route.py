@@ -24,9 +24,13 @@ class PlannedRoute(Base, TimestampMixin):
     geometry_geojson: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
     overall_hazard_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     overall_safety_status: Mapped[str] = mapped_column(String(50), default="SAFE", nullable=False)
+    route_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    routing_provider: Mapped[str] = mapped_column(String(50), default="OSRM", nullable=False)
     conditions_data: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     alternatives_data: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     data_freshness_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    analysis_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    last_analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     trips: Mapped[List["ActiveTrip"]] = relationship(
         "ActiveTrip", back_populates="route", cascade="all, delete-orphan"

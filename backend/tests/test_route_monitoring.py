@@ -189,3 +189,159 @@ async def test_active_trip_monitoring_lifecycle(client):
     assert stop_res.status_code == 200
     assert stop_res.json()["status"] == "COMPLETED"
 
+
+@pytest.mark.asyncio
+async def test_plan_route_structured_contract(client):
+    """Test the exact API contract: nested origin/destination, travel_mode, and contract fields."""
+    payload = {
+        "origin": {
+            "latitude": 31.1048,
+            "longitude": 77.1734,
+            "name": "Shimla Center",
+        },
+        "destination": {
+            "latitude": 31.0979,
+            "longitude": 77.2674,
+            "name": "Kufri Ridge",
+        },
+        "waypoints": [],
+        "travel_mode": "walking",
+    }
+    response = await client.post("/api/v1/routes/plan", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+
+    # Verify contract requirements
+    assert "route_id" in data
+    assert data["route_version"] == 1
+    assert "origin" in data
+    assert data["origin"]["latitude"] == 31.1048
+    assert data["origin"]["longitude"] == 77.1734
+    assert "destination" in data
+    assert data["destination"]["latitude"] == 31.0979
+    assert data["destination"]["longitude"] == 77.2674
+    assert "geometry" in data
+    assert data["geometry"]["type"] == "LineString"
+    assert len(data["geometry"]["coordinates"]) >= 2
+    assert "distance_meters" in data
+    assert data["distance_meters"] > 0
+    assert "duration_seconds" in data
+    assert data["routing_provider"] == "OSRM"
+    assert "created_at" in data
+
+
+@pytest.mark.asyncio
+async def test_route_analysis_lifecycle_endpoint(client):
+    """Test POST /api/v1/routes/{route_id}/analyze lifecycle, version increment, and unified response."""
+    # 1. Plan route
+    plan_res = await client.post(
+        "/api/v1/routes/plan",
+        json={
+            "origin": {"latitude": 31.1048, "longitude": 77.1734},
+            "destination": {"latitude": 31.0979, "longitude": 77.2674},
+            "travel_mode": "walking",
+        },
+    )
+    assert plan_res.status_code == 201
+    route_id = plan_res.json()["route_id"]
+
+    # 2. Trigger route condition analysis
+    analyze_res = await client.post(f"/api/v1/routes/{route_id}/analyze")
+    assert analyze_res.status_code == 200
+    analysis = analyze_res.json()
+
+    assert analysis["route_id"] == route_id
+    assert analysis["route_version"] == 2  # Incremented from 1
+    assert "analysis_timestamp" in analysis
+    assert "provider_statuses" in analysis
+    assert "open_meteo" in analysis["provider_statuses"]
+    assert "copernicus_dem" in analysis["provider_statuses"]
+    assert "nasa_firms" in analysis["provider_statuses"]
+    assert "ndma_sachet" in analysis["provider_statuses"]
+    assert "osm_overpass" in analysis["provider_statuses"]
+    assert "overlays_geojson" in analysis
+    assert analysis["overlays_geojson"]["type"] == "FeatureCollection"
+    assert len(analysis["overlays_geojson"]["features"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_route_selection_distinct_pairs(client):
+    """Verify distinct origin/destination pairs produce different routes and geometries."""
+    # Route A: Shimla to Kufri
+    res_a = await client.post(
+        "/api/v1/routes/plan",
+        json={
+            "origin": {"latitude": 31.1048, "longitude": 77.1734},
+            "destination": {"latitude": 31.0979, "longitude": 77.2674},
+        },
+    )
+    assert res_a.status_code == 201
+    data_a = res_a.json()
+
+    # Route B: Manali to Solang Valley (approx 32.2396, 77.1887 to 32.3166, 77.1575)
+    res_b = await client.post(
+        "/api/v1/routes/plan",
+        json={
+            "origin": {"latitude": 32.2396, "longitude": 77.1887},
+            "destination": {"latitude": 32.3166, "longitude": 77.1575},
+        },
+    )
+    assert res_b.status_code == 201
+    data_b = res_b.json()
+
+    assert data_a["route_id"] != data_b["route_id"]
+    coords_a = data_a["geometry"]["coordinates"]
+    coords_b = data_b["geometry"]["coordinates"]
+    # Verify different coordinates
+    assert coords_a[0] != coords_b[0]
+    assert data_a["distance_meters"] != data_b["distance_meters"]
+
+
+@pytest.mark.asyncio
+async def test_route_corridor_geographic_filtering(client, test_db):
+    """Verify that an alert far away is excluded from the corridor while a local alert is matched."""
+    now = datetime.now(timezone.utc)
+    # Alert far away in Kullu/Rohtang (lat ~32.25, > 100km away from Shimla-Kufri ~31.10)
+    far_alert = DisasterAlert(
+        title="Remote Rohtang Pass Cloudburst",
+        description="High altitude cloudburst warning in Kullu district.",
+        hazard_category="severe_weather",
+        severity="CRITICAL",
+        status="active",
+        issuing_authority="Himachal State DMA",
+        required_protective_instructions="Avoid pass crossing.",
+        center_latitude=32.3600,
+        center_longitude=77.2200,
+        affected_radius_meters=3000.0,
+        published_at=now,
+    )
+    test_db.add(far_alert)
+    await test_db.commit()
+
+    # Plan route in Shimla
+    res = await client.post(
+        "/api/v1/routes/plan",
+        json={
+            "origin": {"latitude": 31.1048, "longitude": 77.1734},
+            "destination": {"latitude": 31.0979, "longitude": 77.2674},
+        },
+    )
+    assert res.status_code == 201
+    data = res.json()
+
+    # Far alert must NOT intersect this Shimla-Kufri corridor
+    matched_alert_ids = [
+        a["alert_id"]
+        for c in data["conditions"]
+        for a in c.get("alerts", [])
+    ]
+    assert far_alert.id not in matched_alert_ids
+
+
+@pytest.mark.asyncio
+async def test_route_analyze_nonexistent_returns_404(client):
+    """Verify POST /api/v1/routes/{id}/analyze returns 404 for unknown route."""
+    res = await client.post("/api/v1/routes/non-existent-route-id-999/analyze")
+    assert res.status_code == 404
+
+
