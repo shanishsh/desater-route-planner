@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapClusterHelper
 import com.touristsafety.app.core.model.*
+import com.touristsafety.app.core.location.DeviceLocationRepository
 import com.touristsafety.app.core.network.NetworkConnectivityMonitor
 import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
+import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.repository.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -33,9 +35,15 @@ data class MapUiState(
     val selectedItinerary: Itinerary? = null,
     val routeTitle: String = "Explore Route Map",
     val routeCoordinates: List<Pair<Double, Double>> = emptyList(),
+    val primaryRouteCoordinates: List<Pair<Double, Double>> = emptyList(),
     val routeDistanceKm: Double? = null,
     val routeDurationHours: Double? = null,
-    val userLocation: Pair<Double, Double> = 32.2396 to 77.1887, // Rohtang trailhead default
+    val userLocation: Pair<Double, Double> = 32.2396 to 77.1887,
+    val userLocationAccuracyMeters: Float? = null,
+    val isUserLocationAcquired: Boolean = false,
+    val isLocationFresh: Boolean = false,
+    val isLocating: Boolean = false,
+    val locationErrorMessage: String? = null,
     val cameraTarget: Pair<Double, Double> = 32.2396 to 77.1887,
     val zoomLevel: Double = 13.0,
     val isOfflineMode: Boolean = false,
@@ -59,7 +67,11 @@ data class MapUiState(
     val activeDisasterAlertsCount: Int = 0,
     val routeSummaryWeather: Weather? = null,
     val routeSummaryFireCount: Int = 0,
-    val routeSummaryForestCount: Int = 0
+    val routeSummaryForestCount: Int = 0,
+    val plannedRouteAlternatives: List<RouteAlternativeDto> = emptyList(),
+    val selectedAlternativeId: String? = null,
+    val routeOverallHazardScore: Double? = null,
+    val routeSafetyStatus: String? = null
 )
 
 @HiltViewModel
@@ -72,7 +84,8 @@ class MapViewModel @Inject constructor(
     private val disasterRepository: DisasterRepository,
     private val weatherRepository: WeatherRepository,
     private val providerStatusRepository: ProviderStatusRepository,
-    private val connectivityMonitor: NetworkConnectivityMonitor
+    private val connectivityMonitor: NetworkConnectivityMonitor,
+    private val deviceLocationRepository: DeviceLocationRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
@@ -88,8 +101,36 @@ class MapViewModel @Inject constructor(
 
     init {
         observeConnectivity()
+        observeDeviceLocation()
         observeData()
+        requestCurrentLocationFix(recenter = false)
         refreshAllLayers()
+    }
+
+    private fun observeDeviceLocation() {
+        viewModelScope.launch {
+            deviceLocationRepository.locationState.collect { locState ->
+                if (locState.latitude != null && locState.longitude != null) {
+                    _uiState.update { current ->
+                        current.copy(
+                            userLocation = locState.latitude to locState.longitude,
+                            userLocationAccuracyMeters = locState.accuracyMeters,
+                            isUserLocationAcquired = true,
+                            isLocationFresh = locState.isFresh,
+                            isLocating = locState.isLocating,
+                            locationErrorMessage = locState.errorMessage
+                        )
+                    }
+                } else {
+                    _uiState.update { current ->
+                        current.copy(
+                            isLocating = locState.isLocating,
+                            locationErrorMessage = locState.errorMessage
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun observeConnectivity() {
@@ -464,8 +505,39 @@ class MapViewModel @Inject constructor(
     }
 
     fun recenterToUserLocation() {
-        val userLoc = _uiState.value.userLocation
-        _uiState.update { it.copy(cameraTarget = userLoc, zoomLevel = 14.0) }
+        if (_uiState.value.isUserLocationAcquired) {
+            _uiState.update { it.copy(cameraTarget = it.userLocation, zoomLevel = 14.5) }
+        }
+        requestCurrentLocationFix(recenter = true)
+    }
+
+    fun requestCurrentLocationFix(recenter: Boolean = true) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLocating = true, locationErrorMessage = null) }
+            val result = deviceLocationRepository.getCurrentLocationFix()
+            result.onSuccess { loc ->
+                _uiState.update { current ->
+                    current.copy(
+                        userLocation = loc.latitude to loc.longitude,
+                        userLocationAccuracyMeters = if (loc.hasAccuracy()) loc.accuracy else null,
+                        isUserLocationAcquired = true,
+                        isLocationFresh = true,
+                        isLocating = false,
+                        locationErrorMessage = null,
+                        cameraTarget = if (recenter) (loc.latitude to loc.longitude) else current.cameraTarget,
+                        zoomLevel = if (recenter) 14.5 else current.zoomLevel
+                    )
+                }
+                rebuildUnifiedFeatures()
+            }.onFailure { err ->
+                _uiState.update { current ->
+                    current.copy(
+                        isLocating = false,
+                        locationErrorMessage = err.message ?: "Failed to acquire real GPS fix. Tap recenter to retry."
+                    )
+                }
+            }
+        }
     }
 
     fun fitToRoute() {
@@ -529,16 +601,67 @@ class MapViewModel @Inject constructor(
                     zoomLevel = 13.5
                 )
             }
-            // Request route planning
+            // Request route planning from actual user location
             val userLoc = _uiState.value.userLocation
-            routeRepository.planRoute(
+            val res = routeRepository.planRoute(
                 originLat = userLoc.first,
                 originLon = userLoc.second,
-                originName = "Current Location",
+                originName = if (_uiState.value.isUserLocationAcquired) "My Location" else "Current Location",
                 destLat = place.latitude,
                 destLon = place.longitude,
                 destName = place.name
             )
+            res.onSuccess { dto ->
+                val primaryCoords = parseGeoJsonCoordinates(dto.geometry_geojson?.toString())
+                    .ifEmpty { dto.conditions.map { it.latitude to it.longitude } }
+
+                _uiState.update { current ->
+                    current.copy(
+                        routeTitle = dto.title,
+                        routeCoordinates = primaryCoords,
+                        primaryRouteCoordinates = primaryCoords,
+                        routeDistanceKm = dto.distance_km,
+                        routeDurationHours = dto.duration_minutes / 60.0,
+                        routeOverallHazardScore = dto.overall_hazard_score,
+                        routeSafetyStatus = dto.overall_safety_status,
+                        plannedRouteAlternatives = dto.alternatives,
+                        selectedAlternativeId = null,
+                        cameraTarget = primaryCoords.firstOrNull() ?: current.cameraTarget
+                    )
+                }
+                rebuildUnifiedFeatures()
+            }
+        }
+    }
+
+    fun selectRouteAlternative(altId: String?) {
+        val current = _uiState.value
+        if (altId == null) {
+            // Revert to primary (shortest/direct) route
+            _uiState.update {
+                it.copy(
+                    selectedAlternativeId = null,
+                    routeCoordinates = it.primaryRouteCoordinates
+                )
+            }
+            rebuildUnifiedFeatures()
+            return
+        }
+
+        val alt = current.plannedRouteAlternatives.find { it.id == altId } ?: return
+        val altCoords = parseGeoJsonCoordinates(alt.geometry_geojson?.toString())
+        if (altCoords.isNotEmpty()) {
+            _uiState.update {
+                it.copy(
+                    selectedAlternativeId = altId,
+                    routeCoordinates = altCoords,
+                    routeDistanceKm = alt.distance_km,
+                    routeDurationHours = alt.duration_minutes / 60.0,
+                    routeOverallHazardScore = alt.hazard_score,
+                    routeSafetyStatus = if (alt.hazard_score < 35.0) "SAFE" else "CAUTION"
+                )
+            }
+            rebuildUnifiedFeatures()
         }
     }
 
@@ -658,23 +781,40 @@ class MapViewModel @Inject constructor(
         return points
     }
 
+    private fun parseGeoJsonCoordinates(geoJsonString: String?): List<Pair<Double, Double>> {
+        return parseRouteGeoJson(geoJsonString)
+    }
+
     private fun parseRouteGeoJson(geoJsonString: String?): List<Pair<Double, Double>> {
         if (geoJsonString.isNullOrBlank()) return emptyList()
         val coordinates = mutableListOf<Pair<Double, Double>>()
         try {
             val root = JSONObject(geoJsonString)
-            val features = root.optJSONArray("features") ?: return emptyList()
-            for (i in 0 until features.length()) {
-                val feature = features.getJSONObject(i)
-                val geometry = feature.getJSONObject("geometry")
-                val type = geometry.getString("type")
-                if (type == "LineString") {
-                    val coordsArray = geometry.getJSONArray("coordinates")
+            val type = root.optString("type")
+            if (type == "LineString") {
+                val coordsArray = root.optJSONArray("coordinates")
+                if (coordsArray != null) {
                     for (j in 0 until coordsArray.length()) {
                         val pt = coordsArray.getJSONArray(j)
                         val lon = pt.getDouble(0)
                         val lat = pt.getDouble(1)
                         coordinates.add(lat to lon)
+                    }
+                }
+            } else {
+                val features = root.optJSONArray("features") ?: return emptyList()
+                for (i in 0 until features.length()) {
+                    val feature = features.getJSONObject(i)
+                    val geometry = feature.getJSONObject("geometry")
+                    val geomType = geometry.getString("type")
+                    if (geomType == "LineString") {
+                        val coordsArray = geometry.getJSONArray("coordinates")
+                        for (j in 0 until coordsArray.length()) {
+                            val pt = coordsArray.getJSONArray(j)
+                            val lon = pt.getDouble(0)
+                            val lat = pt.getDouble(1)
+                            coordinates.add(lat to lon)
+                        }
                     }
                 }
             }

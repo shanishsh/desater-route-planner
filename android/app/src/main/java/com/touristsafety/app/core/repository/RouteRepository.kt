@@ -93,6 +93,7 @@ class RouteRepository @Inject constructor(
                 highRiskSegmentsCount = dto.high_risk_segments_count,
                 conditionsJson = conditionsStr,
                 alternativesJson = alternativesStr,
+                routeGeoJson = dto.geometry_geojson?.toString(),
                 isSavedOffline = true,
                 cachedAt = System.currentTimeMillis()
             )

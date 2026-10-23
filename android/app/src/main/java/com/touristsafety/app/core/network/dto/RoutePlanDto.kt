@@ -1,6 +1,7 @@
 package com.touristsafety.app.core.network.dto
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class PlaceSearchResultDto(
@@ -90,7 +91,8 @@ data class RouteAlternativeDto(
     val distance_km: Double,
     val duration_minutes: Double,
     val hazard_score: Double = 0.0,
-    val safety_label: String = "Safe"
+    val safety_label: String = "Safe",
+    val geometry_geojson: JsonElement? = null
 )
 
 @Serializable
@@ -111,6 +113,7 @@ data class PlannedRouteResponseDto(
     val high_risk_segments_count: Int = 0,
     val conditions: List<RouteWaypointConditionDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
+    val geometry_geojson: JsonElement? = null,
     val created_at: String
 )
 

@@ -251,16 +251,54 @@ class RouteConditionAnalyzer:
             overall_status = "SAFE"
             max_hazard_score = max(max_hazard_score, 10.0)
 
-        # Prepare alternatives with comparative safety labels
+        # Prepare alternatives with comparative real hazard scoring
         alt_schemas: List[RouteAlternativeSchema] = []
         for alt in route.alternatives:
-            # If primary route has high hazards, the alternate is safer
-            alt_score = 15.0 if overall_status in ["HIGH_RISK", "CRITICAL"] else 10.0
-            safety_label = (
-                "Recommended: Bypasses hazard corridor"
-                if overall_status in ["HIGH_RISK", "CRITICAL"]
-                else "Alternative scenic route"
-            )
+            alt_score = 10.0
+            alt_hazards: List[str] = []
+
+            # Extract coordinates from alternative route geometry
+            alt_coords = alt.geometry_geojson.get("coordinates", [])
+            step = max(1, len(alt_coords) // 20)
+            sampled_alt_pts = [alt_coords[i] for i in range(0, len(alt_coords), step)]
+
+            for pt in sampled_alt_pts:
+                p_lon, p_lat = pt[0], pt[1]
+                # Check alert intersection
+                for alert in active_alerts:
+                    d_km = haversine_distance_km(p_lat, p_lon, alert.center_latitude, alert.center_longitude)
+                    r_km = (alert.affected_radius_meters or 5000.0) / 1000.0
+                    if d_km <= r_km:
+                        if alert.severity == "CRITICAL":
+                            alt_score = max(alt_score, 90.0)
+                            alt_hazards.append(f"Critical: {alert.title}")
+                        elif alert.severity == "SEVERE":
+                            alt_score = max(alt_score, 75.0)
+                            alt_hazards.append(f"Severe: {alert.title}")
+                        else:
+                            alt_score = max(alt_score, 45.0)
+                            alt_hazards.append(f"Warning: {alert.title}")
+                # Check active fires
+                for fire in active_fires:
+                    f_lat = fire.get("latitude", 0.0)
+                    f_lon = fire.get("longitude", 0.0)
+                    d_f = haversine_distance_km(p_lat, p_lon, f_lat, f_lon)
+                    if d_f <= 2.0:
+                        alt_score = max(alt_score, 85.0)
+                        alt_hazards.append("Active wildfire within 2 km")
+                    elif d_f <= 5.0:
+                        alt_score = max(alt_score, 60.0)
+
+            # Assign informative safety label
+            if alt_score >= 70.0:
+                safety_label = f"High Risk: {len(alt_hazards)} hazards detected"
+            elif alt_score >= 35.0:
+                safety_label = "Caution: Secondary hazards nearby"
+            elif max_hazard_score >= 60.0 and alt_score < 30.0:
+                safety_label = "Recommended: Bypasses hazard corridor (Safest Path)"
+            else:
+                safety_label = "Clear & Safe Alternative"
+
             alt_schemas.append(
                 RouteAlternativeSchema(
                     id=alt.id,
@@ -269,7 +307,7 @@ class RouteConditionAnalyzer:
                     distance_km=alt.distance_km,
                     duration_minutes=alt.duration_minutes,
                     geometry_geojson=alt.geometry_geojson,
-                    hazard_score=alt_score,
+                    hazard_score=round(alt_score, 1),
                     safety_label=safety_label,
                 )
             )

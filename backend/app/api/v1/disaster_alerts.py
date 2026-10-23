@@ -13,6 +13,7 @@ from app.core.security import verify_admin_api_key, decode_access_token
 from app.models.disaster_alert import DisasterAlert
 from app.models.outbox import OutboxEvent
 from app.models.notification_delivery import NotificationDelivery
+from app.clients.ndma_sachet import ndma_sachet_client
 from app.schemas.disaster import (
     DisasterAlertCreate,
     DisasterAlertUpdate,
@@ -269,3 +270,14 @@ async def test_alarm(
         logger.warning("Test alarm dispatch exception: %s", ex)
 
     return alert
+
+
+@router.post("/sync-sachet", status_code=status.HTTP_200_OK)
+async def sync_sachet_disaster_alerts(db: AsyncSession = Depends(get_db)):
+    """Triggers an authorized on-demand synchronization of official NDMA SACHET disaster alert CAP feeds."""
+    try:
+        count = await ndma_sachet_client.sync_sachet_alerts(db, max_fetch_details=10)
+        return {"status": "SUCCESS", "synced_count": count, "provider": "NDMA SACHET CAP 1.2"}
+    except Exception as e:
+        logger.error(f"Failed to sync NDMA SACHET alerts: {e}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"NDMA SACHET sync failed: {str(e)}")

@@ -21,6 +21,7 @@ data class PlannedRouteEntity(
     val highRiskSegmentsCount: Int,
     val conditionsJson: String,
     val alternativesJson: String,
+    val routeGeoJson: String? = null,
     val isSavedOffline: Boolean = true,
     val cachedAt: Long = System.currentTimeMillis()
 )

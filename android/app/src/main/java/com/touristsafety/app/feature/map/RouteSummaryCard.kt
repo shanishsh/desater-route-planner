@@ -1,6 +1,7 @@
 package com.touristsafety.app.feature.map
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.touristsafety.app.core.model.Weather
+import com.touristsafety.app.core.network.dto.RouteAlternativeDto
+import java.util.Locale
 
 @Composable
 fun RouteSummaryCard(
@@ -35,6 +38,11 @@ fun RouteSummaryCard(
     nearestMedicalDistance: String?,
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
+    plannedRouteAlternatives: List<RouteAlternativeDto> = emptyList(),
+    selectedAlternativeId: String? = null,
+    overallSafetyStatus: String? = null,
+    overallHazardScore: Double? = null,
+    onSelectAlternative: (String?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -152,6 +160,44 @@ fun RouteSummaryCard(
                 }
             }
 
+            // Route Alternatives / Comparison Selector (Shortest vs Safest)
+            if (plannedRouteAlternatives.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isPrimarySelected = selectedAlternativeId == null
+                    val primaryHoursStr = String.format(Locale.US, "%.1f", durationHours ?: 0.0)
+                    val primaryDistStr = String.format(Locale.US, "%.1f", distanceKm ?: 0.0)
+
+                    RouteOptionChip(
+                        title = "Shortest Path",
+                        subtitle = "$primaryDistStr km • $primaryHoursStr hrs",
+                        badge = overallSafetyStatus ?: "Standard",
+                        isSelected = isPrimarySelected,
+                        onClick = { onSelectAlternative(null) }
+                    )
+
+                    plannedRouteAlternatives.forEach { alt ->
+                        val isAltSelected = selectedAlternativeId == alt.id
+                        val altHoursStr = String.format(Locale.US, "%.1f", alt.duration_minutes / 60.0)
+                        val altDistStr = String.format(Locale.US, "%.1f", alt.distance_km)
+
+                        RouteOptionChip(
+                            title = alt.title,
+                            subtitle = "$altDistStr km • $altHoursStr hrs",
+                            badge = "${alt.safety_label} (Risk ${alt.hazard_score.toInt()})",
+                            isSelected = isAltSelected,
+                            isAlternative = true,
+                            onClick = { onSelectAlternative(alt.id) }
+                        )
+                    }
+                }
+            }
+
             // Expanded Route Condition Cards Carousel
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 12.dp)) {
@@ -251,6 +297,65 @@ private fun ConditionCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
+        }
+    }
+}
+
+@Composable
+private fun RouteOptionChip(
+    title: String,
+    subtitle: String,
+    badge: String,
+    isSelected: Boolean,
+    isAlternative: Boolean = false,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(
+            if (isSelected) 1.5.dp else 1.dp,
+            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.AltRoute,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "• $badge",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (badge.contains("Safe", ignoreCase = true) || badge.contains("PASSABLE", ignoreCase = true)) {
+                            Color(0xFF2E7D32)
+                        } else {
+                            Color(0xFFC62828)
+                        }
+                    )
+                }
+                Text(
+                    text = subtitle,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.touristsafety.app
 
 import com.touristsafety.app.core.database.entity.HazardZoneEntity
+import com.touristsafety.app.core.location.DeviceLocationRepository
+import com.touristsafety.app.core.location.DeviceLocationState
 import com.touristsafety.app.core.model.*
 import com.touristsafety.app.core.network.DetailedConnectivityState
 import com.touristsafety.app.core.network.NetworkConnectivityMonitor
@@ -32,6 +34,8 @@ class MapViewModelTest {
     private val weatherRepository = mockk<WeatherRepository>(relaxed = true)
     private val providerStatusRepository = mockk<ProviderStatusRepository>(relaxed = true)
     private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
+    private val deviceLocationRepository = mockk<DeviceLocationRepository>(relaxed = true)
+    private val locationStateFlow = MutableStateFlow(DeviceLocationState())
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -41,6 +45,9 @@ class MapViewModelTest {
         every { connectivityMonitor.state } returns MutableStateFlow(
             DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
         )
+        every { deviceLocationRepository.locationState } returns locationStateFlow
+        coEvery { deviceLocationRepository.getCurrentLocationFix(any(), any()) } returns Result.failure(Exception("No GPS fix in mock setup"))
+        coEvery { deviceLocationRepository.getCurrentLocationFix() } returns Result.failure(Exception("No GPS fix in mock setup"))
         coEvery { emergencyRepository.refreshMapPoints() } returns Result.success(Unit)
         coEvery { forestRepository.refreshForestFeatures(any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { fireHotspotRepository.refreshHotspots(any(), any(), any(), any()) } returns Result.success(Unit)
@@ -130,7 +137,8 @@ class MapViewModelTest {
             disasterRepository,
             weatherRepository,
             providerStatusRepository,
-            connectivityMonitor
+            connectivityMonitor,
+            deviceLocationRepository
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -166,7 +174,8 @@ class MapViewModelTest {
             disasterRepository,
             weatherRepository,
             providerStatusRepository,
-            connectivityMonitor
+            connectivityMonitor,
+            deviceLocationRepository
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -209,7 +218,8 @@ class MapViewModelTest {
             disasterRepository,
             weatherRepository,
             providerStatusRepository,
-            connectivityMonitor
+            connectivityMonitor,
+            deviceLocationRepository
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -235,7 +245,8 @@ class MapViewModelTest {
             disasterRepository,
             weatherRepository,
             providerStatusRepository,
-            connectivityMonitor
+            connectivityMonitor,
+            deviceLocationRepository
         )
 
         val destination = PlaceSearchResultDto(
@@ -260,6 +271,85 @@ class MapViewModelTest {
                 destName = "Solang Valley"
             )
         }
+    }
+
+    @Test
+    fun `device location emission updates userLocation, accuracy, and acquired status`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        locationStateFlow.value = DeviceLocationState(
+            latitude = 32.2450,
+            longitude = 77.1890,
+            accuracyMeters = 8.5f,
+            isFresh = true,
+            isLocating = false
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(32.2450 to 77.1890, state.userLocation)
+        assertEquals(8.5f, state.userLocationAccuracyMeters)
+        assertTrue(state.isUserLocationAcquired)
+        assertTrue(state.isLocationFresh)
+    }
+
+    @Test
+    fun `recenterToUserLocation updates cameraTarget to acquired user location`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        locationStateFlow.value = DeviceLocationState(
+            latitude = 32.2500,
+            longitude = 77.1950,
+            accuracyMeters = 5f,
+            isFresh = true
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.recenterToUserLocation()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(32.2500 to 77.1950, viewModel.uiState.value.cameraTarget)
+    }
+
+    @Test
+    fun `selectRouteAlternative updates route coordinates to alternative geometry`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        viewModel.selectRouteAlternative(null)
+        assertNull(viewModel.uiState.value.selectedAlternativeId)
     }
 }
 

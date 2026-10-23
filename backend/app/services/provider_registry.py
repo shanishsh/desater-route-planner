@@ -7,6 +7,7 @@ from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.opencellid import opencellid_client
+from app.clients.ndma_sachet import ndma_sachet_client
 from app.cache.redis_cache import cache_service
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,35 @@ class ProviderRegistry:
             "registration_url": "https://opencellid.org/register.php",
         }
 
-        # 6. Database / Local Cache
+        # 6. NDMA SACHET CAP Disaster Advisory Feed
+        sachet_state = "HEALTHY" if ndma_sachet_client.last_status_code in [200, 304] else (
+            "ERROR" if ndma_sachet_client.last_error else "STANDBY"
+        )
+        sachet_diag = (
+            f"Connected to official NDMA SACHET CAP feed ({ndma_sachet_client.active_alerts_count} alerts indexed)."
+            if ndma_sachet_client.last_status_code in [200, 304]
+            else (ndma_sachet_client.last_error or "NDMA SACHET CAP client initialized and ready for advisories.")
+        )
+        ndma_sachet_info = {
+            "provider_id": "ndma_sachet",
+            "name": "NDMA SACHET Disaster Alert Feeds (CAP 1.2)",
+            "category": "disaster_advisory",
+            "is_configured": True,
+            "status": sachet_state,
+            "last_attempt_at": ndma_sachet_client.last_attempt_at,
+            "last_success_at": ndma_sachet_client.last_success_at,
+            "last_http_status": ndma_sachet_client.last_status_code,
+            "record_count": ndma_sachet_client.active_alerts_count,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE" if ndma_sachet_client.last_success_at else "STANDBY",
+            "is_stale": False,
+            "diagnostic_message": sachet_diag,
+            "attribution": "National Disaster Management Authority (NDMA) & State Disaster Management Authorities (SDMAs)",
+            "source_url": "https://sachet.ndma.gov.in/",
+            "registration_url": "https://sachet.ndma.gov.in/CapFeed",
+        }
+
+        # 7. Database / Local Cache
         db_info = {
             "provider_id": "backend_database",
             "name": "Local PostGIS / Room Cache",
@@ -203,6 +232,7 @@ class ProviderRegistry:
             open_meteo_info,
             osm_info,
             nasa_firms_info,
+            ndma_sachet_info,
             fsi_info,
             opencellid_info,
             db_info,

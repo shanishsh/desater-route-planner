@@ -2,6 +2,7 @@ package com.touristsafety.app.feature.map
 
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -138,6 +139,42 @@ fun MapScreen(
                 onChangeDestination = { viewModel.toggleSearchDialog(true) }
             )
 
+            if (state.locationErrorMessage != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFFF3E0),
+                    border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOff,
+                            contentDescription = null,
+                            tint = Color(0xFFE65100),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = state.locationErrorMessage ?: "",
+                            fontSize = 11.sp,
+                            color = Color(0xFFE65100),
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2
+                        )
+                        TextButton(
+                            onClick = { viewModel.requestCurrentLocationFix(recenter = true) },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("Retry", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // Horizontally Scrollable Filter Chips
@@ -191,6 +228,11 @@ fun MapScreen(
             nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
             isExpanded = state.isBottomRouteExpanded,
             onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
+            plannedRouteAlternatives = state.plannedRouteAlternatives,
+            selectedAlternativeId = state.selectedAlternativeId,
+            overallSafetyStatus = state.routeSafetyStatus,
+            overallHazardScore = state.routeOverallHazardScore,
+            onSelectAlternative = { viewModel.selectRouteAlternative(it) },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
@@ -498,7 +540,17 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
     try {
         mapboxMap.clear()
 
-        // 1. Draw Active Route Line
+        // 1. Draw Active Route Line & Secondary Comparison Line
+        if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
+            // Draw original primary route as secondary muted line
+            val primaryPoints = state.primaryRouteCoordinates.map { LatLng(it.first, it.second) }
+            mapboxMap.addPolyline(
+                PolylineOptions()
+                    .addAll(primaryPoints)
+                    .color(android.graphics.Color.rgb(144, 164, 174)) // Muted Slate Gray
+                    .width(4f)
+            )
+        }
         if (state.routeCoordinates.size >= 2) {
             val points = state.routeCoordinates.map { LatLng(it.first, it.second) }
             mapboxMap.addPolyline(
@@ -552,6 +604,17 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
                         .snippet(feat.id)
                 )
             }
+        }
+
+        // 4. Draw Current User Location Marker
+        if (state.isUserLocationAcquired) {
+            val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
+            mapboxMap.addMarker(
+                MarkerOptions()
+                    .position(LatLng(state.userLocation.first, state.userLocation.second))
+                    .title("Your Current Location$acc")
+                    .snippet("GPS Location")
+            )
         }
     } catch (e: Exception) {
         // Safe catch for map lifecycle transitions
