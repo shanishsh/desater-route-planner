@@ -1,6 +1,6 @@
 """Authentication schemas."""
 from typing import Optional
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, Field
 
 
 class UserLogin(BaseModel):
@@ -8,11 +8,19 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, description="Password must be at least 6 characters")
+    role: Optional[str] = "tourist"
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
     expires_in_minutes: int
+    user_id: Optional[str] = None
+    email: Optional[str] = None
 
 
 class TokenPayload(BaseModel):

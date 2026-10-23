@@ -5,6 +5,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
+    data object Welcome : Screen("welcome", "Welcome", Icons.Default.Terrain)
+    data object Login : Screen("login", "Log In", Icons.Default.Lock)
+    data object Register : Screen("register", "Register", Icons.Default.PersonAdd)
+    data object PermissionOnboarding : Screen("permission_onboarding", "Permissions", Icons.Default.Security)
+
     data object Home : Screen("home", "Home", Icons.Default.Home)
     data object Map : Screen("map", "Explore Map", Icons.Default.Map)
     data object Alerts : Screen("alerts", "Alerts", Icons.Default.Warning)
@@ -22,6 +27,14 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
     companion object {
         val bottomNavScreens = listOf(Home, PlanTrip, Map, Alerts, Emergency)
+        val fullScreenRoutes = setOf(
+            Welcome.route,
+            Login.route,
+            Register.route,
+            PermissionOnboarding.route,
+            "route_safety_review/{routeId}",
+            "active_trip/{tripId}"
+        )
     }
 }
 

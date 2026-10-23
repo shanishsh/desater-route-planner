@@ -45,3 +45,4 @@ This document explicitly details known limitations, external provider constraint
 1. **GNSS Accuracy in Alpine Canyons**:
    - In steep mountain valleys or heavy cloud cover, GPS horizontal accuracy may degrade from $\pm 5\text{m}$ to $\pm 30\text{m}$.
    - The app's `LocalSpatialEngine` accounts for this by computing dead-reckoning uncertainty ellipses ($R = R_{\text{GPS}} + v_{\max} \cdot \Delta t$) rather than projecting false pinpoint confidence.
+

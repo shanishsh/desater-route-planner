@@ -16,3 +16,4 @@ This matrix documents the integration status, endpoints, authentication mechanis
 | **Supabase PostgreSQL / PostGIS** | `postgresql+asyncpg://aws-0-ap-south-1.pooler.supabase.com:5432/postgres` | Username / Password | `CONNECTED` | 11 tables initialized | `VERIFIED LIVE` | Session pooler enabled. PostGIS spatial extensions active. |
 | **Upstash Redis TLS** | `rediss://viable-bluegill-237463.upstash.io:6379` | Bearer Token / TLS | `CONNECTED` | Active cache-aside store | `VERIFIED LIVE` | Serverless Redis with TLS encryption and automatic TTL eviction. |
 | **Twilio SMS Gateway** | `POST https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json` | Account SID + Auth Token | `CONFIG-GATED` | N/A (Switches to Mock in Dev) | `VERIFIED ARCHITECTURE` | Code complete; activates cellular dispatch when production Twilio credentials are provided in deployment secrets. |
+

@@ -155,4 +155,17 @@ interface ApiService {
     suspend fun triggerSos(
         @Body body: EmergencySOSRequestDto
     ): Response<EmergencySOSResponseDto>
+
+    @POST("auth/login")
+    suspend fun login(
+        @Body body: UserLoginRequestDto
+    ): Response<AuthTokenResponseDto>
+
+    @POST("auth/register")
+    suspend fun register(
+        @Body body: UserRegisterRequestDto
+    ): Response<AuthTokenResponseDto>
+
+    @GET("auth/me")
+    suspend fun getMe(): Response<UserMeResponseDto>
 }

@@ -112,3 +112,4 @@ Execute these smoke checks immediately following any deployment:
      -d '{"origin_lat": 32.2396, "origin_lon": 77.1887, "origin_name": "Manali", "destination_lat": 32.3166, "destination_lon": 77.1722, "destination_name": "Solang Valley", "travel_mode": "hiking"}'
    # Expect: HTTP 201 with elevation_profile, hazard score, and decision_explanation
    ```
+

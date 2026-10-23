@@ -14,7 +14,7 @@ python -m pytest tests/ -v
 
 **Results**:
 - **Platform**: Windows 11, Python 3.11.9, pytest-8.4.2
-- **Summary**: **42 passed in 64.95s (100% pass rate)**
+- **Summary**: **43 passed in 46.10s (100% pass rate)**
 
 ### Detailed Test Inventory:
 | Test File | Test Name | Result |
@@ -23,6 +23,7 @@ python -m pytest tests/ -v
 | `tests/test_alerts.py` | `test_alert_future_clock_skew_rejected` | `PASSED` |
 | `tests/test_alerts.py` | `test_seeded_three_simulated_alerts` | `PASSED` |
 | `tests/test_alerts.py` | `test_admin_demo_reset_endpoint` | `PASSED` |
+| `tests/test_auth_api.py` | `test_register_and_login_flow` | `PASSED` |
 | `tests/test_auth_schema.py` | `test_user_login_valid_email` | `PASSED` |
 | `tests/test_auth_schema.py` | `test_user_login_invalid_email_raises_validation_error` | `PASSED` |
 | `tests/test_auth_schema.py` | `test_token_schema` | `PASSED` |
@@ -73,17 +74,18 @@ python -m pytest tests/ -v
 
 **Results**:
 - **Toolchain**: Gradle 9.6.0, Android Studio JBR 17, Kotlin 2.0.21
-- **Status**: **BUILD SUCCESSFUL in 55s (100% test pass rate across 9 suites)**
+- **Status**: **BUILD SUCCESSFUL in 47s (100% test pass rate across 10 suites)**
 - **Test Suites Verified**:
-  1. `LocalSpatialEngineTest` (Haversine math, cross-track error, ray-casting point-in-polygon, uncertainty circle)
-  2. `AlertFreshnessTest`
-  3. `DeviceLocationRepositoryTest`
-  4. `HazardGeofenceTest`
-  5. `HomeViewModelTest`
-  6. `MapViewModelTest`
-  7. `OfflineRepositoryTest`
-  8. `ProviderStatusViewModelTest`
-  9. `RouteMonitoringTest`
+  1. `AuthFlowTest` (DTO serialization, validation of email & passwords, navigation transitions, onboarding state)
+  2. `LocalSpatialEngineTest` (Haversine math, cross-track error, ray-casting point-in-polygon, uncertainty circle)
+  3. `AlertFreshnessTest`
+  4. `DeviceLocationRepositoryTest`
+  5. `HazardGeofenceTest`
+  6. `HomeViewModelTest`
+  7. `MapViewModelTest`
+  8. `OfflineRepositoryTest`
+  9. `ProviderStatusViewModelTest`
+  10. `RouteMonitoringTest`
 
 ---
 
@@ -95,8 +97,8 @@ python -m pytest tests/ -v
 ```
 
 **Results**:
-- **Status**: **BUILD SUCCESSFUL in 28s**
-- **Output Artifact**: `android\app\build\outputs\apk\debug\app-debug.apk` (64,022,170 bytes)
+- **Status**: **BUILD SUCCESSFUL in 18s**
+- **Output Artifact**: `android\app\build\outputs\apk\debug\app-debug.apk` (63,880,756 bytes)
 
 ---
 
@@ -109,3 +111,4 @@ python -m pytest tests/ -v
 | **Field Trekker Check-In** | `POST /api/v1/sar/check-in` (trip-manali-solang-01) | `HTTP 200` (`status: RECORDED`, next check-in scheduled for +3 hours) |
 | **Emergency SOS Beacon** | `POST /api/v1/sar/sos` (trip-manali-solang-01, MEDICAL) | `HTTP 200` (`incident_id: sar-1792780323`, `escalation_level: RED_PRIORITY_1`) |
 | **SAR GeoJSON Export** | `GET /api/v1/sar/incidents/{id}/export` | `HTTP 200` (Valid RFC 7946 FeatureCollection with LKL point and dead-reckoning uncertainty polygon) |
+

@@ -70,3 +70,4 @@ This document records the defects identified during the production audit, detail
   1. Forwarded explicit native lifecycle methods in `factory` and `onRelease`.
   2. Wrapped native `MapView` initialization in try-catch with graceful automatic fallback to `OfflineVectorCanvasView` if native GL context allocation fails.
 - **Verification**: Map renders smoothly in both vector surface and canvas fallback modes.
+

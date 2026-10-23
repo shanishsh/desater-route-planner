@@ -5,10 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.touristsafety.app.core.auth.TokenManager
 import com.touristsafety.app.core.designsystem.TouristSafetyTheme
 import com.touristsafety.app.core.sync.SyncManager
 import com.touristsafety.app.navigation.AppNavGraph
@@ -21,6 +22,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var syncManager: SyncManager
+
+    @Inject
+    lateinit var tokenManager: TokenManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,36 +43,54 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
+                val isFullScreen = currentRoute in Screen.fullScreenRoutes ||
+                        currentRoute?.startsWith("route_safety_review") == true ||
+                        currentRoute?.startsWith("active_trip") == true
+
+                val startDestination = remember {
+                    if (tokenManager.isLoggedIn()) {
+                        if (tokenManager.hasCompletedPermissionsOnboarding()) {
+                            Screen.Home.route
+                        } else {
+                            Screen.PermissionOnboarding.route
+                        }
+                    } else {
+                        Screen.Welcome.route
+                    }
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        NavigationBar {
-                            Screen.bottomNavScreens.forEach { screen ->
-                                NavigationBarItem(
-                                    icon = { Icon(screen.icon, contentDescription = screen.title) },
-                                    label = { Text(screen.title) },
-                                    selected = currentRoute == screen.route,
-                                    onClick = {
-                                        if (currentRoute != screen.route) {
-                                            navController.navigate(screen.route) {
-                                                popUpTo(Screen.Home.route) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                        if (!isFullScreen) {
+                            NavigationBar {
+                                Screen.bottomNavScreens.forEach { screen ->
+                                    NavigationBarItem(
+                                        icon = { Icon(screen.icon, contentDescription = screen.title) },
+                                        label = { Text(screen.title) },
+                                        selected = currentRoute == screen.route,
+                                        onClick = {
+                                            if (currentRoute != screen.route) {
+                                                navController.navigate(screen.route) {
+                                                    popUpTo(Screen.Home.route) { saveState = true }
+                                                    launchSingleTop = true
+                                                    restoreState = true
+                                                }
                                             }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
                 ) { paddingValues ->
                     AppNavGraph(
                         navController = navController,
-                        paddingValues = paddingValues
+                        paddingValues = paddingValues,
+                        startDestination = startDestination
                     )
                 }
             }
         }
     }
 }
-
