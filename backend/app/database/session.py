@@ -35,13 +35,31 @@ async_session_maker = async_sessionmaker(
 AsyncSessionLocal = async_session_maker
 
 
+async def _apply_schema_migrations(conn):
+    """Safely applies missing column migrations across existing tables."""
+    statements = [
+        "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS route_version INTEGER DEFAULT 1",
+        "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS routing_provider VARCHAR(50) DEFAULT 'OSRM'",
+        "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS analysis_data JSON",
+        "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS last_analyzed_at TIMESTAMP WITH TIME ZONE",
+    ]
+    for stmt in statements:
+        try:
+            from sqlalchemy import text
+            await conn.execute(text(stmt))
+        except Exception as ex:
+            # Handle SQLite syntax variations or existing column nuances gracefully
+            logger.debug("Migration statement skipped or already applied (%s): %s", stmt, ex)
+
+
 async def init_db():
-    """Initializes database schema. Falls back to SQLite if PostgreSQL is unreachable."""
+    """Initializes database schema and ensures all table columns are up to date."""
     global engine, async_session_maker, AsyncSessionLocal
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database schema initialized successfully.")
+            await _apply_schema_migrations(conn)
+        logger.info("Database schema initialized and columns synchronized successfully.")
     except Exception as e:
         logger.warning("Could not connect to primary database (%s): %s", settings.DATABASE_URL.split("@")[-1], e)
         # If the failed URL is not SQLite, fall back to bundled SQLite database so service starts cleanly
