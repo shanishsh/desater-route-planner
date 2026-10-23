@@ -18,11 +18,12 @@ class Settings(BaseSettings):
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "http://10.0.2.2:8000",  # Android emulator host IP
+        "https://desater-route-planner.onrender.com",
     ]
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/tourist_safety",
+        default="postgresql+asyncpg://postgres.whoagpvxrfihaukhijoo:QJZ3ehbYhNe60TFK@aws-0-ap-south-1.pooler.supabase.com:5432/postgres",
         description="Async PostgreSQL database URL. Can be overridden with sqlite+aiosqlite for testing.",
     )
     DATABASE_ECHO: bool = False

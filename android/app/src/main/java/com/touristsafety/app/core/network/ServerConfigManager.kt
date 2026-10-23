@@ -19,6 +19,7 @@ open class ServerConfigManager @Inject constructor(
         const val KEY_BASE_URL = "backend_base_url"
 
         // Default Presets
+        const val PRESET_RENDER = "https://desater-route-planner.onrender.com/api/v1/"
         const val PRESET_WIFI_LAN = "http://172.168.10.238:8000/api/v1/"
         const val PRESET_EMULATOR = "http://10.0.2.2:8000/api/v1/"
         const val PRESET_USB_REVERSE = "http://127.0.0.1:8000/api/v1/"
@@ -28,7 +29,7 @@ open class ServerConfigManager @Inject constructor(
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _baseUrl = MutableStateFlow(
-        prefs.getString(KEY_BASE_URL, PRESET_WIFI_LAN) ?: PRESET_WIFI_LAN
+        prefs.getString(KEY_BASE_URL, PRESET_RENDER) ?: PRESET_RENDER
     )
     open val baseUrl: StateFlow<String> get() = _baseUrl.asStateFlow()
 

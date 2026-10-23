@@ -8,7 +8,7 @@ class MapPointBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=200)
     category: str = Field(
         ...,
-        pattern="^(emergency_service|medical|police|visitor_info|transport|verified_public)$",
+        pattern="^(emergency_service|medical|clinic|police|fire_station|shelter|visitor_info|transport|verified_public)$",
     )
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
