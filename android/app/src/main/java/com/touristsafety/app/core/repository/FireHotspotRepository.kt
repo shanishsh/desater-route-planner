@@ -32,6 +32,12 @@ class FireHotspotRepository @Inject constructor(
             val response = apiService.getActiveFires(minLat, minLon, maxLat, maxLon, days)
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
+                if (!dto.is_configured) {
+                    return Result.failure(Exception(dto.diagnostic_message ?: "NASA FIRMS is unconfigured. A free MAP_KEY is required on the backend."))
+                }
+                if (dto.provider_status != "HEALTHY" && dto.provider_status != "STANDBY") {
+                    return Result.failure(Exception(dto.diagnostic_message ?: "NASA FIRMS error: ${dto.provider_status}"))
+                }
                 val entities = dto.records.map { r ->
                     FireHotspotEntity(
                         id = r.id,

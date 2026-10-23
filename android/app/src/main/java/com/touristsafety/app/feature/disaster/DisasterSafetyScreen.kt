@@ -123,11 +123,11 @@ fun DisasterSafetyScreen(
             }
 
             item {
-                // Section 3: Diagnostic Test Alarm & Dummy Alert Button
+                // Section 3: Diagnostic Test Alarm & Emergency Ring Sound
                 val isSirenPlaying by viewModel.isSirenPlaying.collectAsState()
                 TestAlarmCard(
                     isSirenPlaying = isSirenPlaying,
-                    onTriggerTest = { viewModel.triggerDummyAlert() },
+                    onTriggerTest = { viewModel.triggerTestAlert() },
                     onStopSiren = { viewModel.stopDisasterSiren() }
                 )
             }
@@ -399,7 +399,7 @@ private fun TestAlarmCard(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Dummy Alert & Emergency Ring Sound",
+                    text = "Diagnostic Siren & Vibration Test",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onErrorContainer
@@ -407,7 +407,7 @@ private fun TestAlarmCard(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Simulates a full disaster warning: fires high-priority Android notification, sounds the emergency alarm siren ring tone, and executes pulse vibration.",
+                text = "Verifies the emergency notification channel, audible alarm tone, and vibration motor on this device. (Diagnostic test only; not an active disaster).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
@@ -424,7 +424,7 @@ private fun TestAlarmCard(
                 ) {
                     Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Trigger Dummy Alert", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Test Device Alarm Siren", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 if (isSirenPlaying) {
                     Button(

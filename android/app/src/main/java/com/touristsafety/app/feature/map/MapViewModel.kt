@@ -115,8 +115,8 @@ class MapViewModel @Inject constructor(
                         selectedItinerary = active,
                         routeTitle = active?.title ?: "Explore Route Map",
                         routeCoordinates = coords,
-                        routeDistanceKm = active?.distanceKm ?: 14.5,
-                        routeDurationHours = active?.estimatedDurationHours ?: 5.5,
+                        routeDistanceKm = active?.distanceKm,
+                        routeDurationHours = active?.estimatedDurationHours,
                         cameraTarget = start
                     )
                 }
@@ -266,8 +266,9 @@ class MapViewModel @Inject constructor(
 
         // 2. Forest Features
         rawForestFeatures.forEach { f ->
-            val centerLat = if (f.coordinates.isNotEmpty()) f.coordinates.map { it.first }.average() else 32.24
-            val centerLon = if (f.coordinates.isNotEmpty()) f.coordinates.map { it.second }.average() else 77.18
+            if (f.coordinates.isEmpty()) return@forEach
+            val centerLat = f.coordinates.map { it.first }.average()
+            val centerLon = f.coordinates.map { it.second }.average()
             val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, centerLat, centerLon)
             list.add(
                 UnifiedMapFeature(
@@ -543,10 +544,103 @@ class MapViewModel @Inject constructor(
 
     fun refreshAllLayers() {
         viewModelScope.launch {
-            emergencyRepository.refreshMapPoints()
-            forestRepository.refreshForestFeatures()
-            fireHotspotRepository.refreshHotspots()
-            disasterRepository.syncDisasterAlerts()
+            // Set loading on active layers
+            _uiState.update { state ->
+                val loadingStatuses = state.layerStatuses.toMutableMap()
+                MapFeatureCategory.entries.forEach { cat ->
+                    loadingStatuses[cat] = LayerDataStatus.LOADING
+                }
+                state.copy(layerStatuses = loadingStatuses)
+            }
+
+            val emRes = emergencyRepository.refreshMapPoints()
+            val forRes = forestRepository.refreshForestFeatures()
+            val fireRes = fireHotspotRepository.refreshHotspots()
+            val disRes = disasterRepository.syncDisasterAlerts()
+
+            val updatedStatuses = _uiState.value.layerStatuses.toMutableMap()
+
+            // Fire hotspot status
+            fireRes.fold(
+                onSuccess = {
+                    updatedStatuses[MapFeatureCategory.ACTIVE_FIRE_DETECTION] =
+                        if (rawFireHotspots.isEmpty()) LayerDataStatus.EMPTY else LayerDataStatus.LOADED
+                },
+                onFailure = { err ->
+                    val msg = err.message.orEmpty().lowercase()
+                    updatedStatuses[MapFeatureCategory.ACTIVE_FIRE_DETECTION] =
+                        if ("unconfigured" in msg || "key" in msg) LayerDataStatus.UNAVAILABLE
+                        else if (rawFireHotspots.isNotEmpty()) LayerDataStatus.CACHED
+                        else LayerDataStatus.FAILED
+                }
+            )
+
+            // Forest status
+            forRes.fold(
+                onSuccess = {
+                    updatedStatuses[MapFeatureCategory.FOREST_AREA] =
+                        if (rawForestFeatures.isEmpty()) LayerDataStatus.EMPTY else LayerDataStatus.LOADED
+                },
+                onFailure = {
+                    updatedStatuses[MapFeatureCategory.FOREST_AREA] =
+                        if (rawForestFeatures.isNotEmpty()) LayerDataStatus.CACHED else LayerDataStatus.FAILED
+                }
+            )
+
+            // Emergency status (Hospitals, Police, Fire Stations, Clinics)
+            val emCategories = listOf(
+                MapFeatureCategory.HOSPITAL,
+                MapFeatureCategory.CLINIC,
+                MapFeatureCategory.POLICE_STATION,
+                MapFeatureCategory.FIRE_STATION,
+                MapFeatureCategory.SHELTER,
+                MapFeatureCategory.TOURIST_ASSISTANCE
+            )
+            emRes.fold(
+                onSuccess = {
+                    emCategories.forEach { cat ->
+                        val count = rawMapPoints.count { pt ->
+                            when (pt.category) {
+                                PointCategory.MEDICAL -> cat == MapFeatureCategory.HOSPITAL
+                                PointCategory.CLINIC -> cat == MapFeatureCategory.CLINIC
+                                PointCategory.POLICE -> cat == MapFeatureCategory.POLICE_STATION
+                                PointCategory.FIRE_STATION, PointCategory.EMERGENCY_SERVICE -> cat == MapFeatureCategory.FIRE_STATION
+                                PointCategory.SHELTER -> cat == MapFeatureCategory.SHELTER
+                                else -> cat == MapFeatureCategory.TOURIST_ASSISTANCE
+                            }
+                        }
+                        updatedStatuses[cat] = if (count > 0) LayerDataStatus.LOADED else LayerDataStatus.EMPTY
+                    }
+                },
+                onFailure = {
+                    emCategories.forEach { cat ->
+                        updatedStatuses[cat] = if (rawMapPoints.isNotEmpty()) LayerDataStatus.CACHED else LayerDataStatus.FAILED
+                    }
+                }
+            )
+
+            // Disaster Alerts
+            disRes.fold(
+                onSuccess = {
+                    updatedStatuses[MapFeatureCategory.HAZARD_ZONE] =
+                        if (rawHazardZones.isEmpty()) LayerDataStatus.EMPTY else LayerDataStatus.LOADED
+                },
+                onFailure = {
+                    updatedStatuses[MapFeatureCategory.HAZARD_ZONE] =
+                        if (rawHazardZones.isNotEmpty()) LayerDataStatus.CACHED else LayerDataStatus.FAILED
+                }
+            )
+
+            // Weather status
+            val weather = _uiState.value.routeSummaryWeather
+            updatedStatuses[MapFeatureCategory.WEATHER_POINT] = when {
+                weather != null && weather.isStale -> LayerDataStatus.STALE
+                weather != null && weather.isCached -> LayerDataStatus.CACHED
+                weather != null -> LayerDataStatus.LOADED
+                else -> LayerDataStatus.EMPTY
+            }
+
+            _uiState.update { it.copy(layerStatuses = updatedStatuses) }
         }
     }
 

@@ -23,9 +23,19 @@ class ProviderRegistry:
         now = datetime.now(timezone.utc)
 
         # 1. Open-Meteo Weather
-        meteo_success = open_meteo_client.circuit_breaker.state != "OPEN"
-        meteo_status = "HEALTHY" if meteo_success else "CIRCUIT_OPEN"
-        meteo_diag = "Live forecast and current weather operational (No key required; non-commercial tier)."
+        meteo_circuit_open = open_meteo_client.circuit_breaker.state == "OPEN"
+        if meteo_circuit_open:
+            meteo_status = "CIRCUIT_OPEN"
+            meteo_diag = "Open-Meteo circuit breaker is OPEN."
+        elif open_meteo_client.last_error:
+            meteo_status = "DEGRADED"
+            meteo_diag = open_meteo_client.last_error
+        elif open_meteo_client.last_success_at:
+            meteo_status = "HEALTHY"
+            meteo_diag = "Live forecast and current weather operational (No key required; non-commercial tier)."
+        else:
+            meteo_status = "STANDBY"
+            meteo_diag = "Open-Meteo client initialized and ready for weather queries."
 
         open_meteo_info = {
             "provider_id": "open_meteo",
@@ -33,12 +43,12 @@ class ProviderRegistry:
             "category": "weather",
             "is_configured": True,
             "status": meteo_status,
-            "last_attempt_at": now.isoformat(),
-            "last_success_at": now.isoformat(),
-            "last_http_status": 200 if meteo_success else 503,
-            "record_count": 1,
+            "last_attempt_at": open_meteo_client.last_attempt_at.isoformat() if open_meteo_client.last_attempt_at else None,
+            "last_success_at": open_meteo_client.last_success_at.isoformat() if open_meteo_client.last_success_at else None,
+            "last_http_status": open_meteo_client.last_status_code,
+            "record_count": open_meteo_client.last_record_count,
             "cache_age_seconds": 0,
-            "data_state": "LIVE",
+            "data_state": "LIVE" if open_meteo_client.last_success_at else "STANDBY",
             "is_stale": False,
             "diagnostic_message": meteo_diag,
             "attribution": "Weather data by Open-Meteo under CC BY 4.0",

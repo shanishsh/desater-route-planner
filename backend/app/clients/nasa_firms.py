@@ -24,15 +24,24 @@ class NASAFIRMSClient:
     def __init__(self):
         self.base_url = settings.NASA_FIRMS_BASE_URL.rstrip("/")
         self.circuit_breaker = CircuitBreaker("NASAFIRMS", failure_threshold=3, recovery_time_seconds=60.0)
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=5.0, read=25.0, write=5.0, pool=5.0),
-            headers={"User-Agent": "TouristSafetyPlatform/1.0 (Wildfire-Safety-Research)"},
-        )
+        self._client: Optional[httpx.AsyncClient] = None
+        self._loop = None
         self.last_attempt_at: Optional[datetime] = None
         self.last_success_at: Optional[datetime] = None
         self.last_status_code: Optional[int] = None
         self.last_error: Optional[str] = None
         self.last_record_count: int = 0
+
+    async def get_client(self) -> httpx.AsyncClient:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._loop != loop:
+            self._loop = loop
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=25.0, write=5.0, pool=5.0),
+                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Wildfire-Safety-Research)"},
+            )
+        return self._client
 
     def is_configured(self) -> bool:
         """Returns True if a non-empty MAP_KEY is configured in settings."""
@@ -95,12 +104,28 @@ class NASAFIRMSClient:
         endpoint_url = f"{self.base_url}/area/csv/{map_key}/{source}/{area_coords}/{day_range}"
 
         try:
-            response = await self.client.get(endpoint_url)
+            client = await self.get_client()
+            response = await client.get(endpoint_url)
             self.last_status_code = response.status_code
 
             if response.status_code == 200:
                 raw_csv = response.text
-                records = self.parse_firms_csv(raw_csv, source)
+                records, parse_error = self.parse_firms_csv_with_error(raw_csv, source)
+                if parse_error:
+                    self.last_error = f"NASA FIRMS upstream rejected request: {parse_error}"
+                    self.circuit_breaker.record_failure()
+                    err_status = "AUTH_FAILED" if "key" in parse_error.lower() else "ERROR"
+                    return {
+                        "records": [],
+                        "record_count": 0,
+                        "provider_status": err_status,
+                        "is_configured": False if err_status == "AUTH_FAILED" else True,
+                        "diagnostic_message": self.last_error,
+                        "disclaimer": DISCLAIMER_NOTICE,
+                        "retrieved_at": now.isoformat(),
+                        "is_cached": False,
+                    }
+
                 self.circuit_breaker.record_success()
                 self.last_success_at = now
                 self.last_error = None
@@ -149,6 +174,19 @@ class NASAFIRMSClient:
             "retrieved_at": now.isoformat(),
             "is_cached": False,
         }
+
+    def parse_firms_csv_with_error(self, raw_csv: str, source: str) -> tuple[List[Dict[str, Any]], Optional[str]]:
+        """Parses NASA FIRMS CSV text into records or returns error string if error detected."""
+        if not raw_csv or not raw_csv.strip():
+            return [], None
+
+        first_line = raw_csv.strip().split("\n")[0].lower()
+        if "invalid" in first_line or "error" in first_line or "bad request" in first_line:
+            logger.warning(f"NASA FIRMS returned error response in body: {first_line}")
+            return [], first_line
+
+        records = self.parse_firms_csv(raw_csv, source)
+        return records, None
 
     def parse_firms_csv(self, raw_csv: str, source: str) -> List[Dict[str, Any]]:
         """Parses NASA FIRMS CSV text into a typed list of fire detection dictionaries."""
@@ -222,7 +260,8 @@ class NASAFIRMSClient:
         return records
 
     async def close(self):
-        await self.client.aclose()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
 
 nasa_firms_client = NASAFIRMSClient()

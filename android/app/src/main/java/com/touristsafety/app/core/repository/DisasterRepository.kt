@@ -29,11 +29,19 @@ class DisasterRepository @Inject constructor(
     val subscriber: Flow<SubscriberEntity?> = subscriberDao.getSubscriber()
     val isSirenPlaying = notificationManager.isSirenPlaying
 
-    fun triggerDummyAlert(
-        title: String = "Flash Flood & Landslide Warning",
-        instructions: String = "Immediate evacuation advised for Beas & Satluj riverbanks. Seek higher elevation at designated municipal shelters."
+    fun triggerTestAlert(
+        title: String = "Emergency Siren Audio & Vibration Test",
+        instructions: String = "Device diagnostic test in progress. Audio alarm stream and vibration pattern verified. This is an intentional device hardware check; no active disaster."
     ) {
-        notificationManager.triggerDummyDisasterAlert(title, instructions)
+        notificationManager.triggerTestDisasterAlarm(title, instructions)
+    }
+
+    @Deprecated("Use triggerTestAlert()", ReplaceWith("triggerTestAlert(title, instructions)"))
+    fun triggerDummyAlert(
+        title: String = "Emergency Siren Audio & Vibration Test",
+        instructions: String = "Device diagnostic test in progress. Audio alarm stream and vibration pattern verified. This is an intentional device hardware check; no active disaster."
+    ) {
+        triggerTestAlert(title, instructions)
     }
 
     fun stopDisasterSiren() {

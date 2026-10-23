@@ -148,9 +148,14 @@ class DisasterSafetyViewModel @Inject constructor(
         }
     }
 
+    fun triggerTestAlert() {
+        disasterRepository.triggerTestAlert()
+        _uiState.update { it.copy(infoMessage = "🧪 Diagnostic Alarm Test triggered: Ringing device siren & posting test notification.") }
+    }
+
+    @Deprecated("Use triggerTestAlert()", ReplaceWith("triggerTestAlert()"))
     fun triggerDummyAlert() {
-        disasterRepository.triggerDummyAlert()
-        _uiState.update { it.copy(infoMessage = "🚨 Dummy Disaster Alert triggered! Ringing emergency siren & posting notification.") }
+        triggerTestAlert()
     }
 
     fun stopDisasterSiren() {

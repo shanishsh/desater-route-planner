@@ -32,6 +32,9 @@ class ForestRepository @Inject constructor(
             val response = apiService.getForestAreas(minLat, minLon, maxLat, maxLon)
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
+                if (dto.provider_status != "HEALTHY" && dto.provider_status != "STANDBY" && dto.features.isEmpty()) {
+                    return Result.failure(Exception(dto.diagnostic_message ?: "OpenStreetMap Overpass error: ${dto.provider_status}"))
+                }
                 val entities = dto.features.mapNotNull { f ->
                     val coordsJson = f.geometry.toString()
                     val geomType = f.geometry["type"]?.toString()?.replace("\"", "") ?: "Polygon"

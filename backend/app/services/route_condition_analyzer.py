@@ -58,7 +58,7 @@ class RouteConditionAnalyzer:
         # Query forest data along corridor
         forest_features = []
         try:
-            forest_data = await osm_forest_client.fetch_forests_in_bbox(min_lat, min_lon, max_lat, max_lon)
+            forest_data = await osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon)
             if forest_data and "features" in forest_data:
                 forest_features = forest_data["features"]
         except Exception as e:
@@ -68,8 +68,8 @@ class RouteConditionAnalyzer:
         active_fires = []
         try:
             firms_data = await nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon)
-            if firms_data and "fires" in firms_data:
-                active_fires = firms_data["fires"]
+            if firms_data and "records" in firms_data:
+                active_fires = firms_data["records"]
         except Exception as e:
             logger.warning(f"Error querying FIRMS fire data for route: {e}")
 
@@ -127,7 +127,7 @@ class RouteConditionAnalyzer:
                 if min_f_dist <= 1.2:
                     forest_info = RouteForestInfo(
                         in_forest=True,
-                        forest_name=f_name or "Pine & Deodar Alpine Forest",
+                        forest_name=f_name or "Mapped Forest Area",
                         forest_type=f_type or "woodland",
                         distance_to_edge_m=round(min_f_dist * 1000.0, 1),
                     )
@@ -146,12 +146,13 @@ class RouteConditionAnalyzer:
                         closest_fire = fire
 
                 if min_fire_dist <= 5.0 and closest_fire:
+                    acq_str = f"{closest_fire.get('acquisition_date', '')} {closest_fire.get('acquisition_time', '')}".strip()
                     wildfire_info = RouteWildfireInfo(
                         has_fire_within_5km=True,
                         nearest_fire_distance_km=round(min_fire_dist, 2),
-                        fire_radiative_power=closest_fire.get("frp"),
+                        fire_radiative_power=closest_fire.get("frp_mw") or closest_fire.get("frp"),
                         confidence=str(closest_fire.get("confidence", "nominal")),
-                        acquisition_time=str(closest_fire.get("acq_date", "recent")),
+                        acquisition_time=acq_str if acq_str else "NRT",
                     )
 
             # 4. Disaster alerts intersection

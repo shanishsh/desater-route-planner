@@ -104,13 +104,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun triggerDummyDisasterAlert() {
-        disasterRepository.triggerDummyAlert(
-            title = "Flash Flood & Landslide Warning",
-            instructions = "Evacuate low-lying riverbanks immediately! Move to higher ground at Ridge Shelter. (Demo Dummy Alert)"
-        )
-    }
-
     fun stopDisasterSiren() {
         disasterRepository.stopDisasterSiren()
     }

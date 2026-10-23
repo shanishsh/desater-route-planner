@@ -54,8 +54,10 @@ class EmergencyRepository @Inject constructor(
                         provenance = dto.provenance
                     )
                 }
-                mapPointDao.clearMapPoints()
-                mapPointDao.insertMapPoints(entities)
+                if (entities.isNotEmpty()) {
+                    mapPointDao.clearMapPoints()
+                    mapPointDao.insertMapPoints(entities)
+                }
                 Result.success(Unit)
             } else {
                 Result.failure(Exception("HTTP error ${response.code()}: ${response.message()}"))

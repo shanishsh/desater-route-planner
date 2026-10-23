@@ -33,29 +33,10 @@ WMO_WEATHER_CODES = {
     82: "Violent rain showers",
     85: "Slight snow showers",
     86: "Heavy snow showers",
-    95: "Thunderstorm",
+    95: "Thunderstorm: slight or moderate",
     96: "Thunderstorm with slight hail",
     99: "Thunderstorm with heavy hail",
 }
-
-# Pre-seeded fallback settlements for mountain & regional tourism (Himachal Pradesh, Uttarakhand, Ladakh, etc.)
-FALLBACK_SETTLEMENTS = [
-    {"name": "Shimla", "latitude": 31.1048, "longitude": 77.1734, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Kufri", "latitude": 31.0979, "longitude": 77.2674, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Manali", "latitude": 32.2432, "longitude": 77.1892, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Kullu", "latitude": 31.9579, "longitude": 77.1095, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Dharamshala", "latitude": 32.2190, "longitude": 76.3234, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Solan", "latitude": 30.9084, "longitude": 77.0999, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Kasol", "latitude": 32.0100, "longitude": 77.3150, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Narkanda", "latitude": 31.2582, "longitude": 77.4589, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Chail", "latitude": 30.9686, "longitude": 77.1889, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Rohtang Pass", "latitude": 32.3716, "longitude": 77.2466, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Spiti Valley (Kaza)", "latitude": 32.2276, "longitude": 78.0710, "country": "India", "admin1": "Himachal Pradesh"},
-    {"name": "Leh", "latitude": 34.1526, "longitude": 77.5771, "country": "India", "admin1": "Ladakh"},
-    {"name": "Rishikesh", "latitude": 30.0869, "longitude": 78.2676, "country": "India", "admin1": "Uttarakhand"},
-    {"name": "Mussoorie", "latitude": 30.4598, "longitude": 78.0644, "country": "India", "admin1": "Uttarakhand"},
-    {"name": "Nainital", "latitude": 29.3919, "longitude": 79.4542, "country": "India", "admin1": "Uttarakhand"},
-]
 
 
 class OpenMeteoClient:
@@ -65,17 +46,35 @@ class OpenMeteoClient:
         self.base_url = settings.OPEN_METEO_BASE_URL
         self.geocoding_url = "https://geocoding-api.open-meteo.com/v1/search"
         self.circuit_breaker = CircuitBreaker("OpenMeteo", failure_threshold=3, recovery_time_seconds=30.0)
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=5.0),
-            headers={"User-Agent": "TouristSafetyPlatform/1.0 (Non-Commercial; Safety)"},
-        )
+        self._client: Optional[httpx.AsyncClient] = None
+        self._loop = None
         self._hourly_cache: Dict[str, Dict[str, Any]] = {}
         self._geocoding_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self.last_attempt_at: Optional[datetime] = None
+        self.last_success_at: Optional[datetime] = None
+        self.last_status_code: Optional[int] = None
+        self.last_error: Optional[str] = None
+        self.last_record_count: int = 0
+
+    async def get_client(self) -> httpx.AsyncClient:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._loop != loop:
+            self._loop = loop
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=5.0),
+                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Non-Commercial; Safety)"},
+            )
+        return self._client
 
     async def fetch_current_weather(self, latitude: float, longitude: float) -> Optional[Dict[str, Any]]:
         """Fetches current weather with retries, jitter, and circuit breaker protection."""
+        now = datetime.now(timezone.utc)
+        self.last_attempt_at = now
+
         if not self.circuit_breaker.can_execute():
             logger.warning("Open-Meteo circuit is OPEN. Skipping external request.")
+            self.last_error = "Open-Meteo circuit breaker is OPEN."
             return None
 
         params = {
@@ -88,23 +87,27 @@ class OpenMeteoClient:
         max_retries = 3
         backoff_base = 0.5
 
+        client = await self.get_client()
         for attempt in range(max_retries):
             try:
-                response = await self.client.get(self.base_url, params=params)
+                response = await client.get(self.base_url, params=params)
+                self.last_status_code = response.status_code
                 if response.status_code == 200:
                     data = response.json()
                     current = data.get("current", {})
                     weather_code = current.get("weather_code", 0)
                     weather_desc = WMO_WEATHER_CODES.get(weather_code, "Unknown")
-                    now = datetime.now(timezone.utc)
 
                     self.circuit_breaker.record_success()
+                    self.last_success_at = now
+                    self.last_error = None
+                    self.last_record_count = 1
                     return {
                         "latitude": latitude,
                         "longitude": longitude,
-                        "temperature_c": float(current.get("temperature_2m", 20.0)),
-                        "relative_humidity_pct": float(current.get("relative_humidity_2m", 50.0)),
-                        "wind_speed_kmh": float(current.get("wind_speed_10m", 5.0)),
+                        "temperature_c": float(current.get("temperature_2m", 0.0)),
+                        "relative_humidity_pct": float(current.get("relative_humidity_2m", 0.0)),
+                        "wind_speed_kmh": float(current.get("wind_speed_10m", 0.0)),
                         "precipitation_mm": float(current.get("precipitation", 0.0)),
                         "precipitation_probability_pct": 0.0,
                         "weather_code": weather_code,
@@ -114,10 +117,12 @@ class OpenMeteoClient:
                         "expires_at": now + timedelta(seconds=settings.WEATHER_CACHE_TTL_SECONDS),
                     }
                 else:
+                    self.last_error = f"Open-Meteo returned status {response.status_code}"
                     logger.warning(
                         f"Open-Meteo returned status {response.status_code} (attempt {attempt + 1}/{max_retries})"
                     )
             except (httpx.RequestError, httpx.TimeoutException) as exc:
+                self.last_error = f"Open-Meteo connection error: {exc}"
                 logger.warning(f"Open-Meteo request error on attempt {attempt + 1}: {exc}")
 
             if attempt < max_retries - 1:
@@ -132,6 +137,7 @@ class OpenMeteoClient:
         """Fetches 48-hour hourly forecast for a coordinate with in-memory caching."""
         cache_key = f"{round(latitude, 3)},{round(longitude, 3)}"
         now = datetime.now(timezone.utc)
+        self.last_attempt_at = now
 
         if cache_key in self._hourly_cache:
             entry = self._hourly_cache[cache_key]
@@ -151,18 +157,24 @@ class OpenMeteoClient:
         }
 
         try:
-            response = await self.client.get(self.base_url, params=params)
+            client = await self.get_client()
+            response = await client.get(self.base_url, params=params)
+            self.last_status_code = response.status_code
             if response.status_code == 200:
                 data = response.json()
                 self.circuit_breaker.record_success()
+                self.last_success_at = now
+                self.last_error = None
                 self._hourly_cache[cache_key] = {
                     "data": data,
                     "expires_at": now + timedelta(minutes=15),
                 }
                 return data
             else:
+                self.last_error = f"Open-Meteo hourly returned status {response.status_code}"
                 logger.warning(f"Open-Meteo hourly returned status {response.status_code}")
         except Exception as exc:
+            self.last_error = f"Failed to fetch Open-Meteo hourly forecast: {exc}"
             logger.warning(f"Failed to fetch Open-Meteo hourly forecast: {exc}")
             self.circuit_breaker.record_failure()
 
@@ -229,19 +241,19 @@ class OpenMeteoClient:
             except (KeyError, IndexError) as e:
                 logger.warning(f"Error parsing hourly forecast index {idx}: {e}")
 
-        # Fallback realistic mountain conditions
+        # Upstream forecast unavailable - return clearly marked unavailable condition without fabricating values
         return {
-            "temperature_c": 17.5,
-            "relative_humidity_pct": 52.0,
-            "precipitation_probability_pct": 10.0,
+            "temperature_c": 0.0,
+            "relative_humidity_pct": 0.0,
+            "precipitation_probability_pct": 0.0,
             "precipitation_mm": 0.0,
-            "wind_speed_kmh": 12.0,
-            "weather_code": 1,
-            "weather_description": "Mainly clear",
-            "warning_level": "NORMAL",
+            "wind_speed_kmh": 0.0,
+            "weather_code": 0,
+            "weather_description": "Weather forecast unavailable",
+            "warning_level": "UNKNOWN",
             "forecast_valid_at": arrival_time.isoformat(),
             "retrieved_at": now.isoformat(),
-            "source": "Open-Meteo Cache/Fallback",
+            "source": "Open-Meteo (Unavailable)",
             "is_simulated": False,
         }
 
@@ -256,10 +268,12 @@ class OpenMeteoClient:
 
         results = []
         try:
-            response = await self.client.get(
+            client = await self.get_client()
+            response = await client.get(
                 self.geocoding_url,
                 params={"name": clean_q, "count": count, "language": "en", "format": "json"},
             )
+            self.last_status_code = response.status_code
             if response.status_code == 200:
                 data = response.json()
                 for item in data.get("results", []):
@@ -271,28 +285,21 @@ class OpenMeteoClient:
                         "admin1": item.get("admin1", ""),
                         "display_name": f"{item.get('name')}, {item.get('admin1', '')} ({item.get('country', '')})".strip(", ()"),
                     })
+                self.last_success_at = datetime.now(timezone.utc)
+                self.last_error = None
+            else:
+                self.last_error = f"Geocoding upstream status {response.status_code}"
         except Exception as exc:
-            logger.warning(f"Geocoding search error for '{query}': {exc}")
+            self.last_error = f"Geocoding search error for '{query}': {exc}"
+            logger.warning(self.last_error)
 
-        # Complement or fallback with local mountain settlement list
-        if not results:
-            for s in FALLBACK_SETTLEMENTS:
-                if clean_q in s["name"].lower() or clean_q in s["admin1"].lower():
-                    results.append({
-                        "name": s["name"],
-                        "latitude": s["latitude"],
-                        "longitude": s["longitude"],
-                        "country": s["country"],
-                        "admin1": s["admin1"],
-                        "display_name": f"{s['name']}, {s['admin1']} ({s['country']})",
-                    })
-
+        # Do NOT substitute fake or hardcoded settlements. Empty search results remain empty.
         self._geocoding_cache[clean_q] = results
         return results
 
     async def close(self):
-        await self.client.aclose()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
 
 open_meteo_client = OpenMeteoClient()
-

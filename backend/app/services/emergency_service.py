@@ -5,6 +5,7 @@ from app.repositories.map_point_repo import MapPointRepository
 from app.models.map_point import MapPoint
 from app.schemas.map_point import MapPointResponse, MapPointCreate
 from app.core.exceptions import NotFoundException
+from app.clients.osm_amenities import osm_amenities_client
 
 
 class EmergencyService:
@@ -33,7 +34,24 @@ class EmergencyService:
             limit=limit,
             offset=offset,
         )
-        return [MapPointResponse.model_validate(p) for p in items], total
+
+        if total > 0:
+            return [MapPointResponse.model_validate(p) for p in items], total
+
+        # If database has no points for this bounding box, query real OpenStreetMap amenities
+        if min_lat is not None and min_lon is not None and max_lat is not None and max_lon is not None:
+            osm_records = await osm_amenities_client.fetch_amenities(
+                min_lat=min_lat,
+                min_lon=min_lon,
+                max_lat=max_lat,
+                max_lon=max_lon,
+                category=category,
+            )
+            if osm_records:
+                responses = [MapPointResponse(**r) for r in osm_records[offset:offset + limit]]
+                return responses, len(osm_records)
+
+        return [], 0
 
     async def get_point(self, point_id: str) -> MapPointResponse:
         item = await self.point_repo.get_by_id(point_id)

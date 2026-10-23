@@ -106,7 +106,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `triggerDummyDisasterAlert delegates to disaster repository`() = runTest(testDispatcher) {
+    fun `stopDisasterSiren delegates to disaster repository`() = runTest(testDispatcher) {
         val viewModel = HomeViewModel(
             itineraryRepository,
             alertRepository,
@@ -116,9 +116,6 @@ class HomeViewModelTest {
             disasterRepository,
             connectivityMonitor
         )
-
-        viewModel.triggerDummyDisasterAlert()
-        verify(exactly = 1) { disasterRepository.triggerDummyAlert(any(), any()) }
 
         viewModel.stopDisasterSiren()
         verify(exactly = 1) { disasterRepository.stopDisasterSiren() }

@@ -36,7 +36,9 @@ class DisasterNotificationManager @Inject constructor(
         const val CHANNEL_ID = "disaster_alerts_siren_alarm_v3"
         const val CHANNEL_NAME = "🚨 Disaster Emergency Sirens & Warnings"
         const val CHANNEL_DESC = "Maximum priority emergency sirens, alarm tones, and flash flood/landslide warnings."
-        const val DUMMY_NOTIFICATION_ID = 99991
+        const val TEST_ALARM_NOTIFICATION_ID = 99991
+        @Deprecated("Use TEST_ALARM_NOTIFICATION_ID")
+        const val DUMMY_NOTIFICATION_ID = TEST_ALARM_NOTIFICATION_ID
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -152,23 +154,24 @@ class DisasterNotificationManager @Inject constructor(
     }
 
     /**
-     * Triggers a complete dummy disaster alert notification with active ring sound and vibration.
+     * Triggers a diagnostic emergency alarm test with audible siren and vibration pattern
+     * to verify audio stream and notification permissions. Clearly marked as [TEST ALARM].
      */
-    fun triggerDummyDisasterAlert(
-        title: String = "Flash Flood & Landslide Warning",
-        instructions: String = "Immediate evacuation advised for Beas & Satluj riverbanks. Seek higher elevation at designated municipal shelters."
+    fun triggerTestDisasterAlarm(
+        title: String = "Emergency Siren Audio & Vibration Test",
+        instructions: String = "Device diagnostic test in progress. Audio alarm stream and vibration pattern verified. This is an intentional device hardware check; no active disaster."
     ) {
         // 1. Play loud siren ring sound & vibration
         playDisasterSiren()
 
-        // 2. Build and post emergency notification
+        // 2. Build and post diagnostic notification
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("OPEN_ALERT_ID", "dummy-disaster-alert")
+            putExtra("OPEN_ALERT_ID", "test-alarm-diagnostic")
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            DUMMY_NOTIFICATION_ID,
+            TEST_ALARM_NOTIFICATION_ID,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -179,16 +182,16 @@ class DisasterNotificationManager @Inject constructor(
         }
         val silencePendingIntent = PendingIntent.getBroadcast(
             context,
-            DUMMY_NOTIFICATION_ID + 1,
+            TEST_ALARM_NOTIFICATION_ID + 1,
             silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val fullBody = "🚨 HAZARD: FLASH FLOOD & LANDSLIDE (CRITICAL)\nAction: $instructions\n\n[DUMMY ALERT DEMO]: Safety siren sound and vibration verified. Test alert; no real disaster."
+        val fullBody = "🧪 [DIAGNOSTIC TEST - NOT A REAL DISASTER]\nAction: $instructions\n\nEmergency siren and vibration channel verified operational."
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("🚨 [DUMMY DISASTER ALERT] $title")
+            .setContentTitle("🧪 [TEST ALARM] $title")
             .setContentText(fullBody)
             .setStyle(NotificationCompat.BigTextStyle().bigText(fullBody))
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -201,11 +204,19 @@ class DisasterNotificationManager @Inject constructor(
         try {
             val manager = NotificationManagerCompat.from(context)
             if (manager.areNotificationsEnabled()) {
-                manager.notify(DUMMY_NOTIFICATION_ID, notification)
+                manager.notify(TEST_ALARM_NOTIFICATION_ID, notification)
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "Notification permission not granted for dummy alert: ${e.message}")
+            Log.w(TAG, "Notification permission not granted for test alarm: ${e.message}")
         }
+    }
+
+    @Deprecated("Use triggerTestDisasterAlarm()", ReplaceWith("triggerTestDisasterAlarm(title, instructions)"))
+    fun triggerDummyDisasterAlert(
+        title: String = "Emergency Siren Audio & Vibration Test",
+        instructions: String = "Device diagnostic test in progress. Audio alarm stream and vibration pattern verified. This is an intentional device hardware check; no active disaster."
+    ) {
+        triggerTestDisasterAlarm(title, instructions)
     }
 
     fun showDisasterNotification(

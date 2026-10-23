@@ -24,28 +24,7 @@ async def get_crowd_indicators(
     snapshots = result.scalars().all()
 
     if not snapshots:
-        # Generate default demonstration simulated snapshot
-        now = datetime.now(timezone.utc)
-        return [
-            CrowdResponse(
-                id="sim-crowd-trailhead",
-                itinerary_id=itinerary_id or "default-trail",
-                location_name="Lower Trailhead & Parking Area",
-                crowd_level="moderate",
-                density_description="Steady flow of morning hikers. Parking ~65% occupied.",
-                is_simulation=True,
-                observed_at=now,
-            ),
-            CrowdResponse(
-                id="sim-crowd-summit",
-                itinerary_id=itinerary_id or "default-trail",
-                location_name="Alpine Summit Observation Ridge",
-                crowd_level="low",
-                density_description="Dispersed visitors, quiet trail conditions.",
-                is_simulation=True,
-                observed_at=now,
-            ),
-        ]
+        return []
 
     return [CrowdResponse.model_validate(s) for s in snapshots]
 

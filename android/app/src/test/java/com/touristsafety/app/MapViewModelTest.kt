@@ -41,6 +41,10 @@ class MapViewModelTest {
         every { connectivityMonitor.state } returns MutableStateFlow(
             DetailedConnectivityState(status = NetworkStatus.BACKEND_REACHABLE)
         )
+        coEvery { emergencyRepository.refreshMapPoints() } returns Result.success(Unit)
+        coEvery { forestRepository.refreshForestFeatures(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { fireHotspotRepository.refreshHotspots(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { disasterRepository.syncDisasterAlerts() } returns Result.success(0)
     }
 
     @After

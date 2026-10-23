@@ -13,71 +13,30 @@ logger = logging.getLogger(__name__)
 ATTRIBUTION_NOTICE = "Forest data © OpenStreetMap contributors under ODbL. Mapped forest cover does not confirm accessibility, ground truth, or absence of hazards."
 
 
-# Default seeded Himalayan pine & cedar woodland features around Rohtang Pass / Manali Valley
-# (Cached offline fallback when public Overpass server experiences downtime/congested timeouts)
-FALLBACK_FOREST_FEATURES = [
-    {
-        "type": "Feature",
-        "id": "osm_way_rohtang_pine_lower",
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [[
-                [77.165, 32.225],
-                [77.185, 32.230],
-                [77.195, 32.245],
-                [77.175, 32.250],
-                [77.165, 32.225],
-            ]],
-        },
-        "properties": {
-            "osm_id": 9823401,
-            "name": "Rohtang Lower Valley Himalayan Cedar & Pine Reserve",
-            "landuse": "forest",
-            "natural": "wood",
-            "wood_type": "conifer",
-            "source": "OpenStreetMap (Cached Regional Boundary)",
-        },
-    },
-    {
-        "type": "Feature",
-        "id": "osm_way_solang_pine_east",
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [[
-                [77.190, 32.250],
-                [77.215, 32.260],
-                [77.225, 32.280],
-                [77.200, 32.275],
-                [77.190, 32.250],
-            ]],
-        },
-        "properties": {
-            "osm_id": 9823402,
-            "name": "Solang - Rohtang Sub-Alpine Birch & Deodar Woods",
-            "landuse": "forest",
-            "natural": "wood",
-            "wood_type": "mixed",
-            "source": "OpenStreetMap (Cached Regional Boundary)",
-        },
-    },
-]
-
-
 class OSMForestClient:
     """Client for retrieving mapped forest and woodland areas from OpenStreetMap Overpass API."""
 
     def __init__(self):
         self.api_url = settings.OVERPASS_API_URL
         self.circuit_breaker = CircuitBreaker("OSMOverpass", failure_threshold=2, recovery_time_seconds=30.0)
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0),
-            headers={"User-Agent": "TouristSafetyPlatform/1.0 (Safety-Research; OSM-Overpass)"},
-        )
+        self._client: Optional[httpx.AsyncClient] = None
+        self._loop = None
         self.last_attempt_at: Optional[datetime] = None
         self.last_success_at: Optional[datetime] = None
         self.last_status_code: Optional[int] = None
         self.last_error: Optional[str] = None
-        self.last_record_count: int = len(FALLBACK_FOREST_FEATURES)
+        self.last_record_count: int = 0
+
+    async def get_client(self) -> httpx.AsyncClient:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._loop != loop:
+            self._loop = loop
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=3.0, read=10.0, write=3.0, pool=3.0),
+                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Safety-Research; OSM-Overpass)"},
+            )
+        return self._client
 
     async def fetch_forest_features(
         self,
@@ -109,17 +68,17 @@ class OSMForestClient:
             return cached
 
         if not self.circuit_breaker.can_execute():
-            logger.warning("OSM Overpass circuit breaker is OPEN. Returning cached regional fallback.")
+            logger.warning("OSM Overpass circuit breaker is OPEN.")
             return {
                 "type": "FeatureCollection",
-                "features": FALLBACK_FOREST_FEATURES,
-                "record_count": len(FALLBACK_FOREST_FEATURES),
+                "features": [],
+                "record_count": 0,
                 "provider_status": "CIRCUIT_OPEN",
                 "attribution": ATTRIBUTION_NOTICE,
-                "is_cached": True,
-                "data_state": "CACHED",
+                "is_cached": False,
+                "data_state": "UNAVAILABLE",
                 "retrieved_at": now.isoformat(),
-                "diagnostic_message": "Overpass circuit breaker is open. Displaying cached regional forest cover.",
+                "diagnostic_message": "Overpass circuit breaker is temporarily open due to upstream service failures.",
             }
 
         # Overpass QL query: forest landuse and natural wood
@@ -136,7 +95,8 @@ class OSMForestClient:
         """
 
         try:
-            response = await self.client.post(self.api_url, data={"data": query})
+            client = await self.get_client()
+            response = await client.post(self.api_url, data={"data": query})
             self.last_status_code = response.status_code
 
             if response.status_code == 200:
@@ -159,32 +119,36 @@ class OSMForestClient:
                     "source_url": "https://wiki.openstreetmap.org/wiki/Overpass_API",
                 }
 
-                await cache_service.set(cache_key, result, ttl_seconds=settings.FOREST_CACHE_TTL_SECONDS)
+                if features:
+                    await cache_service.set(cache_key, result, ttl_seconds=settings.FOREST_CACHE_TTL_SECONDS)
                 return result
 
             elif response.status_code == 429:
                 self.last_error = "Rate limit exceeded (HTTP 429) on public Overpass server."
                 self.circuit_breaker.record_failure()
                 logger.warning(f"Overpass API rate limit reached: {response.status_code}")
+                provider_status = "RATE_LIMITED"
             else:
                 self.last_error = f"Upstream Overpass error (HTTP {response.status_code})"
                 self.circuit_breaker.record_failure()
+                provider_status = f"HTTP_{response.status_code}"
 
         except (httpx.RequestError, httpx.TimeoutException) as exc:
             self.last_error = f"Network or timeout error contacting Overpass: {exc}"
             self.circuit_breaker.record_failure()
             logger.warning(f"Overpass connection failure: {exc}")
+            provider_status = "DOWN"
 
         return {
             "type": "FeatureCollection",
-            "features": FALLBACK_FOREST_FEATURES,
-            "record_count": len(FALLBACK_FOREST_FEATURES),
-            "provider_status": "DEGRADED" if self.last_status_code is None else f"HTTP_{self.last_status_code}",
+            "features": [],
+            "record_count": 0,
+            "provider_status": provider_status,
             "attribution": ATTRIBUTION_NOTICE,
-            "is_cached": True,
-            "data_state": "CACHED",
+            "is_cached": False,
+            "data_state": "ERROR",
             "retrieved_at": now.isoformat(),
-            "diagnostic_message": f"Upstream Overpass API timed out or returned error ({self.last_error}). Displaying cached regional woodland dataset.",
+            "diagnostic_message": f"Upstream Overpass API failure: {self.last_error}",
         }
 
     def _elements_to_geojson_features(self, elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -194,7 +158,6 @@ class OSMForestClient:
             geometry_type = "Polygon"
             coords = []
 
-            # Overpass 'geom' array has list of {'lat': ..., 'lon': ...}
             raw_geom = el.get("geometry", [])
             if raw_geom and len(raw_geom) >= 3:
                 ring = [[pt["lon"], pt["lat"]] for pt in raw_geom]
@@ -231,7 +194,8 @@ class OSMForestClient:
         return features
 
     async def close(self):
-        await self.client.aclose()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
 
 osm_forest_client = OSMForestClient()
