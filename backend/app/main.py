@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core.logging import setup_logging
 from app.database.base import Base
-from app.database.session import engine
+from app.database.session import init_db, close_db
 from app.api.v1.router import api_v1_router
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -22,9 +22,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan management."""
     setup_logging(settings.LOG_LEVEL)
 
-    # Initialize tables on startup if not already created (useful for tests and dev)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Initialize tables on startup with graceful fallback
+    await init_db()
 
     yield
 
@@ -33,7 +32,7 @@ async def lifespan(app: FastAPI):
     await osm_forest_client.close()
     await nasa_firms_client.close()
     await opencellid_client.close()
-    await engine.dispose()
+    await close_db()
 
 
 app = FastAPI(
@@ -76,4 +75,10 @@ async def root():
         "documentation": "/docs",
         "health": f"{settings.API_V1_PREFIX}/health/live",
     }
+
+
+@app.get("/health", tags=["Health"])
+async def root_health():
+    """Root health check for cloud platform liveness probes (e.g. Render)."""
+    return {"status": "alive"}
 
