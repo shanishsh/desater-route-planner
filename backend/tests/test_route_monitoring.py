@@ -185,3 +185,4 @@ async def test_active_trip_monitoring_lifecycle(client):
     stop_res = await client.post(f"/api/v1/trips/{trip_id}/stop")
     assert stop_res.status_code == 200
     assert stop_res.json()["status"] == "COMPLETED"
+

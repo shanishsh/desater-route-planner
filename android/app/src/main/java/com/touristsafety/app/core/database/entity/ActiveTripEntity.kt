@@ -18,3 +18,4 @@ data class ActiveTripEntity(
     val nearestHazardTitle: String? = null,
     val lastSyncedAt: Long = System.currentTimeMillis()
 )
+

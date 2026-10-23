@@ -25,3 +25,4 @@ interface PlannedRouteDao {
     @Query("DELETE FROM planned_routes")
     suspend fun clearAll()
 }
+

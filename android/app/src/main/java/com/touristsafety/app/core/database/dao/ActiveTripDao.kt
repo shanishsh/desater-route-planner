@@ -25,3 +25,4 @@ interface ActiveTripDao {
     @Query("DELETE FROM active_trips")
     suspend fun clearAll()
 }
+

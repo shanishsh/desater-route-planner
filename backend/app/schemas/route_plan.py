@@ -158,3 +158,4 @@ class TripStatusResponse(BaseModel):
     current_segment_index: int = 0
     overall_safety_status: str = "SAFE"
     completed_at: Optional[str] = None
+

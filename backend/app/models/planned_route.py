@@ -58,3 +58,4 @@ class ActiveTrip(Base, TimestampMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     route: Mapped["PlannedRoute"] = relationship("PlannedRoute", back_populates="trips")
+

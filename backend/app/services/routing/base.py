@@ -104,3 +104,4 @@ def sample_points_along_polyline(
         points_with_dist.append((dest_coord[1], dest_coord[0], total_dist))
 
     return points_with_dist
+

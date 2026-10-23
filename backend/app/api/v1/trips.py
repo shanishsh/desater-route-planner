@@ -234,3 +234,4 @@ async def stop_trip(
     await db.commit()
 
     return {"message": "Trip monitoring terminated successfully.", "trip_id": trip_id, "status": "COMPLETED"}
+

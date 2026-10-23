@@ -140,3 +140,4 @@ async def get_route_alternatives(
         raise HTTPException(status_code=404, detail="Route not found")
 
     return [RouteAlternativeSchema(**a) for a in (db_route.alternatives_data or [])]
+

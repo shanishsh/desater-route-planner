@@ -27,3 +27,4 @@ async def search_places(
         )
         for r in raw_results
     ]
+

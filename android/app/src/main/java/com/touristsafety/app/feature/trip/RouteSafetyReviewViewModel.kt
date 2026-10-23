@@ -145,3 +145,4 @@ class RouteSafetyReviewViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 }
+

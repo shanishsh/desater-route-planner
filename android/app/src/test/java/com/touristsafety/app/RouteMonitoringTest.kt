@@ -125,3 +125,4 @@ class RouteMonitoringTest {
         assertEquals("SEVERE", dangerousWp.weather.warning_level)
     }
 }
+

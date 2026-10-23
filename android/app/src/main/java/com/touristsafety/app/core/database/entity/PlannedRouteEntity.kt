@@ -24,3 +24,4 @@ data class PlannedRouteEntity(
     val isSavedOffline: Boolean = true,
     val cachedAt: Long = System.currentTimeMillis()
 )
+

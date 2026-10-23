@@ -90,3 +90,4 @@ class ActiveTripViewModel @Inject constructor(
         }
     }
 }
+

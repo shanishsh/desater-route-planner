@@ -217,3 +217,4 @@ class PlanTripViewModel @Inject constructor(
         _uiState.update { it.copy(errorMessage = null) }
     }
 }
+

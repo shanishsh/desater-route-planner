@@ -168,3 +168,4 @@ data class TripStatusResponseDto(
     val overall_safety_status: String = "SAFE",
     val completed_at: String? = null
 )
+
