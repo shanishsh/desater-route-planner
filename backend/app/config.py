@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     ITINERARY_CACHE_TTL_SECONDS: int = 7200  # 2 hours
 
     # Environmental & Hazard Providers
-    NASA_FIRMS_MAP_KEY: str = ""
+    NASA_FIRMS_MAP_KEY: str = "f43538796711593bcf104566927e661d"
     NASA_FIRMS_BASE_URL: str = "https://firms.modaps.eosdis.nasa.gov/api"
     OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
     OPENCELLID_API_KEY: str = ""
