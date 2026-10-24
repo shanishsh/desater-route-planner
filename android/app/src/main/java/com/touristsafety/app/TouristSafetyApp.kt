@@ -1,9 +1,11 @@
 package com.touristsafety.app
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.touristsafety.app.core.crash.CrashReportActivity
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -21,17 +23,33 @@ class TouristSafetyApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
-        // Global uncaught exception logger to record any startup crash
+        // Global uncaught exception logger and crash reporter
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val stackTrace = throwable.stackTraceToString()
             Log.e("FATAL_APP_CRASH", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
             try {
                 val crashFile = java.io.File(filesDir, "last_crash.txt")
-                crashFile.writeText("Thread: ${thread.name}\nTimestamp: ${System.currentTimeMillis()}\nError: ${throwable.stackTraceToString()}")
+                crashFile.writeText("Thread: ${thread.name}\nTimestamp: ${System.currentTimeMillis()}\nError: $stackTrace")
             } catch (_: Throwable) {
-                // Ignore secondary errors during crash recording
+                // Ignore secondary errors during file write
             }
-            defaultHandler?.uncaughtException(thread, throwable)
+
+            try {
+                val crashIntent = Intent(this, CrashReportActivity::class.java).apply {
+                    putExtra(
+                        CrashReportActivity.EXTRA_ERROR_DETAILS,
+                        "Thread: ${thread.name}\n${throwable.javaClass.name}: ${throwable.message}\n\n$stackTrace"
+                    )
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                }
+                startActivity(crashIntent)
+                android.os.Process.killProcess(android.os.Process.myPid())
+                System.exit(10)
+            } catch (fallbackError: Throwable) {
+                Log.e("FATAL_APP_CRASH", "Failed to launch CrashReportActivity", fallbackError)
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
         }
 
         try {

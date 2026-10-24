@@ -16,3 +16,4 @@ if __name__ == "__main__":
     is_debug = getattr(settings, "DEBUG", settings.ENVIRONMENT == "development")
     print(f"Starting {settings.PROJECT_NAME} on http://{server_host}:{server_port}")
     uvicorn.run("app.main:app", host=server_host, port=server_port, reload=is_debug)
+
