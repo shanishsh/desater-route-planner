@@ -223,6 +223,17 @@ class RouteAlternativeSchema(BaseModel):
     data_completeness: bool = True
 
 
+class ProviderStatusItem(BaseModel):
+    provider_name: str
+    status: str  # LOADED, EMPTY, CACHED, UNAVAILABLE, FAILED, UNSUPPORTED_REGION, UNCONFIGURED
+    last_request_time: Optional[str] = None
+    last_success_time: Optional[str] = None
+    http_status: Optional[int] = None
+    record_count: int = 0
+    is_stale: bool = False
+    details: Optional[str] = None
+
+
 class PlannedRouteResponse(BaseModel):
     route_id: str
     route_version: int = 1
@@ -264,6 +275,8 @@ class PlannedRouteResponse(BaseModel):
     elevation_profile: List[ElevationProfilePoint] = Field(default_factory=list)
     safe_havens: List[SafeHavenInfo] = Field(default_factory=list)
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
+    provider_statuses: Dict[str, ProviderStatusItem] = Field(default_factory=dict)
+    analysis_limitations: List[str] = Field(default_factory=list)
     data_freshness: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
 
@@ -294,17 +307,6 @@ class PlannedRouteResponse(BaseModel):
                     "name": data.get("destination_name", "Destination"),
                 }
         return data
-
-
-class ProviderStatusItem(BaseModel):
-    provider_name: str
-    status: str  # LOADED, EMPTY, CACHED, UNAVAILABLE, FAILED
-    last_request_time: Optional[str] = None
-    last_success_time: Optional[str] = None
-    http_status: Optional[int] = None
-    record_count: int = 0
-    is_stale: bool = False
-    details: Optional[str] = None
 
 
 class RouteAnalysisRequest(BaseModel):

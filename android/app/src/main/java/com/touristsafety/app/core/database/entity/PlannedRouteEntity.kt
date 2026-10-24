@@ -32,6 +32,8 @@ data class PlannedRouteEntity(
     val forestsGeoJson: String? = null,
     val weatherGeoJson: String? = null,
     val dataFreshnessJson: String? = null,
+    val providerStatusesJson: String? = null,
+    val analysisLimitationsJson: String? = null,
     val corridorWidthKm: Double = 5.0,
     val offlineRegionId: Long? = null,
     val offlinePackStatus: String = "NONE",

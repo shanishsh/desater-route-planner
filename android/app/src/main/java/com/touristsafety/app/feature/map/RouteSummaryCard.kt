@@ -144,7 +144,7 @@ fun RouteSummaryCard(
                     color = if (isOffline) Color(0xFFE3F2FD) else Color(0xFFE8F5E9)
                 ) {
                     Text(
-                        text = if (isOffline) "Uttarakhand Offline Mode" else "Live Data",
+                        text = if (isOffline) "Offline Mode" else "Live Data",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isOffline) Color(0xFF1565C0) else Color(0xFF2E7D32),

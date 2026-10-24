@@ -44,26 +44,19 @@ async def plan_route(
             detail="Valid destination coordinates (latitude and longitude) are required.",
         )
 
-    # 1. Geographic Scoping: Validate that origin and destination are inside Uttarakhand
-    if not region_boundary_service.is_point_in_uttarakhand(request.origin_lat, request.origin_lon):
+    # 1. Geographic Coordinate Validation
+    if not (-90.0 <= request.origin_lat <= 90.0 and -180.0 <= request.origin_lon <= 180.0):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Origin '{request.origin_name}' ({request.origin_lat:.4f}, {request.origin_lon:.4f}) "
-                f"is outside the supported Uttarakhand region. Currently, only Uttarakhand corridors are supported."
-            ),
+            detail=f"Origin coordinates ({request.origin_lat}, {request.origin_lon}) are outside valid WGS84 bounds.",
         )
-
-    if not region_boundary_service.is_point_in_uttarakhand(request.destination_lat, request.destination_lon):
+    if not (-90.0 <= request.destination_lat <= 90.0 and -180.0 <= request.destination_lon <= 180.0):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Destination '{request.destination_name}' ({request.destination_lat:.4f}, {request.destination_lon:.4f}) "
-                f"is outside the supported Uttarakhand region. Currently, only Uttarakhand corridors are supported."
-            ),
+            detail=f"Destination coordinates ({request.destination_lat}, {request.destination_lon}) are outside valid WGS84 bounds.",
         )
 
-    # 2. Travel Mode Verification for Alpine Trek Corridors (e.g. Gaurikund to Kedarnath)
+    # 2. Travel Mode Verification for Known Pedestrian-Only Alpine Trek Tracks (e.g. Kedarnath trail)
     is_ped_only, ped_reason = is_pedestrian_only_corridor(
         request.origin_lat, request.origin_lon,
         request.destination_lat, request.destination_lon
@@ -74,7 +67,7 @@ async def plan_route(
             detail=ped_reason or "Motor vehicles are prohibited on this trekking corridor. Please select walking or hiking mode.",
         )
 
-    # 3. Calculate route geometry and waypoints
+    # 3. Calculate genuine route geometry and alternatives via configured routing provider (OSRM)
     route_result = await osrm_routing_provider.calculate_route(
         origin_lat=request.origin_lat,
         origin_lon=request.origin_lon,
@@ -85,17 +78,7 @@ async def plan_route(
         travel_mode=request.travel_mode or "driving",
     )
 
-    # 4. Validate that calculated route stays within Uttarakhand
-    raw_coords = route_result.geometry_geojson.get("coordinates", [])
-    coords_lat_lon = [(pt[1], pt[0]) for pt in raw_coords]
-    is_inside, boundary_err = region_boundary_service.is_route_in_uttarakhand(coords_lat_lon)
-    if not is_inside:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=boundary_err or "Calculated route exits the supported Uttarakhand boundary.",
-        )
-
-    # 2. Analyze corridor conditions (weather at arrival times, fires, forests, disaster alerts)
+    # 4. Analyze corridor conditions (weather at arrival times, fires, forests, disaster alerts)
     corr_m = request.corridor_distance_meters or (
         (request.corridor_distance_km * 1000.0) if request.corridor_distance_km else 5000.0
     )

@@ -284,7 +284,7 @@ fun MapScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Uttarakhand Offline Mode • Cached Basemap & Hazards",
+                            text = "Offline Mode • Cached Basemap & Hazards",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White

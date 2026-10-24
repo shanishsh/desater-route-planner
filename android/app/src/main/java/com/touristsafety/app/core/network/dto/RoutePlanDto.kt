@@ -163,6 +163,18 @@ data class RouteAlternativeDto(
 )
 
 @Serializable
+data class ProviderStatusItemDto(
+    val provider_name: String,
+    val status: String,
+    val last_request_time: String? = null,
+    val last_success_time: String? = null,
+    val http_status: Int? = null,
+    val record_count: Int = 0,
+    val is_stale: Boolean = false,
+    val details: String? = null
+)
+
+@Serializable
 data class PlannedRouteResponseDto(
     val route_id: String,
     val route_version: Int = 1,
@@ -201,20 +213,9 @@ data class PlannedRouteResponseDto(
     val forests_geojson: JsonElement? = null,
     val weather_geojson: JsonElement? = null,
     val geometry_diagnostics: Map<String, JsonElement> = emptyMap(),
+    val provider_statuses: Map<String, ProviderStatusItemDto> = emptyMap(),
     val analysis_limitations: List<String> = emptyList(),
     val created_at: String = ""
-)
-
-@Serializable
-data class ProviderStatusItemDto(
-    val provider_name: String,
-    val status: String,
-    val last_request_time: String? = null,
-    val last_success_time: String? = null,
-    val http_status: Int? = null,
-    val record_count: Int = 0,
-    val is_stale: Boolean = false,
-    val details: String? = null
 )
 
 @Serializable

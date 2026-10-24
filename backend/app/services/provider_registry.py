@@ -1,27 +1,81 @@
 """Centralized provider registry tracking upstream health, latency, configuration, and freshness."""
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from app.config import settings
 from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.opencellid import opencellid_client
 from app.clients.ndma_sachet import ndma_sachet_client
+from app.services.routing.osrm_provider import osrm_routing_provider
 from app.cache.redis_cache import cache_service
 
 logger = logging.getLogger(__name__)
 
 
 class ProviderRegistry:
-    """Manages provider health tracking, status reporting, and independent refresh orchestration."""
+    """Manages provider health tracking, status reporting, geographic coverage, and independent refresh orchestration."""
 
     def __init__(self):
         self._last_refresh_attempt: Optional[datetime] = None
 
+    @staticmethod
+    def is_point_in_india(lat: float, lon: float) -> bool:
+        """Determines if a WGS84 coordinate falls within the geographic envelope of India."""
+        return 6.0 <= lat <= 37.5 and 68.0 <= lon <= 97.5
+
+    def check_provider_coverage(self, provider_id: str, lat: float, lon: float) -> Tuple[bool, Optional[str]]:
+        """
+        Validates whether a provider genuinely supports data queries for the given coordinates.
+        Does not infer universal coverage merely because an endpoint accepts coordinates.
+        """
+        if provider_id == "ndma_sachet":
+            if not self.is_point_in_india(lat, lon):
+                return False, "NDMA SACHET disaster advisories cover India only. No official SACHET alerts available for this region."
+            return True, None
+        elif provider_id in ("open_meteo", "osm_overpass", "nasa_firms", "osrm"):
+            return True, None
+        return True, None
+
     async def get_all_provider_statuses(self) -> List[Dict[str, Any]]:
         """Returns the real-time operational status for all configured and reference providers."""
         now = datetime.now(timezone.utc)
+
+        # 0. OSRM Routing Engine
+        osrm_circuit_open = osrm_routing_provider.circuit_breaker.state == "OPEN"
+        if osrm_circuit_open:
+            osrm_status = "CIRCUIT_OPEN"
+            osrm_diag = "OSRM circuit breaker is OPEN."
+        elif osrm_routing_provider.last_error:
+            osrm_status = "DEGRADED"
+            osrm_diag = osrm_routing_provider.last_error
+        elif osrm_routing_provider.last_status_code == 200:
+            osrm_status = "HEALTHY"
+            osrm_diag = "OSRM routing operational for driving, hiking, and walking."
+        else:
+            osrm_status = "STANDBY"
+            osrm_diag = "OSRM routing client initialized and ready."
+
+        osrm_info = {
+            "provider_id": "osrm",
+            "name": "OSRM Routing Engine",
+            "category": "routing",
+            "is_configured": True,
+            "status": osrm_status,
+            "coverage_scope": "GLOBAL",
+            "last_attempt_at": osrm_routing_provider.last_attempt_at.isoformat() if hasattr(osrm_routing_provider, "last_attempt_at") and osrm_routing_provider.last_attempt_at else None,
+            "last_success_at": osrm_routing_provider.last_success_at.isoformat() if hasattr(osrm_routing_provider, "last_success_at") and osrm_routing_provider.last_success_at else None,
+            "last_http_status": osrm_routing_provider.last_status_code,
+            "record_count": 1 if osrm_routing_provider.last_status_code == 200 else 0,
+            "cache_age_seconds": 0,
+            "data_state": "LIVE" if osrm_routing_provider.last_status_code == 200 else "STANDBY",
+            "is_stale": False,
+            "diagnostic_message": osrm_diag,
+            "attribution": "Routing data © OpenStreetMap contributors, OSRM Project",
+            "source_url": "https://project-osrm.org/",
+            "registration_url": "https://project-osrm.org/",
+        }
 
         # 1. Open-Meteo Weather
         meteo_circuit_open = open_meteo_client.circuit_breaker.state == "OPEN"
@@ -44,6 +98,7 @@ class ProviderRegistry:
             "category": "weather",
             "is_configured": True,
             "status": meteo_status,
+            "coverage_scope": "GLOBAL",
             "last_attempt_at": open_meteo_client.last_attempt_at.isoformat() if open_meteo_client.last_attempt_at else None,
             "last_success_at": open_meteo_client.last_success_at.isoformat() if open_meteo_client.last_success_at else None,
             "last_http_status": open_meteo_client.last_status_code,
@@ -80,6 +135,7 @@ class ProviderRegistry:
             "category": "forest",
             "is_configured": True,
             "status": osm_state,
+            "coverage_scope": "GLOBAL",
             "last_attempt_at": osm_forest_client.last_attempt_at.isoformat() if osm_forest_client.last_attempt_at else None,
             "last_success_at": osm_forest_client.last_success_at.isoformat() if osm_forest_client.last_success_at else None,
             "last_http_status": osm_forest_client.last_status_code,
@@ -114,6 +170,7 @@ class ProviderRegistry:
             "category": "fire",
             "is_configured": firms_configured,
             "status": firms_status,
+            "coverage_scope": "GLOBAL",
             "last_attempt_at": nasa_firms_client.last_attempt_at.isoformat() if nasa_firms_client.last_attempt_at else None,
             "last_success_at": nasa_firms_client.last_success_at.isoformat() if nasa_firms_client.last_success_at else None,
             "last_http_status": nasa_firms_client.last_status_code,
@@ -128,14 +185,13 @@ class ProviderRegistry:
         }
 
         # 4. Forest Survey of India (FSI) Forest Fire Alerts System
-        # Documented requirement: official public reference portal. If no public structured API exists,
-        # clearly state unconfigured / reference portal rather than scraping unsupported private endpoints.
         fsi_info = {
             "provider_id": "fsi_forest_fire",
             "name": "Forest Survey of India (FSI) Fire Alerts",
             "category": "fire_reference",
             "is_configured": False,
             "status": "REFERENCE_ONLY",
+            "coverage_scope": "COUNTRY_INDIA",
             "last_attempt_at": None,
             "last_success_at": None,
             "last_http_status": None,
@@ -167,6 +223,7 @@ class ProviderRegistry:
             "category": "telecom",
             "is_configured": cell_configured,
             "status": cell_status,
+            "coverage_scope": "GLOBAL",
             "last_attempt_at": opencellid_client.last_attempt_at.isoformat() if opencellid_client.last_attempt_at else None,
             "last_success_at": opencellid_client.last_success_at.isoformat() if opencellid_client.last_success_at else None,
             "last_http_status": opencellid_client.last_status_code,
@@ -195,6 +252,8 @@ class ProviderRegistry:
             "category": "disaster_advisory",
             "is_configured": True,
             "status": sachet_state,
+            "coverage_scope": "COUNTRY_INDIA",
+            "supported_bbox": [6.0, 68.0, 37.5, 97.5],
             "last_attempt_at": ndma_sachet_client.last_attempt_at,
             "last_success_at": ndma_sachet_client.last_success_at,
             "last_http_status": ndma_sachet_client.last_status_code,
@@ -215,6 +274,7 @@ class ProviderRegistry:
             "category": "storage",
             "is_configured": True,
             "status": "HEALTHY",
+            "coverage_scope": "GLOBAL",
             "last_attempt_at": now.isoformat(),
             "last_success_at": now.isoformat(),
             "last_http_status": 200,
@@ -229,6 +289,7 @@ class ProviderRegistry:
         }
 
         return [
+            osrm_info,
             open_meteo_info,
             osm_info,
             nasa_firms_info,

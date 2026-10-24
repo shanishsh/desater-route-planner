@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -112,6 +113,20 @@ class RouteRepository @Inject constructor(
         } catch (e: Exception) {
             null
         }
+        val providerStatuses = try {
+            if (!entity.providerStatusesJson.isNullOrBlank()) {
+                json.decodeFromString<Map<String, ProviderStatusItemDto>>(entity.providerStatusesJson)
+            } else emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        val limitations = try {
+            if (!entity.analysisLimitationsJson.isNullOrBlank()) {
+                json.decodeFromString<List<String>>(entity.analysisLimitationsJson)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
 
         val dto = PlannedRouteResponseDto(
             route_id = entity.routeId,
@@ -146,6 +161,8 @@ class RouteRepository @Inject constructor(
             facilities_geojson = facilitiesGeom,
             forests_geojson = forestsGeom,
             weather_geojson = weatherGeom,
+            provider_statuses = providerStatuses,
+            analysis_limitations = limitations,
             created_at = java.util.Date(entity.cachedAt).toString()
         )
         _activeRouteFlow.value = dto
@@ -162,6 +179,53 @@ class RouteRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("RouteRepository", "Error searching places", e)
             Result.failure(e)
+        }
+    }
+
+    suspend fun reverseGeocode(lat: Double, lon: Double): Result<PlaceSearchResultDto> {
+        return try {
+            val response = apiService.reverseGeocode(lat, lon)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Reverse geocoding failed: ${response.code()} ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Log.e("RouteRepository", "Error reverse geocoding $lat, $lon", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getRecentEndpoints(): Flow<List<PlaceSearchResultDto>> {
+        return plannedRouteDao.getAllRoutesFlow().map { routes ->
+            val places = mutableListOf<PlaceSearchResultDto>()
+            val seen = mutableSetOf<String>()
+            for (route in routes) {
+                val originKey = "${String.format(java.util.Locale.US, "%.4f", route.originLat)},${String.format(java.util.Locale.US, "%.4f", route.originLon)}"
+                if (route.originName.isNotBlank() && seen.add(originKey)) {
+                    places.add(
+                        PlaceSearchResultDto(
+                            name = route.originName,
+                            latitude = route.originLat,
+                            longitude = route.originLon,
+                            display_name = route.originName
+                        )
+                    )
+                }
+                val destKey = "${String.format(java.util.Locale.US, "%.4f", route.destLat)},${String.format(java.util.Locale.US, "%.4f", route.destLon)}"
+                if (route.destinationName.isNotBlank() && seen.add(destKey)) {
+                    places.add(
+                        PlaceSearchResultDto(
+                            name = route.destinationName,
+                            latitude = route.destLat,
+                            longitude = route.destLon,
+                            display_name = route.destinationName
+                        )
+                    )
+                }
+                if (places.size >= 12) break
+            }
+            places
         }
     }
 
@@ -234,6 +298,8 @@ class RouteRepository @Inject constructor(
             val alternativesStr = json.encodeToString(dto.alternatives)
             val elevationProfileStr = json.encodeToString(dto.elevation_profile)
             val safeHavensStr = json.encodeToString(dto.safe_havens)
+            val providerStatusesStr = json.encodeToString(dto.provider_statuses)
+            val limitationsStr = json.encodeToString(dto.analysis_limitations)
             val entity = PlannedRouteEntity(
                 routeId = dto.route_id,
                 title = dto.title,
@@ -262,6 +328,8 @@ class RouteRepository @Inject constructor(
                 forestsGeoJson = dto.forests_geojson?.toString(),
                 weatherGeoJson = dto.weather_geojson?.toString(),
                 dataFreshnessJson = null,
+                providerStatusesJson = providerStatusesStr,
+                analysisLimitationsJson = limitationsStr,
                 corridorWidthKm = dto.corridor_distance_km,
                 totalAscentM = dto.total_ascent_m,
                 maxElevationM = dto.max_elevation_m,

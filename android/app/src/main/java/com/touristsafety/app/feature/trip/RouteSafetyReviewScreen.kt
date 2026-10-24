@@ -1,5 +1,6 @@
 package com.touristsafety.app.feature.trip
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +23,7 @@ import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 import com.touristsafety.app.core.offline.OfflineTrekPackDialog
 import com.touristsafety.app.core.util.TrekShareHelper
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RouteSafetyReviewScreen(
     onNavigateBack: () -> Unit,
@@ -229,6 +230,106 @@ fun RouteSafetyReviewScreen(
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Provider Status & Regional Coverage Card
+                if (state.providerStatuses.isNotEmpty() || state.analysisLimitations.isNotEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Data Provider Coverage & Live Status",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    state.providerStatuses.forEach { (_, provider) ->
+                                        val (statusBg, statusFg) = when (provider.status) {
+                                            "LOADED" -> Color(0xFFE8F5E9) to Color(0xFF2E7D32)
+                                            "EMPTY" -> Color(0xFFE3F2FD) to Color(0xFF1565C0)
+                                            "UNSUPPORTED_REGION" -> Color(0xFFFFF3E0) to Color(0xFFE65100)
+                                            "UNCONFIGURED" -> Color(0xFFEEEEEE) to Color(0xFF616161)
+                                            else -> Color(0xFFFFEBEE) to Color(0xFFC62828)
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = statusBg,
+                                            border = BorderStroke(1.dp, statusFg.copy(alpha = 0.3f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    provider.provider_name,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    provider.status,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = statusFg
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (state.analysisLimitations.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        "Analysis Limitations & Regional Boundaries:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    state.analysisLimitations.forEach { limitation ->
+                                        Row(
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Text("• ", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                            Text(
+                                                limitation,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

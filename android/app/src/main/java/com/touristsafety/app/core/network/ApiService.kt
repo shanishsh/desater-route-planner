@@ -105,6 +105,12 @@ interface ApiService {
         @Query("count") count: Int = 8
     ): Response<List<PlaceSearchResultDto>>
 
+    @GET("places/reverse")
+    suspend fun reverseGeocode(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double
+    ): Response<PlaceSearchResultDto>
+
     @POST("routes/plan")
     suspend fun planRoute(
         @Body body: PlanRouteRequestDto

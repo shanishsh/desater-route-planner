@@ -8,6 +8,7 @@ import com.touristsafety.app.core.offline.OfflineTrekPackManager
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
+import com.touristsafety.app.core.network.dto.ProviderStatusItemDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
@@ -35,6 +36,8 @@ data class RouteSafetyReviewUiState(
     val elevationProfile: List<ElevationProfilePointDto> = emptyList(),
     val safeHavens: List<SafeHavenInfoDto> = emptyList(),
     val alternatives: List<RouteAlternativeDto> = emptyList(),
+    val providerStatuses: Map<String, ProviderStatusItemDto> = emptyMap(),
+    val analysisLimitations: List<String> = emptyList(),
     val selectedAlternativeId: String? = null,
     val isOfflineSaved: Boolean = false,
     val currentEntity: PlannedRouteEntity? = null,
@@ -108,6 +111,23 @@ class RouteSafetyReviewViewModel @Inject constructor(
             emptyList()
         }
 
+        val activeDto = routeRepository.activeRouteFlow.value
+        val statuses = try {
+            if (!entity.providerStatusesJson.isNullOrBlank()) {
+                json.decodeFromString<Map<String, ProviderStatusItemDto>>(entity.providerStatusesJson)
+            } else activeDto?.provider_statuses ?: emptyMap()
+        } catch (e: Exception) {
+            activeDto?.provider_statuses ?: emptyMap()
+        }
+
+        val limits = try {
+            if (!entity.analysisLimitationsJson.isNullOrBlank()) {
+                json.decodeFromString<List<String>>(entity.analysisLimitationsJson)
+            } else activeDto?.analysis_limitations ?: emptyList()
+        } catch (e: Exception) {
+            activeDto?.analysis_limitations ?: emptyList()
+        }
+
         _uiState.update {
             it.copy(
                 routeId = entity.routeId,
@@ -126,6 +146,8 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 elevationProfile = elevPoints,
                 safeHavens = havens,
                 alternatives = alts,
+                providerStatuses = statuses,
+                analysisLimitations = limits,
                 isOfflineSaved = entity.isSavedOffline,
                 currentEntity = entity,
                 isLoading = false

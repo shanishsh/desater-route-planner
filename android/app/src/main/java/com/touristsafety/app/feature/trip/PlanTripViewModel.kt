@@ -2,6 +2,7 @@ package com.touristsafety.app.feature.trip
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.touristsafety.app.core.location.LocationFixResult
 import com.touristsafety.app.core.location.LocationHelper
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 import com.touristsafety.app.core.repository.RouteRepository
@@ -18,6 +19,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+enum class MapPickerTarget {
+    ORIGIN,
+    DESTINATION
+}
+
 data class PlanTripUiState(
     val originName: String = "",
     val originLat: Double? = null,
@@ -25,14 +31,18 @@ data class PlanTripUiState(
     val destinationName: String = "",
     val destinationLat: Double? = null,
     val destinationLon: Double? = null,
-    val travelMode: String = "driving",
+    val travelMode: String = "hiking",
+    val corridorDistanceKm: Double = 5.0,
     val isPedestrianOnlySelected: Boolean = false,
-    val regionNotice: String = "Active Pilot Region: Uttarakhand, India",
+    val regionNotice: String = "Global Routing & Multi-Source Radar Active",
     val isLocating: Boolean = false,
     val isSearchingOrigin: Boolean = false,
     val isSearchingDest: Boolean = false,
     val originSuggestions: List<PlaceSearchResultDto> = emptyList(),
     val destSuggestions: List<PlaceSearchResultDto> = emptyList(),
+    val recentLocations: List<PlaceSearchResultDto> = emptyList(),
+    val isMapPickerOpen: Boolean = false,
+    val mapPickerTarget: MapPickerTarget = MapPickerTarget.ORIGIN,
     val isPlanning: Boolean = false,
     val planningPhase: String = "",
     val errorMessage: String? = null
@@ -58,6 +68,12 @@ class PlanTripViewModel @Inject constructor(
     private var searchOriginJob: Job? = null
 
     init {
+        // Load recent endpoints from room database
+        viewModelScope.launch {
+            routeRepository.getRecentEndpoints().collect { recents ->
+                _uiState.update { it.copy(recentLocations = recents) }
+            }
+        }
         // Attempt current location fix on launch if permission is granted
         useCurrentLocation()
     }
@@ -65,34 +81,146 @@ class PlanTripViewModel @Inject constructor(
     fun useCurrentLocation() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLocating = true, errorMessage = null) }
-            val loc = locationHelper.getLastKnownLocation()
-            if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
-                _uiState.update {
-                    it.copy(
-                        originName = "Current GPS (${String.format(java.util.Locale.US, "%.4f, %.4f", loc.latitude, loc.longitude)})",
-                        originLat = loc.latitude,
-                        originLon = loc.longitude,
-                        isLocating = false
-                    )
+            val fixResult = locationHelper.getCurrentOrLastLocation(timeoutMs = 8000L)
+            when (fixResult) {
+                is LocationFixResult.Success -> {
+                    val loc = fixResult.location
+                    val fallbackName = String.format(java.util.Locale.US, "Current GPS (%.4f, %.4f)", loc.latitude, loc.longitude)
+                    _uiState.update {
+                        it.copy(
+                            originName = fallbackName,
+                            originLat = loc.latitude,
+                            originLon = loc.longitude,
+                            isLocating = false
+                        )
+                    }
+                    // Reverse geocode in background to provide readable place name
+                    viewModelScope.launch {
+                        val rev = routeRepository.reverseGeocode(loc.latitude, loc.longitude)
+                        rev.getOrNull()?.let { place ->
+                            if (place.display_name.isNotBlank()) {
+                                _uiState.update { it.copy(originName = place.display_name) }
+                            }
+                        }
+                    }
                 }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        originName = "",
-                        originLat = null,
-                        originLon = null,
-                        isLocating = false,
-                        errorMessage = "GPS fix unavailable. Please enter origin or search by place name."
-                    )
+                is LocationFixResult.PermissionDenied -> {
+                    _uiState.update {
+                        it.copy(
+                            isLocating = false,
+                            errorMessage = "Location permission denied. Please search or pick a starting point on the map."
+                        )
+                    }
+                }
+                is LocationFixResult.LocationServicesDisabled -> {
+                    _uiState.update {
+                        it.copy(
+                            isLocating = false,
+                            errorMessage = "Location services (GPS) are disabled on your device. Please turn on GPS or pick a point on the map."
+                        )
+                    }
+                }
+                is LocationFixResult.Timeout -> {
+                    _uiState.update {
+                        it.copy(
+                            isLocating = false,
+                            errorMessage = "GPS satellite fix timed out. Please enter origin or pick a starting point on the map."
+                        )
+                    }
+                }
+                is LocationFixResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isLocating = false,
+                            errorMessage = "GPS fix unavailable: ${fixResult.message}. Please enter origin or pick on map."
+                        )
+                    }
                 }
             }
         }
     }
 
+    fun openMapPicker(target: MapPickerTarget) {
+        _uiState.update {
+            it.copy(
+                isMapPickerOpen = true,
+                mapPickerTarget = target,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun closeMapPicker() {
+        _uiState.update { it.copy(isMapPickerOpen = false) }
+    }
+
+    fun onLocationConfirmedFromMap(lat: Double, lon: Double, displayName: String) {
+        val target = _uiState.value.mapPickerTarget
+        if (target == MapPickerTarget.ORIGIN) {
+            _uiState.update {
+                it.copy(
+                    originName = displayName,
+                    originLat = lat,
+                    originLon = lon,
+                    originSuggestions = emptyList(),
+                    isMapPickerOpen = false,
+                    errorMessage = null
+                )
+            }
+        } else {
+            val isKedarnath = displayName.contains("Kedarnath", ignoreCase = true)
+            _uiState.update {
+                it.copy(
+                    destinationName = displayName,
+                    destinationLat = lat,
+                    destinationLon = lon,
+                    destSuggestions = emptyList(),
+                    travelMode = if (isKedarnath) "hiking" else it.travelMode,
+                    isPedestrianOnlySelected = isKedarnath,
+                    isMapPickerOpen = false,
+                    errorMessage = null
+                )
+            }
+        }
+    }
+
+    fun selectRecentLocation(place: PlaceSearchResultDto, isOrigin: Boolean) {
+        if (isOrigin) {
+            _uiState.update {
+                it.copy(
+                    originName = place.display_name,
+                    originLat = place.latitude,
+                    originLon = place.longitude,
+                    originSuggestions = emptyList()
+                )
+            }
+        } else {
+            val isKedarnath = place.display_name.contains("Kedarnath", ignoreCase = true)
+            _uiState.update {
+                it.copy(
+                    destinationName = place.display_name,
+                    destinationLat = place.latitude,
+                    destinationLon = place.longitude,
+                    destSuggestions = emptyList(),
+                    travelMode = if (isKedarnath) "hiking" else it.travelMode,
+                    isPedestrianOnlySelected = isKedarnath
+                )
+            }
+        }
+    }
+
+    suspend fun reverseGeocode(lat: Double, lon: Double): Result<PlaceSearchResultDto> {
+        return routeRepository.reverseGeocode(lat, lon)
+    }
+
+    fun setCorridorDistanceKm(km: Double) {
+        _uiState.update { it.copy(corridorDistanceKm = km) }
+    }
+
     fun onOriginQueryChanged(query: String) {
         _uiState.update { it.copy(originName = query) }
         searchOriginJob?.cancel()
-        if (query.trim().length >= 2 && query != "Current Location") {
+        if (query.trim().length >= 2 && !query.startsWith("Current GPS")) {
             searchOriginJob = viewModelScope.launch {
                 delay(350)
                 _uiState.update { it.copy(isSearchingOrigin = true) }
@@ -141,12 +269,15 @@ class PlanTripViewModel @Inject constructor(
     }
 
     fun selectDestination(place: PlaceSearchResultDto) {
+        val isKedarnath = place.display_name.contains("Kedarnath", ignoreCase = true)
         _uiState.update {
             it.copy(
                 destinationName = place.display_name,
                 destinationLat = place.latitude,
                 destinationLon = place.longitude,
-                destSuggestions = emptyList()
+                destSuggestions = emptyList(),
+                travelMode = if (isKedarnath) "hiking" else it.travelMode,
+                isPedestrianOnlySelected = isKedarnath
             )
         }
     }
@@ -198,7 +329,7 @@ class PlanTripViewModel @Inject constructor(
         if (state.isPedestrianOnlySelected && mode == "driving") {
             _uiState.update {
                 it.copy(
-                    errorMessage = "Motor vehicles are strictly prohibited on the Kedarnath pedestrian trek corridor. Please use Hiking or Walking."
+                    errorMessage = "Motor vehicles are strictly prohibited on pedestrian trek corridors (e.g. Kedarnath trail). Please select Hiking or Walking."
                 )
             }
             return
@@ -211,14 +342,14 @@ class PlanTripViewModel @Inject constructor(
         val originLat = state.originLat
         val originLon = state.originLon
         if (originLat == null || originLon == null || state.originName.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Please specify a start location via GPS or search.") }
+            _uiState.update { it.copy(errorMessage = "Please specify a start location via GPS, map picker, or place search.") }
             return
         }
 
         val destLat = state.destinationLat
         val destLon = state.destinationLon
         if (destLat == null || destLon == null || state.destinationName.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Please choose a destination first.") }
+            _uiState.update { it.copy(errorMessage = "Please choose a destination via map picker or search.") }
             return
         }
 
@@ -226,14 +357,14 @@ class PlanTripViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isPlanning = true,
-                    planningPhase = "Calculating road polyline and alpine corridor...",
+                    planningPhase = "Calculating polyline and ${state.corridorDistanceKm} km spatial corridor...",
                     errorMessage = null
                 )
             }
-            delay(400)
+            delay(350)
             _uiState.update { it.copy(planningPhase = "Correlating Open-Meteo hourly weather with estimated arrival times...") }
-            delay(400)
-            _uiState.update { it.copy(planningPhase = "Scanning NASA FIRMS fire anomalies and forest boundaries...") }
+            delay(350)
+            _uiState.update { it.copy(planningPhase = "Scanning NASA FIRMS fire anomalies, OSM facilities, and alerts...") }
 
             val result = routeRepository.planRoute(
                 originLat = originLat,
@@ -242,7 +373,8 @@ class PlanTripViewModel @Inject constructor(
                 destLat = destLat,
                 destLon = destLon,
                 destName = state.destinationName,
-                travelMode = state.travelMode
+                travelMode = state.travelMode,
+                corridorDistanceKm = state.corridorDistanceKm
             )
 
             result.fold(
@@ -266,4 +398,3 @@ class PlanTripViewModel @Inject constructor(
         _uiState.update { it.copy(errorMessage = null) }
     }
 }
-

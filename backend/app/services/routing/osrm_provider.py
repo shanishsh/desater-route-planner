@@ -54,6 +54,18 @@ class OSRMRoutingProvider:
         route_id = str(uuid.uuid4())
         title = f"{origin_name} to {dest_name}"
 
+        # 1. Coordinate Validation
+        if not (-90.0 <= origin_lat <= 90.0 and -180.0 <= origin_lon <= 180.0):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid origin coordinates: ({origin_lat}, {origin_lon}). Must be standard WGS84 coordinates."
+            )
+        if not (-90.0 <= dest_lat <= 90.0 and -180.0 <= dest_lon <= 180.0):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid destination coordinates: ({dest_lat}, {dest_lon}). Must be standard WGS84 coordinates."
+            )
+
         if not self.circuit_breaker.can_execute():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -61,6 +73,8 @@ class OSRMRoutingProvider:
             )
 
         client = await self.get_client()
+        from datetime import datetime, timezone
+        self.last_attempt_at = datetime.now(timezone.utc)
 
         try:
             url = (
@@ -130,7 +144,7 @@ class OSRMRoutingProvider:
                     )
 
                 self.circuit_breaker.record_success()
-                self.last_success_at = None
+                self.last_success_at = datetime.now(timezone.utc)
                 self.last_error = None
 
                 return RouteResult(
@@ -148,6 +162,24 @@ class OSRMRoutingProvider:
                     geometry_geojson=primary["geometry"],
                     waypoints=waypoints,
                     alternatives=alternatives,
+                )
+            elif response.status_code in (400, 404):
+                try:
+                    err_json = response.json()
+                    err_code = err_json.get("code", "")
+                    err_msg = err_json.get("message", "")
+                except Exception:
+                    err_code, err_msg = "", response.text
+
+                detail_msg = (
+                    f"No viable route found between coordinates ({origin_lat:.4f}, {origin_lon:.4f}) and "
+                    f"({dest_lat:.4f}, {dest_lon:.4f}) for travel mode '{travel_mode}'. "
+                    f"({err_code}: {err_msg})"
+                )
+                self.last_error = detail_msg
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=detail_msg,
                 )
             else:
                 self.last_error = f"OSRM upstream HTTP {response.status_code}: {response.text}"

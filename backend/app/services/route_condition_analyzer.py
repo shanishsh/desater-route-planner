@@ -99,10 +99,10 @@ class RouteConditionAnalyzer:
                     nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon),
                     timeout=3.5
                 )
-                return res.get("records", []) if res else []
+                return res if isinstance(res, dict) else {"records": res or []}
             except Exception as e:
                 logger.warning(f"FIRMS fire query failed or timed out: {e}")
-                return []
+                return {"records": []}
 
         async def _safe_amenities():
             try:
@@ -137,10 +137,13 @@ class RouteConditionAnalyzer:
                 logger.warning(f"Database disaster alerts query failed: {e}")
                 return []
 
-        (elevation_data, forest_features, raw_records, amenity_items), candidate_alerts = await asyncio.gather(
+        (elevation_data, forest_features, fires_res, amenity_items), candidate_alerts = await asyncio.gather(
             asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities()),
             _safe_db_alerts(),
         )
+
+        raw_records = fires_res.get("records", []) if isinstance(fires_res, dict) else []
+        firms_configured = fires_res.get("is_configured", nasa_firms_client.is_configured()) if isinstance(fires_res, dict) else nasa_firms_client.is_configured()
 
         elev_points = elevation_data.get("points", []) if elevation_data else []
 
@@ -380,6 +383,31 @@ class RouteConditionAnalyzer:
         # Aggregate overall route risk
         agg_risk = trailguard_risk_engine.aggregate_route_risk(segment_evaluations)
 
+        # Evaluate provider coverage for the route corridor
+        from app.services.provider_registry import provider_registry
+        is_india = provider_registry.is_point_in_india(route.origin_lat, route.origin_lon) or \
+                   provider_registry.is_point_in_india(route.destination_lat, route.destination_lon)
+
+        analysis_limitations = [
+            f"Geographic search restricted strictly to {corridor_dist_km} km buffer on each side of the route polyline."
+        ]
+
+        if not is_india:
+            sachet_status = "UNSUPPORTED_REGION"
+            sachet_details = "NDMA SACHET disaster advisories cover India only. Official disaster alerts are unavailable for this region."
+            analysis_limitations.append("NDMA SACHET covers Indian territory only; government disaster advisories are unavailable for this international corridor.")
+        else:
+            sachet_status = "LOADED" if active_alerts else "EMPTY"
+            sachet_details = "Spatial polygon and circular advisory intersection."
+
+        if not firms_configured:
+            firms_status = "UNCONFIGURED"
+            firms_details = "NASA FIRMS satellite active fire monitoring requires a configured MAP_KEY."
+            analysis_limitations.append("NASA FIRMS satellite active fire scanning requires a configured MAP_KEY.")
+        else:
+            firms_status = "LOADED" if active_fires else "EMPTY"
+            firms_details = f"Corridor thermal hotspot detections within {corridor_dist_km} km of route."
+
         provider_statuses = {
             "open_meteo": {
                 "provider_name": "Open-Meteo Hourly Forecast",
@@ -403,23 +431,23 @@ class RouteConditionAnalyzer:
             },
             "nasa_firms": {
                 "provider_name": "NASA FIRMS Thermal Anomalies",
-                "status": "LOADED" if active_fires else "EMPTY",
+                "status": firms_status,
                 "last_request_time": now.isoformat(),
-                "last_success_time": now.isoformat(),
-                "http_status": 200,
+                "last_success_time": now.isoformat() if nasa_firms_client.is_configured() else None,
+                "http_status": 200 if nasa_firms_client.is_configured() else None,
                 "record_count": len(active_fires),
                 "is_stale": False,
-                "details": "Corridor thermal hotspot detections within 5 km of route.",
+                "details": firms_details,
             },
             "ndma_sachet": {
                 "provider_name": "NDMA SACHET / CAP Official Advisories",
-                "status": "LOADED" if active_alerts else "EMPTY",
+                "status": sachet_status,
                 "last_request_time": now.isoformat(),
-                "last_success_time": now.isoformat(),
-                "http_status": 200,
+                "last_success_time": now.isoformat() if is_india else None,
+                "http_status": 200 if is_india else None,
                 "record_count": len(active_alerts),
                 "is_stale": False,
-                "details": "Spatial polygon and circular advisory intersection.",
+                "details": sachet_details,
             },
             "osm_overpass": {
                 "provider_name": "OpenStreetMap Overpass (Amenities & Forests)",
@@ -430,6 +458,16 @@ class RouteConditionAnalyzer:
                 "record_count": len(safe_havens) + len(forest_features),
                 "is_stale": False,
                 "details": "Verified emergency safe havens and forest conservation boundaries.",
+            },
+            "osrm": {
+                "provider_name": "OSRM Routing Engine",
+                "status": "LOADED",
+                "last_request_time": now.isoformat(),
+                "last_success_time": now.isoformat(),
+                "http_status": 200,
+                "record_count": len(route_coords_lat_lon),
+                "is_stale": False,
+                "details": f"Genuine route polyline calculated for {route.travel_mode}.",
             },
         }
 
@@ -996,6 +1034,8 @@ class RouteConditionAnalyzer:
             elevation_profile=elevation_profile_points,
             safe_havens=safe_havens,
             alternatives=alt_schemas,
+            provider_statuses=provider_statuses,
+            analysis_limitations=analysis_limitations,
             data_freshness=freshness,
             created_at=now.isoformat(),
         )
