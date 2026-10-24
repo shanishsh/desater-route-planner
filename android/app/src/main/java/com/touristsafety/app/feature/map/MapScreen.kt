@@ -58,6 +58,7 @@ fun MapScreen(
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var mapLoadFailed by remember { mutableStateOf(false) }
+    var userToggledCanvas by remember { mutableStateOf(false) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -131,14 +132,15 @@ fun MapScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().background(Color(0xFFE5E0D8))) {
         // 1. BASE MAP LAYER (MapLibre Native or Fallback Offline Canvas)
-        if (mapLoadFailed) {
+        if (mapLoadFailed || userToggledCanvas) {
             OfflineVectorCanvasView(
                 routeCoordinates = state.routeCoordinates,
                 corridorPolygonCoordinates = state.corridorPolygonCoordinates,
                 features = state.visibleFeatures,
-                onFeatureClicked = { viewModel.selectFeature(it) }
+                onFeatureClicked = { viewModel.selectFeature(it) },
+                onDismiss = if (userToggledCanvas) { { userToggledCanvas = false } } else null
             )
         } else {
             AndroidView(
@@ -470,7 +472,10 @@ fun MapScreen(
                 }
             },
             onOpenLayers = { viewModel.toggleLayersSheet(true) },
-            onToggleOffline = { viewModel.toggleOfflineSchematic() },
+            onToggleOffline = {
+                userToggledCanvas = !userToggledCanvas
+                viewModel.toggleOfflineSchematic()
+            },
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 12.dp)
@@ -875,7 +880,8 @@ fun OfflineVectorCanvasView(
     routeCoordinates: List<Pair<Double, Double>>,
     corridorPolygonCoordinates: List<List<Pair<Double, Double>>> = emptyList(),
     features: List<UnifiedMapFeature>,
-    onFeatureClicked: (UnifiedMapFeature) -> Unit
+    onFeatureClicked: (UnifiedMapFeature) -> Unit,
+    onDismiss: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -893,8 +899,24 @@ fun OfflineVectorCanvasView(
                 text = "Offline Route Vector Schematic & Cached Features",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
             )
+            if (onDismiss != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF37474F),
+                    modifier = Modifier.clickable { onDismiss() }
+                ) {
+                    Text(
+                        text = "Map Mode",
+                        color = Color(0xFF80D8FF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
         }
 
         Canvas(
