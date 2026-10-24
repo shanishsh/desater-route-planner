@@ -1,5 +1,6 @@
 package com.touristsafety.app.core.repository
 
+import android.content.Context
 import android.util.Log
 import com.touristsafety.app.core.database.dao.ActiveTripDao
 import com.touristsafety.app.core.database.dao.PlannedRouteDao
@@ -7,25 +8,36 @@ import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.network.ApiService
 import com.touristsafety.app.core.network.dto.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RouteRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val apiService: ApiService,
     private val plannedRouteDao: PlannedRouteDao,
     private val activeTripDao: ActiveTripDao
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
 
+    private fun getRoutesDir(): File {
+        val dir = File(context.filesDir, "saved_routes")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
     val savedRoutesFlow: Flow<List<PlannedRouteEntity>> = plannedRouteDao.getAllRoutesFlow()
+        .catch { e ->
+            Log.e("RouteRepository", "Error observing saved routes: ${e.message}", e)
+            emit(emptyList())
+        }
     val activeTripFlow: Flow<ActiveTripEntity?> = activeTripDao.getActiveTripFlow()
 
     private val _activeRouteFlow = MutableStateFlow<PlannedRouteResponseDto?>(null)
@@ -40,6 +52,16 @@ class RouteRepository @Inject constructor(
     }
 
     fun activateSavedRoute(entity: PlannedRouteEntity) {
+        val file = File(getRoutesDir(), "${entity.routeId}.json")
+        if (file.exists()) {
+            try {
+                val dto = json.decodeFromString<PlannedRouteResponseDto>(file.readText())
+                _activeRouteFlow.value = dto
+                return
+            } catch (e: Exception) {
+                Log.w("RouteRepository", "Failed to parse saved route file for ${entity.routeId}", e)
+            }
+        }
         val conditions = try {
             json.decodeFromString<List<RouteWaypointConditionDto>>(entity.conditionsJson)
         } catch (e: Exception) {
@@ -197,7 +219,12 @@ class RouteRepository @Inject constructor(
     }
 
     fun getRecentEndpoints(): Flow<List<PlaceSearchResultDto>> {
-        return plannedRouteDao.getAllRoutesFlow().map { routes ->
+        return plannedRouteDao.getAllRoutesFlow()
+            .catch { e ->
+                Log.e("RouteRepository", "Error getting recent endpoints: ${e.message}", e)
+                emit(emptyList())
+            }
+            .map { routes ->
             val places = mutableListOf<PlaceSearchResultDto>()
             val seen = mutableSetOf<String>()
             for (route in routes) {
@@ -308,12 +335,11 @@ class RouteRepository @Inject constructor(
 
     suspend fun saveRouteOffline(dto: PlannedRouteResponseDto) {
         try {
-            val conditionsStr = json.encodeToString(dto.conditions)
-            val alternativesStr = json.encodeToString(dto.alternatives)
-            val elevationProfileStr = json.encodeToString(dto.elevation_profile)
-            val safeHavensStr = json.encodeToString(dto.safe_havens)
-            val providerStatusesStr = json.encodeToString(dto.provider_statuses)
-            val limitationsStr = json.encodeToString(dto.analysis_limitations)
+            // 1. Write the full DTO payload to internal storage file (zero SQLite CursorWindow size limit)
+            val file = File(getRoutesDir(), "${dto.route_id}.json")
+            file.writeText(json.encodeToString(dto))
+
+            // 2. Persist lightweight summary row in Room SQLite (<1 KB per row) to prevent CursorWindow overflow
             val entity = PlannedRouteEntity(
                 routeId = dto.route_id,
                 title = dto.title,
@@ -329,21 +355,21 @@ class RouteRepository @Inject constructor(
                 overallHazardScore = dto.overall_hazard_score,
                 overallSafetyStatus = dto.overall_safety_status,
                 highRiskSegmentsCount = dto.high_risk_segments_count,
-                conditionsJson = conditionsStr,
-                alternativesJson = alternativesStr,
-                routeGeoJson = dto.geometry_geojson?.toString(),
-                elevationProfileJson = elevationProfileStr,
-                safeHavensJson = safeHavensStr,
+                conditionsJson = "", // Stored safely in JSON file on disk
+                alternativesJson = "", // Stored safely in JSON file on disk
+                routeGeoJson = dto.geometry_geojson?.toString(), // Lightweight path coordinates
+                elevationProfileJson = null,
+                safeHavensJson = null,
                 decisionExplanation = dto.decision_explanation,
-                corridorGeoJson = dto.corridor_geojson?.toString(),
-                hazardsGeoJson = dto.hazards_geojson?.toString(),
-                firesGeoJson = dto.fires_geojson?.toString(),
-                facilitiesGeoJson = dto.facilities_geojson?.toString(),
-                forestsGeoJson = dto.forests_geojson?.toString(),
-                weatherGeoJson = dto.weather_geojson?.toString(),
+                corridorGeoJson = null, // Stored safely in JSON file on disk
+                hazardsGeoJson = null, // Stored safely in JSON file on disk
+                firesGeoJson = null, // Stored safely in JSON file on disk
+                facilitiesGeoJson = null, // Stored safely in JSON file on disk
+                forestsGeoJson = null, // Stored safely in JSON file on disk
+                weatherGeoJson = null, // Stored safely in JSON file on disk
                 dataFreshnessJson = null,
-                providerStatusesJson = providerStatusesStr,
-                analysisLimitationsJson = limitationsStr,
+                providerStatusesJson = null,
+                analysisLimitationsJson = null,
                 corridorWidthKm = dto.corridor_distance_km,
                 totalAscentM = dto.total_ascent_m,
                 maxElevationM = dto.max_elevation_m,
@@ -358,13 +384,30 @@ class RouteRepository @Inject constructor(
 
     fun getRouteFlow(routeId: String): Flow<PlannedRouteEntity?> {
         return plannedRouteDao.getRouteFlow(routeId)
+            .catch { e ->
+                Log.e("RouteRepository", "Error observing route $routeId: ${e.message}", e)
+                emit(null)
+            }
     }
 
     suspend fun getRouteById(routeId: String): PlannedRouteEntity? {
-        return plannedRouteDao.getRouteById(routeId)
+        return try {
+            plannedRouteDao.getRouteById(routeId)
+        } catch (e: Exception) {
+            Log.e("RouteRepository", "Error reading route by id $routeId: ${e.message}", e)
+            null
+        }
     }
 
     suspend fun deletePlannedRoute(routeId: String) {
+        try {
+            val file = File(getRoutesDir(), "$routeId.json")
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            Log.w("RouteRepository", "Failed to delete route file $routeId", e)
+        }
         plannedRouteDao.deleteRoute(routeId)
     }
 
