@@ -1,4 +1,12 @@
 """FastAPI application entrypoint."""
+import sys
+from pathlib import Path
+
+# Ensure backend root is on sys.path so the module can run from any working directory
+_backend_dir = str(Path(__file__).resolve().parent.parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -81,4 +89,13 @@ async def root():
 async def root_health():
     """Root health check for cloud platform liveness probes (e.g. Render)."""
     return {"status": "alive"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    server_port = getattr(settings, "PORT", getattr(settings, "API_PORT", 8000))
+    server_host = getattr(settings, "API_HOST", "0.0.0.0")
+    is_debug = getattr(settings, "DEBUG", settings.ENVIRONMENT == "development")
+    uvicorn.run("app.main:app", host=server_host, port=server_port, reload=is_debug)
+
 

@@ -29,12 +29,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize scheduled background synchronization with network constraints
+        // Initialize scheduled background synchronization with network constraints safely
         try {
             syncManager.schedulePeriodicSync()
             syncManager.triggerOneTimeSync()
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to schedule background sync work", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Failed to schedule background sync work safely", t)
         }
 
         setContent {
@@ -43,18 +43,24 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
-                val isFullScreen = currentRoute in Screen.fullScreenRoutes ||
-                        currentRoute?.startsWith("route_safety_review") == true ||
-                        currentRoute?.startsWith("active_trip") == true
+                val isFullScreen = currentRoute == null ||
+                        currentRoute in Screen.fullScreenRoutes ||
+                        currentRoute.startsWith("route_safety_review") ||
+                        currentRoute.startsWith("active_trip")
 
                 val startDestination = remember {
-                    if (tokenManager.isLoggedIn()) {
-                        if (tokenManager.hasCompletedPermissionsOnboarding()) {
-                            Screen.Home.route
+                    try {
+                        if (tokenManager.isLoggedIn()) {
+                            if (tokenManager.hasCompletedPermissionsOnboarding()) {
+                                Screen.Home.route
+                            } else {
+                                Screen.PermissionOnboarding.route
+                            }
                         } else {
-                            Screen.PermissionOnboarding.route
+                            Screen.Welcome.route
                         }
-                    } else {
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainActivity", "Error reading auth state, defaulting to Welcome", t)
                         Screen.Welcome.route
                     }
                 }

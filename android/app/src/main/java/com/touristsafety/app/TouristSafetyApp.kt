@@ -20,6 +20,20 @@ class TouristSafetyApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Global uncaught exception logger to record any startup crash
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("FATAL_APP_CRASH", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
+            try {
+                val crashFile = java.io.File(filesDir, "last_crash.txt")
+                crashFile.writeText("Thread: ${thread.name}\nTimestamp: ${System.currentTimeMillis()}\nError: ${throwable.stackTraceToString()}")
+            } catch (_: Throwable) {
+                // Ignore secondary errors during crash recording
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
         try {
             // Configure MapLibre's HTTP client to strictly comply with OpenFreeMap terms:
             // 1. At most four parallel requests (maxRequests = 4, maxRequestsPerHost = 4)
@@ -44,12 +58,20 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                 }
                 .build()
 
-            HttpRequestUtil.setOkHttpClient(maplibreOkHttpClient)
+            try {
+                HttpRequestUtil.setOkHttpClient(maplibreOkHttpClient)
+            } catch (t: Throwable) {
+                Log.w("TouristSafetyApp", "HttpRequestUtil configuration skipped or unavailable", t)
+            }
 
             // Initialize MapLibre Native SDK
-            MapLibre.getInstance(this)
-        } catch (e: Exception) {
-            Log.e("TouristSafetyApp", "MapLibre SDK initialization failed safely", e)
+            try {
+                MapLibre.getInstance(this)
+            } catch (t: Throwable) {
+                Log.e("TouristSafetyApp", "MapLibre Native binary initialization deferred or unsupported on this architecture", t)
+            }
+        } catch (t: Throwable) {
+            Log.e("TouristSafetyApp", "MapLibre SDK initialization failed safely", t)
         }
     }
 

@@ -11,8 +11,30 @@ class Settings(BaseSettings):
     # API Configuration
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
+    PORT: int = 8000  # Supports Render/cloud environment variable PORT
+    DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "Tourist Safety & Assistance Platform"
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            v_lower = v.strip().lower()
+            return v_lower in ("true", "1", "yes", "on", "debug", "dev", "development")
+        return False
+
+    @field_validator("PORT", mode="before")
+    @classmethod
+    def parse_port(cls, v: Any) -> int:
+        if v is None or v == "":
+            return 8000
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 8000
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
