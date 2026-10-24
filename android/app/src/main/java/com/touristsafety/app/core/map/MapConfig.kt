@@ -33,11 +33,11 @@ object MapConfig {
     const val DEFAULT_LONGITUDE = 79.0268
     const val DEFAULT_ZOOM = 13.0
 
-    // Offline-ready, zero-network fallback style JSON with terrain background and OpenStreetMap tiles
-    val FALLBACK_STYLE_JSON = """
+    // High-visibility, rich topographic basemap using OpenStreetMap standard raster tiles
+    val OSM_RASTER_STYLE_JSON = """
     {
       "version": 8,
-      "name": "Uttarakhand Fallback Basemap",
+      "name": "Uttarakhand Basemap",
       "sources": {
         "osm-tiles": {
           "type": "raster",
@@ -66,5 +66,8 @@ object MapConfig {
       ]
     }
     """.trimIndent()
+
+    // Offline-ready fallback style JSON pointing to the rich OSM raster basemap
+    val FALLBACK_STYLE_JSON = OSM_RASTER_STYLE_JSON
 }
 

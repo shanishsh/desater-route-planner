@@ -48,18 +48,19 @@ fun RouteSummaryCard(
     onSelectCorridorDistance: (Double) -> Unit = {},
     analysisLimitations: List<String> = emptyList(),
     onOpenComparison: () -> Unit = {},
+    onClearRoute: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shadowElevation = 8.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             // Drag handle
             Box(
                 modifier = Modifier
@@ -71,7 +72,7 @@ fun RouteSummaryCard(
                     .clickable { onToggleExpand() }
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Collapsed Header Row
             Row(
@@ -83,7 +84,7 @@ fun RouteSummaryCard(
                 // Route Icon
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
@@ -92,11 +93,11 @@ fun RouteSummaryCard(
                         imageVector = Icons.Default.DirectionsWalk,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -122,14 +123,14 @@ fun RouteSummaryCard(
                         // Alerts Status Tag
                         if (activeAlertsCount > 0) {
                             Text(
-                                text = "$activeAlertsCount active alert${if (activeAlertsCount > 1) "s" else ""}",
+                                text = "$activeAlertsCount alert${if (activeAlertsCount > 1) "s" else ""}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC62828)
                             )
                         } else {
                             Text(
-                                text = "0 active hazards",
+                                text = "Safe",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF2E7D32)
@@ -144,15 +145,15 @@ fun RouteSummaryCard(
                     color = if (isOffline) Color(0xFFE3F2FD) else Color(0xFFE8F5E9)
                 ) {
                     Text(
-                        text = if (isOffline) "Offline Mode" else "Live Data",
+                        text = if (isOffline) "Offline" else "Live",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isOffline) Color(0xFF1565C0) else Color(0xFF2E7D32),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
                 IconButton(
                     onClick = onToggleExpand,
@@ -163,110 +164,124 @@ fun RouteSummaryCard(
                         contentDescription = if (isExpanded) "Collapse" else "Expand"
                     )
                 }
-            }
 
-            // Corridor Width Selector (Safety scan: X km each side)
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = "Safety scan (each side):",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                listOf(1.0, 2.0, 5.0, 10.0).forEach { dist ->
-                    val isSelected = (corridorDistanceKm == dist)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectCorridorDistance(dist) },
-                        label = {
-                            Text(
-                                text = "${dist.toInt()} km",
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(26.dp)
-                    )
-                }
-
-                if (isAnalyzingCorridor) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // Route Alternatives / Comparison Selector (Shortest vs Safest)
-            if (plannedRouteAlternatives.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val isPrimarySelected = selectedAlternativeId == null
-                    val primaryHoursStr = String.format(Locale.US, "%.1f", durationHours ?: 0.0)
-                    val primaryDistStr = String.format(Locale.US, "%.1f", distanceKm ?: 0.0)
-
-                    RouteOptionChip(
-                        title = "Shortest Path",
-                        subtitle = "$primaryDistStr km • $primaryHoursStr hrs",
-                        badge = overallSafetyStatus ?: "Standard",
-                        isSelected = isPrimarySelected,
-                        onClick = { onSelectAlternative(null) }
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.clickable { onOpenComparison() }
+                if (onClearRoute != null) {
+                    IconButton(
+                        onClick = onClearRoute,
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CompareArrows, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Compare (${1 + plannedRouteAlternatives.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        }
-                    }
-
-                    plannedRouteAlternatives.forEach { alt ->
-                        val isAltSelected = selectedAlternativeId == alt.id
-                        val altHoursStr = String.format(Locale.US, "%.1f", alt.duration_minutes / 60.0)
-                        val altDistStr = String.format(Locale.US, "%.1f", alt.distance_km)
-
-                        RouteOptionChip(
-                            title = alt.title,
-                            subtitle = "$altDistStr km • $altHoursStr hrs",
-                            badge = "${alt.safety_label} (Risk ${alt.hazard_score.toInt()})",
-                            isSelected = isAltSelected,
-                            isAlternative = true,
-                            onClick = { onSelectAlternative(alt.id) }
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear Route",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            // Expanded Route Condition Cards Carousel
+            // Expanded Route Options, Alternatives, and Corridor Cards Carousel
             AnimatedVisibility(visible = isExpanded) {
-                Column(modifier = Modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    // Corridor Width Selector (Safety scan: X km each side)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Corridor width:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        listOf(1.0, 2.0, 5.0, 10.0).forEach { dist ->
+                            val isSelected = (corridorDistanceKm == dist)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onSelectCorridorDistance(dist) },
+                                label = {
+                                    Text(
+                                        text = "${dist.toInt()} km",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(26.dp)
+                            )
+                        }
+
+                        if (isAnalyzingCorridor) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Route Alternatives / Comparison Selector (Shortest vs Safest)
+                    if (plannedRouteAlternatives.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val isPrimarySelected = selectedAlternativeId == null
+                            val primaryHoursStr = String.format(Locale.US, "%.1f", durationHours ?: 0.0)
+                            val primaryDistStr = String.format(Locale.US, "%.1f", distanceKm ?: 0.0)
+
+                            RouteOptionChip(
+                                title = "Shortest Path",
+                                subtitle = "$primaryDistStr km • $primaryHoursStr hrs",
+                                badge = overallSafetyStatus ?: "Standard",
+                                isSelected = isPrimarySelected,
+                                onClick = { onSelectAlternative(null) }
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.clickable { onOpenComparison() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.CompareArrows, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Compare (${1 + plannedRouteAlternatives.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                            }
+
+                            plannedRouteAlternatives.forEach { alt ->
+                                val isAltSelected = selectedAlternativeId == alt.id
+                                val altHoursStr = String.format(Locale.US, "%.1f", alt.duration_minutes / 60.0)
+                                val altDistStr = String.format(Locale.US, "%.1f", alt.distance_km)
+
+                                RouteOptionChip(
+                                    title = alt.title,
+                                    subtitle = "$altDistStr km • $altHoursStr hrs",
+                                    badge = "${alt.safety_label} (Risk ${alt.hazard_score.toInt()})",
+                                    isSelected = isAltSelected,
+                                    isAlternative = true,
+                                    onClick = { onSelectAlternative(alt.id) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = "Corridor Safety Assessment",
                         style = MaterialTheme.typography.labelMedium,

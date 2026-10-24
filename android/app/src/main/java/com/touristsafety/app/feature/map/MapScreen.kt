@@ -102,17 +102,17 @@ fun MapScreen(
         }
     }
 
-    // Safety watchdog: If remote vector style takes > 4.5s or stalls, force fallback style so map is never white
+    // Safety watchdog: If style takes > 4.5s or stalls, force OSM raster style so map is never white
     LaunchedEffect(mapViewInstance, maplibreMapInstance) {
         val mv = mapViewInstance
         if (mv != null && maplibreMapInstance?.style?.isFullyLoaded != true) {
             kotlinx.coroutines.delay(4500)
             if (maplibreMapInstance?.style?.isFullyLoaded != true) {
-                android.util.Log.w("MapScreen", "Style load timed out; forcing offline fallback style")
+                android.util.Log.w("MapScreen", "Style load timed out; forcing OSM raster style")
                 try {
                     mv.getMapAsync { map ->
                         if (map.style?.isFullyLoaded != true) {
-                            map.setStyle(Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)) { fallbackStyle ->
+                            map.setStyle(Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)) { fallbackStyle ->
                                 maplibreMapInstance = map
                                 val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
                                 val pos = CameraPosition.Builder()
@@ -173,11 +173,11 @@ fun MapScreen(
                             mapViewInstance = this
 
                             addOnDidFailLoadingMapListener { errorMessage ->
-                                android.util.Log.w("MapScreen", "MapLibre did fail loading map: $errorMessage; falling back to offline style")
+                                android.util.Log.w("MapScreen", "MapLibre did fail loading map: $errorMessage; falling back to OSM style")
                                 try {
                                     getMapAsync { map ->
                                         if (map.style?.isFullyLoaded != true) {
-                                            map.setStyle(Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)) { fallbackStyle ->
+                                            map.setStyle(Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)) { fallbackStyle ->
                                                 maplibreMapInstance = map
                                                 val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
                                                 val pos = CameraPosition.Builder()
@@ -197,11 +197,7 @@ fun MapScreen(
 
                             getMapAsync { mapboxMap ->
                                 try {
-                                    val styleBuilder = if (state.isOfflineMode) {
-                                        Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)
-                                    } else {
-                                        Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                                    }
+                                    val styleBuilder = Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)
 
                                     mapboxMap.setStyle(styleBuilder) { style ->
                                         try {
@@ -355,7 +351,7 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             // Floating Search Card
             TopSearchCard(
@@ -481,46 +477,88 @@ fun MapScreen(
                 .padding(end = 12.dp)
         )
 
-        // 4. BOTTOM ANCHORED ROUTE SUMMARY CARD
-        RouteSummaryCard(
-            routeTitle = state.routeTitle,
-            distanceKm = state.routeDistanceKm,
-            durationHours = state.routeDurationHours,
-            isOffline = state.isOfflineMode,
-            activeAlertsCount = state.activeDisasterAlertsCount,
-            weather = state.routeSummaryWeather,
-            fireCount = state.routeSummaryFireCount,
-            forestCount = state.routeSummaryForestCount,
-            nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
-            isExpanded = state.isBottomRouteExpanded,
-            onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
-            plannedRouteAlternatives = state.plannedRouteAlternatives,
-            selectedAlternativeId = state.selectedAlternativeId,
-            overallSafetyStatus = state.routeSafetyStatus,
-            overallHazardScore = state.routeOverallHazardScore,
-            onSelectAlternative = { viewModel.selectRouteAlternative(it) },
-            corridorDistanceKm = state.corridorDistanceKm,
-            isAnalyzingCorridor = state.isAnalyzingCorridor,
-            onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
-            analysisLimitations = state.analysisLimitations,
-            onOpenComparison = { viewModel.toggleComparisonSheet(true) },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
+        // 4. BOTTOM ROUTE SUMMARY CARD (Active Route Only) OR MINIMAL ACTION PILL
+        val hasActiveRoute = state.activeRouteId != null || state.routeCoordinates.size >= 2
+
+        if (hasActiveRoute) {
+            RouteSummaryCard(
+                routeTitle = state.routeTitle,
+                distanceKm = state.routeDistanceKm,
+                durationHours = state.routeDurationHours,
+                isOffline = state.isOfflineMode,
+                activeAlertsCount = state.activeDisasterAlertsCount,
+                weather = state.routeSummaryWeather,
+                fireCount = state.routeSummaryFireCount,
+                forestCount = state.routeSummaryForestCount,
+                nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
+                isExpanded = state.isBottomRouteExpanded,
+                onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
+                plannedRouteAlternatives = state.plannedRouteAlternatives,
+                selectedAlternativeId = state.selectedAlternativeId,
+                overallSafetyStatus = state.routeSafetyStatus,
+                overallHazardScore = state.routeOverallHazardScore,
+                onSelectAlternative = { viewModel.selectRouteAlternative(it) },
+                corridorDistanceKm = state.corridorDistanceKm,
+                isAnalyzingCorridor = state.isAnalyzingCorridor,
+                onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
+                analysisLimitations = state.analysisLimitations,
+                onOpenComparison = { viewModel.toggleComparisonSheet(true) },
+                onClearRoute = { viewModel.clearRoute() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 6.dp)
+            )
+        } else {
+            // Sleek floating pill when exploring the map without an active route
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 14.dp)
+                    .clickable { onNavigateToPlanTrip() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DirectionsWalk,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Plan Safe Trek",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
 
         // Map Attribution Pill
+        val attributionBottomPadding = if (hasActiveRoute) {
+            if (state.isBottomRouteExpanded) 220.dp else 66.dp
+        } else {
+            14.dp
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 14.dp, bottom = if (state.isBottomRouteExpanded) 190.dp else 95.dp)
+                .padding(start = 12.dp, bottom = attributionBottomPadding)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color.White.copy(alpha = 0.88f))
-                .padding(horizontal = 8.dp, vertical = 3.dp)
+                .background(Color.White.copy(alpha = 0.85f))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             Text(
-                text = "© OpenFreeMap • © OpenStreetMap • NASA FIRMS • DDMA",
+                text = "© OpenStreetMap contributors • NASA FIRMS • DDMA",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.DarkGray,
-                fontSize = 10.sp
+                fontSize = 9.sp
             )
         }
 
@@ -605,26 +643,26 @@ private fun TopSearchCard(
     onChangeDestination: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 6.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shadowElevation = 4.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             Column(
                 modifier = Modifier
@@ -647,26 +685,26 @@ private fun TopSearchCard(
             // GPS button
             IconButton(
                 onClick = onRecenterGps,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.MyLocation,
                     contentDescription = "My Location",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
             // Change destination button
             IconButton(
                 onClick = onChangeDestination,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.EditLocationAlt,
                     contentDescription = "Change Destination",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

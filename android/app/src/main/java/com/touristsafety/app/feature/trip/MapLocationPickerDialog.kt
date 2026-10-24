@@ -152,7 +152,7 @@ fun MapLocationPickerDialog(
                         getMapAsync { map ->
                             try {
                                 map.setStyle(
-                                    Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
+                                    Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)
                                 ) {
                                     try {
                                         maplibreMap = map
