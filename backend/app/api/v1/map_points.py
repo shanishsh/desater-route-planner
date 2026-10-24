@@ -18,6 +18,8 @@ async def list_map_points(
     max_lat: Optional[float] = Query(None, ge=-90.0, le=90.0),
     min_lon: Optional[float] = Query(None, ge=-180.0, le=180.0),
     max_lon: Optional[float] = Query(None, ge=-180.0, le=180.0),
+    route_id: Optional[str] = Query(None, description="Optional route ID to filter facilities along the route corridor"),
+    corridor_km: float = Query(5.0, ge=0.5, le=50.0, description="Corridor buffer distance in km when route_id is provided"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -35,6 +37,8 @@ async def list_map_points(
         max_lat=max_lat,
         min_lon=min_lon,
         max_lon=max_lon,
+        route_id=route_id,
+        corridor_km=corridor_km,
         limit=limit,
         offset=offset,
     )
@@ -48,6 +52,7 @@ async def list_map_points(
         retrieved_at=metadata.get("retrieved_at"),
         is_stale=metadata.get("is_stale", False),
         source_provenance=metadata.get("provenance", "OpenStreetMap Contributors (ODbL)"),
+        diagnostics=metadata.get("diagnostics"),
     )
 
 

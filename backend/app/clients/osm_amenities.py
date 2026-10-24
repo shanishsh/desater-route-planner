@@ -45,6 +45,9 @@ class OSMAmenitiesClient:
         self.last_status_code: Optional[int] = None
         self.last_error: Optional[str] = None
         self.last_record_count: int = 0
+        self.last_duration_ms: Optional[float] = None
+        self.last_mirror: Optional[str] = None
+        self.category_counts: Dict[str, int] = {}
 
     async def get_client(self) -> httpx.AsyncClient:
         import asyncio
@@ -90,18 +93,21 @@ class OSMAmenitiesClient:
             return []
 
         # Build specific or broad Overpass amenity filter
-        if category == "hospital":
+        cat_norm = (category or "").lower().strip()
+        if cat_norm in ("hospital",):
             amenity_filter = "hospital"
-        elif category == "clinic":
-            amenity_filter = "clinic"
-        elif category == "medical":
+        elif cat_norm in ("clinic", "doctors"):
+            amenity_filter = "clinic|doctors"
+        elif cat_norm in ("medical",):
             amenity_filter = "hospital|clinic|doctors"
-        elif category == "police":
+        elif cat_norm in ("police", "police_station"):
             amenity_filter = "police"
-        elif category in ("fuel", "petrol_pump", "fuel_station"):
+        elif cat_norm in ("fuel", "petrol_pump", "fuel_station"):
             amenity_filter = "fuel"
-        elif category in ("fire_station", "fire"):
+        elif cat_norm in ("fire_station", "fire"):
             amenity_filter = "fire_station"
+        elif cat_norm in ("shelter",):
+            amenity_filter = "shelter"
         else:
             amenity_filter = "hospital|clinic|police|fuel|fire_station|shelter"
 
@@ -118,13 +124,18 @@ class OSMAmenitiesClient:
         out center tags 100;
         """
 
+        import time
         candidate_urls = [self.api_url] + [m for m in self.FALLBACK_MIRRORS if m != self.api_url]
         client = await self.get_client()
 
         for endpoint_url in candidate_urls:
+            start_t = time.perf_counter()
             try:
                 response = await client.post(endpoint_url, data={"data": query})
+                elapsed_ms = round((time.perf_counter() - start_t) * 1000.0, 1)
                 self.last_status_code = response.status_code
+                self.last_duration_ms = elapsed_ms
+                self.last_mirror = endpoint_url
 
                 if response.status_code == 200:
                     data = response.json()
@@ -206,6 +217,7 @@ class OSMAmenitiesClient:
 
                     # Deduplicate elements: if same category and normalized name within 50 meters, merge
                     deduped: List[Dict[str, Any]] = []
+                    cat_counts: Dict[str, int] = {}
                     for item in raw_items:
                         norm_name = item["name"].strip().lower()
                         matched = False
@@ -221,17 +233,19 @@ class OSMAmenitiesClient:
                                     # Merge fields, preferring non-empty values
                                     for k in ["phone", "opening_hours", "website", "brand", "operator", "address"]:
                                         if not existing.get(k) and item.get(k):
-                                            existing[k] = item[k]
+                                             existing[k] = item[k]
                                     if item.get("emergency_verified"):
                                         existing["emergency_verified"] = True
                                     break
                         if not matched:
                             deduped.append(item)
+                            cat_counts[item["category"]] = cat_counts.get(item["category"], 0) + 1
 
                     self.circuit_breaker.record_success()
                     self.last_success_at = now
                     self.last_error = None
                     self.last_record_count = len(deduped)
+                    self.category_counts = cat_counts
 
                     if deduped:
                         await cache_service.set(cache_key, deduped, ttl_seconds=settings.MAP_POINTS_CACHE_TTL_SECONDS)
@@ -252,6 +266,20 @@ class OSMAmenitiesClient:
         self.last_error = "All Overpass API mirrors timed out or returned errors."
         self.circuit_breaker.record_failure()
         return []
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Returns runtime diagnostics for the OSM amenities pipeline."""
+        return {
+            "last_attempt_at": self.last_attempt_at.isoformat() if self.last_attempt_at else None,
+            "last_success_at": self.last_success_at.isoformat() if self.last_success_at else None,
+            "last_status_code": self.last_status_code,
+            "last_duration_ms": self.last_duration_ms,
+            "last_mirror": self.last_mirror,
+            "last_error": self.last_error,
+            "last_record_count": self.last_record_count,
+            "category_counts": self.category_counts,
+            "circuit_breaker_open": not self.circuit_breaker.can_execute(),
+        }
 
     async def close(self):
         if self._client and not self._client.is_closed:

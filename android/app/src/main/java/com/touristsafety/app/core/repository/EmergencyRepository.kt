@@ -33,7 +33,8 @@ class EmergencyRepository @Inject constructor(
         return try {
             val response = apiService.getMapPoints(limit = 100)
             if (response.isSuccessful && response.body() != null) {
-                val dtos = response.body()!!.items
+                val body = response.body()!!
+                val dtos = body.items
                 val entities = dtos.map { dto ->
                     val verifiedEpoch = try {
                         Instant.parse(dto.verification_timestamp).toEpochMilli()
@@ -57,6 +58,8 @@ class EmergencyRepository @Inject constructor(
                 if (entities.isNotEmpty()) {
                     mapPointDao.clearMapPoints()
                     mapPointDao.insertMapPoints(entities)
+                } else if (body.provider_status == "provider_error") {
+                    android.util.Log.w("EmergencyRepository", "Upstream facility provider error reported; keeping durable local cached records.")
                 }
                 Result.success(Unit)
             } else {

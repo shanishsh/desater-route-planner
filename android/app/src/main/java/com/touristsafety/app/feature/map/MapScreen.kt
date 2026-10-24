@@ -1075,7 +1075,7 @@ private fun FloatingMapControls(
 /**
  * Updates MapLibre vector layers, polyline route line, forest polygons, hazard zones, and clustered markers.
  */
-private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
+private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, context: android.content.Context? = null) {
     try {
         val style = mapboxMap.style
         if (style == null || !style.isFullyLoaded) {
@@ -1083,7 +1083,7 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
         }
 
         try {
-            MapLibreLayerManager.setupSourcesAndLayers(style)
+            MapLibreLayerManager.setupSourcesAndLayers(style, context)
             MapLibreLayerManager.updateData(style, state)
         } catch (t: Throwable) {
             android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")

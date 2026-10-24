@@ -16,6 +16,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     retrieved_at: Optional[datetime] = None
     is_stale: bool = False
     source_provenance: Optional[str] = None
+    diagnostics: Optional[dict] = None
 
 
 class ErrorResponse(BaseModel):

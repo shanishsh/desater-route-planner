@@ -1,11 +1,16 @@
 package com.touristsafety.app.core.map
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import androidx.core.content.ContextCompat
+import com.touristsafety.app.R
 import org.maplibre.android.maps.Style
 
 /**
@@ -39,14 +44,42 @@ object MapIconFactory {
     private const val ICON_SIZE = 64 // 64x64 px standard resolution for crisp DPI rendering
 
     /**
+     * Converts an Android Drawable into a hardware-independent ARGB_8888 Bitmap.
+     */
+    fun drawableToBitmap(drawable: Drawable, width: Int = ICON_SIZE, height: Int = ICON_SIZE): Bitmap {
+        if (drawable is BitmapDrawable && drawable.bitmap != null) {
+            return Bitmap.createScaledBitmap(drawable.bitmap, width, height, true)
+        }
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
+    }
+
+    private fun loadOrGenerateBitmap(context: Context?, resId: Int, fallback: () -> Bitmap): Bitmap {
+        if (context != null) {
+            try {
+                val drawable = ContextCompat.getDrawable(context, resId)
+                if (drawable != null) {
+                    return drawableToBitmap(drawable)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("MapIconFactory", "Failed to inflate drawable resource $resId: ${t.message}. Using fallback.")
+            }
+        }
+        return fallback()
+    }
+
+    /**
      * Registers all required facility and hazard marker images into the MapLibre Style.
      * Safe to invoke on every style load or style reload; skips images already registered.
      */
-    fun registerMarkerImages(style: Style) {
+    fun registerMarkerImages(style: Style, context: Context? = null) {
         if (!style.isFullyLoaded) return
 
         // Hospital (both canonical poi-* and legacy icon-*)
-        val hospitalBitmap = createHospitalBitmap()
+        val hospitalBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_hospital) { createHospitalBitmap() }
         if (style.getImage(ICON_HOSPITAL) == null) {
             style.addImage(ICON_HOSPITAL, hospitalBitmap)
         }
@@ -55,7 +88,7 @@ object MapIconFactory {
         }
 
         // Clinic
-        val clinicBitmap = createClinicBitmap()
+        val clinicBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_clinic) { createClinicBitmap() }
         if (style.getImage(ICON_CLINIC) == null) {
             style.addImage(ICON_CLINIC, clinicBitmap)
         }
@@ -64,7 +97,7 @@ object MapIconFactory {
         }
 
         // Police
-        val policeBitmap = createPoliceBitmap()
+        val policeBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_police) { createPoliceBitmap() }
         if (style.getImage(ICON_POLICE) == null) {
             style.addImage(ICON_POLICE, policeBitmap)
         }
@@ -73,7 +106,7 @@ object MapIconFactory {
         }
 
         // Fuel / Petrol Pump
-        val fuelBitmap = createFuelBitmap()
+        val fuelBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fuel) { createFuelBitmap() }
         if (style.getImage(ICON_FUEL) == null) {
             style.addImage(ICON_FUEL, fuelBitmap)
         }
@@ -82,7 +115,7 @@ object MapIconFactory {
         }
 
         // Fire Station
-        val fireStationBitmap = createFireStationBitmap()
+        val fireStationBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fire_station) { createFireStationBitmap() }
         if (style.getImage(ICON_FIRE_STATION) == null) {
             style.addImage(ICON_FIRE_STATION, fireStationBitmap)
         }
@@ -91,7 +124,7 @@ object MapIconFactory {
         }
 
         // Shelter
-        val shelterBitmap = createShelterBitmap()
+        val shelterBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_shelter) { createShelterBitmap() }
         if (style.getImage(ICON_SHELTER) == null) {
             style.addImage(ICON_SHELTER, shelterBitmap)
         }
@@ -106,6 +139,30 @@ object MapIconFactory {
         if (style.getImage(ICON_DISASTER) == null) {
             style.addImage(ICON_DISASTER, createDisasterBitmap())
         }
+    }
+
+    /**
+     * Verifies whether a specific icon ID is successfully registered in the MapLibre Style.
+     */
+    fun isIconRegistered(style: Style, iconId: String): Boolean {
+        return style.isFullyLoaded && style.getImage(iconId) != null
+    }
+
+    /**
+     * Checks registration status of all essential facility icon identifiers.
+     */
+    fun verifyAllIconsRegistered(style: Style): Map<String, Boolean> {
+        val required = listOf(
+            ICON_HOSPITAL,
+            ICON_CLINIC,
+            ICON_POLICE,
+            ICON_FUEL,
+            ICON_FIRE_STATION,
+            ICON_SHELTER,
+            ICON_WILDFIRE,
+            ICON_DISASTER
+        )
+        return required.associateWith { isIconRegistered(style, it) }
     }
 
     /**

@@ -49,9 +49,13 @@ class MapPointRepository:
 
         # Spatial bounding box query
         if min_lat is not None and max_lat is not None:
-            filters.append(MapPoint.latitude.between(min_lat, max_lat))
+            actual_min_lat = min(min_lat, max_lat)
+            actual_max_lat = max(min_lat, max_lat)
+            filters.append(MapPoint.latitude.between(actual_min_lat, actual_max_lat))
         if min_lon is not None and max_lon is not None:
-            filters.append(MapPoint.longitude.between(min_lon, max_lon))
+            actual_min_lon = min(min_lon, max_lon)
+            actual_max_lon = max(min_lon, max_lon)
+            filters.append(MapPoint.longitude.between(actual_min_lon, actual_max_lon))
 
         if filters:
             query = query.where(and_(*filters))
