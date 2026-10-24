@@ -58,6 +58,7 @@ fun MapScreen(
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var mapLoadFailed by remember { mutableStateOf(false) }
+    var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, mapViewInstance) {
@@ -80,6 +81,15 @@ fun MapScreen(
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
+
+            // Catch up immediately if the hosting activity is already in STARTED or RESUMED state
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                try { mv.onStart() } catch (_: Throwable) {}
+            }
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                try { mv.onResume() } catch (_: Throwable) {}
+            }
+
             onDispose {
                 lifecycleOwner.lifecycle.removeObserver(observer)
                 try {
@@ -87,6 +97,36 @@ fun MapScreen(
                     mv.onStop()
                     mv.onDestroy()
                 } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    // Safety watchdog: If remote vector style takes > 4.5s or stalls, force fallback style so map is never white
+    LaunchedEffect(mapViewInstance, maplibreMapInstance) {
+        val mv = mapViewInstance
+        if (mv != null && maplibreMapInstance?.style?.isFullyLoaded != true) {
+            kotlinx.coroutines.delay(4500)
+            if (maplibreMapInstance?.style?.isFullyLoaded != true) {
+                android.util.Log.w("MapScreen", "Style load timed out; forcing offline fallback style")
+                try {
+                    mv.getMapAsync { map ->
+                        if (map.style?.isFullyLoaded != true) {
+                            map.setStyle(Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)) { fallbackStyle ->
+                                maplibreMapInstance = map
+                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                                val pos = CameraPosition.Builder()
+                                    .target(target)
+                                    .zoom(state.zoomLevel)
+                                    .build()
+                                map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                                updateMaplibreLayers(map, state)
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("MapScreen", "Watchdog fallback style failed: ${t.message}")
+                    mapLoadFailed = true
+                }
             }
         }
     }
@@ -126,13 +166,42 @@ fun MapScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             onCreate(null)
+                            onStart()
+                            onResume()
                             mapViewInstance = this
+
+                            addOnDidFailLoadingMapListener { errorMessage ->
+                                android.util.Log.w("MapScreen", "MapLibre did fail loading map: $errorMessage; falling back to offline style")
+                                try {
+                                    getMapAsync { map ->
+                                        if (map.style?.isFullyLoaded != true) {
+                                            map.setStyle(Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)) { fallbackStyle ->
+                                                maplibreMapInstance = map
+                                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                                                val pos = CameraPosition.Builder()
+                                                    .target(target)
+                                                    .zoom(state.zoomLevel)
+                                                    .build()
+                                                map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                                                updateMaplibreLayers(map, state)
+                                            }
+                                        }
+                                    }
+                                } catch (t: Throwable) {
+                                    android.util.Log.e("MapScreen", "Failed applying fallback style: ${t.message}")
+                                    mapLoadFailed = true
+                                }
+                            }
 
                             getMapAsync { mapboxMap ->
                                 try {
-                                    mapboxMap.setStyle(
+                                    val styleBuilder = if (state.isOfflineMode) {
+                                        Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)
+                                    } else {
                                         Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                                    ) { style ->
+                                    }
+
+                                    mapboxMap.setStyle(styleBuilder) { style ->
                                         try {
                                             maplibreMapInstance = mapboxMap
                                             val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
@@ -249,6 +318,15 @@ fun MapScreen(
                         maplibreMapInstance?.let { map ->
                             if (map.style?.isFullyLoaded == true) {
                                 updateMaplibreLayers(map, state)
+
+                                if (state.activeRouteId != null && state.activeRouteId != lastRenderedRouteId) {
+                                    lastRenderedRouteId = state.activeRouteId
+                                    if (state.routeCoordinates.isNotEmpty()) {
+                                        val centerLat = state.routeCoordinates.map { it.first }.average()
+                                        val centerLon = state.routeCoordinates.map { it.second }.average()
+                                        map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(centerLat, centerLon), 12.0))
+                                    }
+                                }
                             }
                         }
                     } catch (t: Throwable) {
@@ -753,7 +831,7 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
             android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")
         }
 
-        // Manage lightweight GPS position marker via annotation system only when style is fully loaded
+        // Manage lightweight GPS position marker and route endpoints via annotation system only when style is fully loaded
         try {
             mapboxMap.clear()
             if (state.isUserLocationAcquired) {
@@ -765,8 +843,24 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
                         .snippet("GPS Location")
                 )
             }
+            if (state.routeCoordinates.size >= 2) {
+                val startCoord = state.routeCoordinates.first()
+                val destCoord = state.routeCoordinates.last()
+                mapboxMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(startCoord.first, startCoord.second))
+                        .title("Route Start")
+                        .snippet(state.routeTitle)
+                )
+                mapboxMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(destCoord.first, destCoord.second))
+                        .title("Route Destination")
+                        .snippet(state.routeTitle)
+                )
+            }
         } catch (t: Throwable) {
-            android.util.Log.w("MapScreen", "GPS annotation update failed safely: ${t.message}")
+            android.util.Log.w("MapScreen", "Annotations update failed safely: ${t.message}")
         }
     } catch (e: Throwable) {
         android.util.Log.e("MapScreen", "updateMaplibreLayers failed safely: ${e.message}")

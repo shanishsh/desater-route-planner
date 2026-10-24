@@ -129,6 +129,26 @@ fun MapLocationPickerDialog(
                         onStart()
                         onResume()
                         mapViewInstance = this
+
+                        addOnDidFailLoadingMapListener { errorMessage ->
+                            android.util.Log.w("MapLocationPicker", "Map loading failed: $errorMessage; applying fallback style")
+                            try {
+                                getMapAsync { map ->
+                                    if (map.style?.isFullyLoaded != true) {
+                                        map.setStyle(Style.Builder().fromJson(MapConfig.FALLBACK_STYLE_JSON)) { fallbackStyle ->
+                                            maplibreMap = map
+                                            val target = LatLng(defaultLat, defaultLon)
+                                            val pos = CameraPosition.Builder()
+                                                .target(target)
+                                                .zoom(11.0)
+                                                .build()
+                                            map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+                        }
+
                         getMapAsync { map ->
                             try {
                                 map.setStyle(

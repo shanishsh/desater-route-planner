@@ -32,5 +32,39 @@ object MapConfig {
     const val DEFAULT_LATITUDE = 30.6534
     const val DEFAULT_LONGITUDE = 79.0268
     const val DEFAULT_ZOOM = 13.0
+
+    // Offline-ready, zero-network fallback style JSON with terrain background and OpenStreetMap tiles
+    val FALLBACK_STYLE_JSON = """
+    {
+      "version": 8,
+      "name": "Uttarakhand Fallback Basemap",
+      "sources": {
+        "osm-tiles": {
+          "type": "raster",
+          "tiles": [
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "© OpenStreetMap contributors"
+        }
+      },
+      "layers": [
+        {
+          "id": "background",
+          "type": "background",
+          "paint": {
+            "background-color": "#E5E0D8"
+          }
+        },
+        {
+          "id": "osm-tiles-layer",
+          "type": "raster",
+          "source": "osm-tiles",
+          "minzoom": 0,
+          "maxzoom": 19
+        }
+      ]
+    }
+    """.trimIndent()
 }
 

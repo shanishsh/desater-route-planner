@@ -522,7 +522,7 @@ object MapLibreLayerManager {
             try {
                 val corridorSource = style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)
                 val corrJson = if (!state.corridorGeoJson.isNullOrBlank()) {
-                    state.corridorGeoJson
+                    ensureFeatureCollection(state.corridorGeoJson)
                 } else {
                     buildCorridorGeoJson(state.corridorPolygonCoordinates)
                 }
@@ -535,7 +535,7 @@ object MapLibreLayerManager {
             try {
                 val primSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)
                 val primJson = if (!state.routePrimaryGeoJson.isNullOrBlank()) {
-                    state.routePrimaryGeoJson
+                    ensureFeatureCollection(state.routePrimaryGeoJson)
                 } else {
                     buildLineStringGeoJson(state.routeCoordinates)
                 }
@@ -547,7 +547,7 @@ object MapLibreLayerManager {
             try {
                 val secSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)
                 val secJson = if (!state.routeSecondaryGeoJson.isNullOrBlank()) {
-                    state.routeSecondaryGeoJson
+                    ensureFeatureCollection(state.routeSecondaryGeoJson)
                 } else if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
                     buildLineStringGeoJson(state.primaryRouteCoordinates)
                 } else {
@@ -562,7 +562,7 @@ object MapLibreLayerManager {
             try {
                 val disasterSource = style.getSourceAs<GeoJsonSource>(SOURCE_DISASTER_POLYGONS)
                 val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
-                    state.hazardsGeoJson
+                    ensureFeatureCollection(state.hazardsGeoJson)
                 } else {
                     val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
                     buildDisasterFeatureCollection(disasterFeatures)
@@ -576,7 +576,7 @@ object MapLibreLayerManager {
             try {
                 val forestSource = style.getSourceAs<GeoJsonSource>(SOURCE_FOREST_POLYGONS)
                 val forestJson = if (!state.forestsGeoJson.isNullOrBlank()) {
-                    state.forestsGeoJson
+                    ensureFeatureCollection(state.forestsGeoJson)
                 } else {
                     val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
                     buildPolygonFeatureCollection(forestFeatures)
@@ -590,7 +590,7 @@ object MapLibreLayerManager {
             try {
                 val fireSource = style.getSourceAs<GeoJsonSource>(SOURCE_ACTIVE_FIRES)
                 val fireJson = if (!state.firesGeoJson.isNullOrBlank()) {
-                    state.firesGeoJson
+                    ensureFeatureCollection(state.firesGeoJson)
                 } else {
                     val fireFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
                     buildPointFeatureCollection(fireFeatures)
@@ -604,7 +604,7 @@ object MapLibreLayerManager {
             try {
                 val havenSource = style.getSourceAs<GeoJsonSource>(SOURCE_SAFE_HAVENS)
                 val havenJson = if (!state.facilitiesGeoJson.isNullOrBlank()) {
-                    state.facilitiesGeoJson
+                    ensureFeatureCollection(state.facilitiesGeoJson)
                 } else {
                     val havenFeatures = state.allFeatures.filter {
                         it.category == MapFeatureCategory.SHELTER ||
@@ -915,5 +915,21 @@ object MapLibreLayerManager {
         }
         sb.append("]}")
         return sb.toString()
+    }
+
+    /**
+     * Ensures any raw GeoJSON string (e.g. LineString or Polygon) is wrapped into a valid FeatureCollection
+     * so that MapLibre GeoJsonSource can parse and render it without runtime schema errors.
+     */
+    fun ensureFeatureCollection(rawJson: String): String {
+        val trimmed = rawJson.trim()
+        if (trimmed.startsWith("{\"type\":\"FeatureCollection\"") || trimmed.startsWith("{\"type\": \"FeatureCollection\"")) {
+            return trimmed
+        }
+        if (trimmed.startsWith("{\"type\":\"Feature\"") || trimmed.startsWith("{\"type\": \"Feature\"")) {
+            return "{\"type\":\"FeatureCollection\",\"features\":[$trimmed]}"
+        }
+        // Bare Geometry (LineString, Polygon, MultiPolygon)
+        return "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":$trimmed}]}"
     }
 }
