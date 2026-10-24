@@ -108,3 +108,4 @@ class CrashReportActivity : Activity() {
         const val EXTRA_ERROR_DETAILS = "extra_error_details"
     }
 }
+

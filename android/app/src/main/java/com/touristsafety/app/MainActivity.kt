@@ -70,14 +70,15 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (!isFullScreen) {
                             NavigationBar {
-                                Screen.bottomNavScreens.forEach { screen ->
+                                Screen.bottomNavScreens.filterNotNull().forEach { screen ->
                                     NavigationBarItem(
                                         icon = { Icon(screen.icon, contentDescription = screen.title) },
                                         label = { Text(screen.title) },
                                         selected = currentRoute == screen.route,
                                         onClick = {
-                                            if (currentRoute != screen.route) {
-                                                navController.navigate(screen.route) {
+                                            val targetRoute = screen.route
+                                            if (currentRoute != targetRoute) {
+                                                navController.navigate(targetRoute) {
                                                     popUpTo(Screen.Home.route) { saveState = true }
                                                     launchSingleTop = true
                                                     restoreState = true

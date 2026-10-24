@@ -26,15 +26,18 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     }
 
     companion object {
-        val bottomNavScreens = listOf(Home, PlanTrip, Map, Alerts, Emergency)
-        val fullScreenRoutes = setOf(
-            Welcome.route,
-            Login.route,
-            Register.route,
-            PermissionOnboarding.route,
-            "route_safety_review/{routeId}",
-            "active_trip/{tripId}"
-        )
+        val bottomNavScreens: List<Screen>
+            get() = listOf(Home, PlanTrip, Map, Alerts, Emergency)
+
+        val fullScreenRoutes: Set<String>
+            get() = setOf(
+                Welcome.route,
+                Login.route,
+                Register.route,
+                PermissionOnboarding.route,
+                "route_safety_review/{routeId}",
+                "active_trip/{tripId}"
+            )
     }
 }
 
