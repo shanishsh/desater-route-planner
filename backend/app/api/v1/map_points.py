@@ -29,7 +29,7 @@ async def list_map_points(
             min_lon, min_lat, max_lon, max_lat = parts
 
     service = EmergencyService(db)
-    items, total = await service.list_points(
+    items, total, metadata = await service.list_points(
         category=category,
         min_lat=min_lat,
         max_lat=max_lat,
@@ -44,6 +44,10 @@ async def list_map_points(
         limit=limit,
         offset=offset,
         has_more=(offset + limit) < total,
+        provider_status=metadata.get("provider_status", "success"),
+        retrieved_at=metadata.get("retrieved_at"),
+        is_stale=metadata.get("is_stale", False),
+        source_provenance=metadata.get("provenance", "OpenStreetMap Contributors (ODbL)"),
     )
 
 

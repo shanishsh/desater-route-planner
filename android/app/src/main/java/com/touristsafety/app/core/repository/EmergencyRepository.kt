@@ -71,8 +71,9 @@ class EmergencyRepository @Inject constructor(
         val cat = when (category.lowercase()) {
             "emergency_service" -> PointCategory.EMERGENCY_SERVICE
             "medical", "hospital" -> PointCategory.MEDICAL
-            "clinic" -> PointCategory.CLINIC
+            "clinic", "doctors" -> PointCategory.CLINIC
             "police" -> PointCategory.POLICE
+            "fuel", "fuel_station", "petrol_pump" -> PointCategory.FUEL_STATION
             "fire_station", "fire" -> PointCategory.FIRE_STATION
             "shelter" -> PointCategory.SHELTER
             "visitor_info", "tourist_assistance" -> PointCategory.VISITOR_INFO

@@ -296,6 +296,52 @@ fun MapScreen(
         }
     }
 
+    // Reactively update MapLibre vector layers, POI icons, and filters whenever features or filter selections update
+    LaunchedEffect(
+        state.allFeatures,
+        state.facilitiesGeoJson,
+        state.visibleFeatures,
+        state.selectedFilter,
+        state.layerVisibilities,
+        state.routeCoordinates,
+        baseMapStatus
+    ) {
+        if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
+            maplibreMapInstance?.let { map ->
+                if (map.style?.isFullyLoaded == true) {
+                    updateMaplibreLayers(map, state)
+                }
+            }
+        }
+    }
+
+    // Animate camera to active route when route selection changes
+    LaunchedEffect(state.activeRouteId) {
+        val routeId = state.activeRouteId
+        if (routeId != null && routeId != lastRenderedRouteId) {
+            lastRenderedRouteId = routeId
+            maplibreMapInstance?.let { map ->
+                if (map.style?.isFullyLoaded == true && state.routeCoordinates.isNotEmpty()) {
+                    val centerLat = state.routeCoordinates.map { it.first }.average()
+                    val centerLon = state.routeCoordinates.map { it.second }.average()
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(centerLat, centerLon), 12.0))
+                }
+            }
+        }
+    }
+
+    // Animate camera when camera target is updated programmatically
+    LaunchedEffect(state.cameraTarget) {
+        if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
+            maplibreMapInstance?.let { map ->
+                if (map.style?.isFullyLoaded == true) {
+                    val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, state.zoomLevel))
+                }
+            }
+        }
+    }
+
     val retryStyleLoad: () -> Unit = {
         baseMapStatus = BaseMapStatus.STYLE_LOADING
         styleErrorMessage = null

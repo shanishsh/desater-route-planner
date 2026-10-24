@@ -26,6 +26,8 @@ class MapPoint(Base, TimestampMixin):
         nullable=False,
     )
     provenance: Mapped[str] = mapped_column(String(255), default="Official Public Emergency Registry", nullable=False)
+    osm_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    osm_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     __table_args__ = (
         Index("ix_map_points_lat_lon", "latitude", "longitude"),

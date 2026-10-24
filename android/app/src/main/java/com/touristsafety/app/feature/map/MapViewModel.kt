@@ -64,8 +64,8 @@ data class MapUiState(
     val isLocationFresh: Boolean = false,
     val isLocating: Boolean = false,
     val locationErrorMessage: String? = null,
-    val cameraTarget: Pair<Double, Double> = 30.6534 to 79.0268,
-    val zoomLevel: Double = 13.0,
+    val cameraTarget: Pair<Double, Double> = 30.15 to 78.78,
+    val zoomLevel: Double = 9.0,
     val isOfflineMode: Boolean = false,
     val selectedFilter: MapFilterChip = MapFilterChip.ALL,
     val layerVisibilities: Map<MapFeatureCategory, Boolean> = MapFeatureCategory.entries.associateWith { true },
@@ -1268,11 +1268,12 @@ class MapViewModel @Inject constructor(
                 }
             )
 
-            // Emergency status (Hospitals, Police, Fire Stations, Clinics)
+            // Emergency status (Hospitals, Police, Fire Stations, Clinics, Petrol Pumps, Shelters)
             val emCategories = listOf(
                 MapFeatureCategory.HOSPITAL,
                 MapFeatureCategory.CLINIC,
                 MapFeatureCategory.POLICE_STATION,
+                MapFeatureCategory.PETROL_PUMP,
                 MapFeatureCategory.FIRE_STATION,
                 MapFeatureCategory.SHELTER,
                 MapFeatureCategory.TOURIST_ASSISTANCE
@@ -1285,6 +1286,7 @@ class MapViewModel @Inject constructor(
                                 PointCategory.MEDICAL -> cat == MapFeatureCategory.HOSPITAL
                                 PointCategory.CLINIC -> cat == MapFeatureCategory.CLINIC
                                 PointCategory.POLICE -> cat == MapFeatureCategory.POLICE_STATION
+                                PointCategory.FUEL_STATION -> cat == MapFeatureCategory.PETROL_PUMP
                                 PointCategory.FIRE_STATION, PointCategory.EMERGENCY_SERVICE -> cat == MapFeatureCategory.FIRE_STATION
                                 PointCategory.SHELTER -> cat == MapFeatureCategory.SHELTER
                                 else -> cat == MapFeatureCategory.TOURIST_ASSISTANCE

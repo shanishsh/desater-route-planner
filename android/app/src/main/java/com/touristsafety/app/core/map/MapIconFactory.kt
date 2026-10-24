@@ -18,14 +18,23 @@ import org.maplibre.android.maps.Style
  */
 object MapIconFactory {
 
-    const val ICON_HOSPITAL = "icon-hospital"
-    const val ICON_CLINIC = "icon-clinic"
-    const val ICON_POLICE = "icon-police"
-    const val ICON_FUEL = "icon-fuel"
-    const val ICON_FIRE_STATION = "icon-fire-station"
-    const val ICON_SHELTER = "icon-shelter"
+    // Canonical POI Icon IDs
+    const val ICON_HOSPITAL = "poi-hospital"
+    const val ICON_CLINIC = "poi-clinic"
+    const val ICON_POLICE = "poi-police"
+    const val ICON_FUEL = "poi-fuel"
+    const val ICON_FIRE_STATION = "poi-fire-station"
+    const val ICON_SHELTER = "poi-shelter"
     const val ICON_WILDFIRE = "icon-wildfire"
     const val ICON_DISASTER = "icon-disaster"
+
+    // Legacy aliases
+    const val LEGACY_ICON_HOSPITAL = "icon-hospital"
+    const val LEGACY_ICON_CLINIC = "icon-clinic"
+    const val LEGACY_ICON_POLICE = "icon-police"
+    const val LEGACY_ICON_FUEL = "icon-fuel"
+    const val LEGACY_ICON_FIRE_STATION = "icon-fire-station"
+    const val LEGACY_ICON_SHELTER = "icon-shelter"
 
     private const val ICON_SIZE = 64 // 64x64 px standard resolution for crisp DPI rendering
 
@@ -36,24 +45,61 @@ object MapIconFactory {
     fun registerMarkerImages(style: Style) {
         if (!style.isFullyLoaded) return
 
+        // Hospital (both canonical poi-* and legacy icon-*)
+        val hospitalBitmap = createHospitalBitmap()
         if (style.getImage(ICON_HOSPITAL) == null) {
-            style.addImage(ICON_HOSPITAL, createHospitalBitmap())
+            style.addImage(ICON_HOSPITAL, hospitalBitmap)
         }
+        if (style.getImage(LEGACY_ICON_HOSPITAL) == null) {
+            style.addImage(LEGACY_ICON_HOSPITAL, hospitalBitmap)
+        }
+
+        // Clinic
+        val clinicBitmap = createClinicBitmap()
         if (style.getImage(ICON_CLINIC) == null) {
-            style.addImage(ICON_CLINIC, createClinicBitmap())
+            style.addImage(ICON_CLINIC, clinicBitmap)
         }
+        if (style.getImage(LEGACY_ICON_CLINIC) == null) {
+            style.addImage(LEGACY_ICON_CLINIC, clinicBitmap)
+        }
+
+        // Police
+        val policeBitmap = createPoliceBitmap()
         if (style.getImage(ICON_POLICE) == null) {
-            style.addImage(ICON_POLICE, createPoliceBitmap())
+            style.addImage(ICON_POLICE, policeBitmap)
         }
+        if (style.getImage(LEGACY_ICON_POLICE) == null) {
+            style.addImage(LEGACY_ICON_POLICE, policeBitmap)
+        }
+
+        // Fuel / Petrol Pump
+        val fuelBitmap = createFuelBitmap()
         if (style.getImage(ICON_FUEL) == null) {
-            style.addImage(ICON_FUEL, createFuelBitmap())
+            style.addImage(ICON_FUEL, fuelBitmap)
         }
+        if (style.getImage(LEGACY_ICON_FUEL) == null) {
+            style.addImage(LEGACY_ICON_FUEL, fuelBitmap)
+        }
+
+        // Fire Station
+        val fireStationBitmap = createFireStationBitmap()
         if (style.getImage(ICON_FIRE_STATION) == null) {
-            style.addImage(ICON_FIRE_STATION, createFireStationBitmap())
+            style.addImage(ICON_FIRE_STATION, fireStationBitmap)
         }
+        if (style.getImage(LEGACY_ICON_FIRE_STATION) == null) {
+            style.addImage(LEGACY_ICON_FIRE_STATION, fireStationBitmap)
+        }
+
+        // Shelter
+        val shelterBitmap = createShelterBitmap()
         if (style.getImage(ICON_SHELTER) == null) {
-            style.addImage(ICON_SHELTER, createShelterBitmap())
+            style.addImage(ICON_SHELTER, shelterBitmap)
         }
+        if (style.getImage(LEGACY_ICON_SHELTER) == null) {
+            style.addImage(LEGACY_ICON_SHELTER, shelterBitmap)
+        }
+
+        // Wildfire & Disaster Advisories
         if (style.getImage(ICON_WILDFIRE) == null) {
             style.addImage(ICON_WILDFIRE, createWildfireBitmap())
         }

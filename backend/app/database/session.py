@@ -50,6 +50,9 @@ async def _apply_schema_migrations(conn):
         "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS center_longitude FLOAT",
         "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS affected_radius_meters FLOAT DEFAULT 5000.0",
         "CREATE INDEX IF NOT EXISTS ix_disaster_alerts_external_identifier ON disaster_alerts (external_identifier)",
+        "ALTER TABLE map_points ADD COLUMN IF NOT EXISTS osm_id VARCHAR(100)",
+        "ALTER TABLE map_points ADD COLUMN IF NOT EXISTS osm_type VARCHAR(20)",
+        "CREATE INDEX IF NOT EXISTS ix_map_points_osm_id ON map_points (osm_id)",
     ]
     for stmt in statements:
         try:

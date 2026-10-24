@@ -30,9 +30,14 @@ def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
 class OSMAmenitiesClient:
     """Client for retrieving genuine hospitals, clinics, police stations, fuel stations, and fire stations from OpenStreetMap Overpass."""
 
+    FALLBACK_MIRRORS = [
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
+
     def __init__(self):
         self.api_url = settings.OVERPASS_API_URL
-        self.circuit_breaker = CircuitBreaker("OSMAmenities", failure_threshold=2, recovery_time_seconds=30.0)
+        self.circuit_breaker = CircuitBreaker("OSMAmenities", failure_threshold=4, recovery_time_seconds=20.0)
         self._client: Optional[httpx.AsyncClient] = None
         self._loop = None
         self.last_attempt_at: Optional[datetime] = None
@@ -47,7 +52,7 @@ class OSMAmenitiesClient:
         if self._client is None or self._client.is_closed or self._loop != loop:
             self._loop = loop
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=2.5, read=4.5, write=2.5, pool=2.5),
+                timeout=httpx.Timeout(connect=5.0, read=12.0, write=5.0, pool=5.0),
                 headers={"User-Agent": "TouristSafetyPlatform/1.0 (Emergency-Amenities; OSM-Overpass)"},
             )
         return self._client
@@ -75,7 +80,7 @@ class OSMAmenitiesClient:
             min_lon = center_lon - 0.2
             max_lon = center_lon + 0.2
 
-        cache_key = f"osm_amenities_v2:{round(min_lat, 2)}:{round(min_lon, 2)}:{round(max_lat, 2)}:{round(max_lon, 2)}:{category}"
+        cache_key = f"osm_amenities_v3:{round(min_lat, 2)}:{round(min_lon, 2)}:{round(max_lat, 2)}:{round(max_lon, 2)}:{category}"
         cached = await cache_service.get(cache_key)
         if cached and isinstance(cached, list):
             return cached
@@ -93,7 +98,7 @@ class OSMAmenitiesClient:
             amenity_filter = "hospital|clinic|doctors"
         elif category == "police":
             amenity_filter = "police"
-        elif category in ("fuel", "petrol_pump"):
+        elif category in ("fuel", "petrol_pump", "fuel_station"):
             amenity_filter = "fuel"
         elif category in ("fire_station", "fire"):
             amenity_filter = "fire_station"
@@ -101,143 +106,151 @@ class OSMAmenitiesClient:
             amenity_filter = "hospital|clinic|police|fuel|fire_station|shelter"
 
         query = f"""
-        [out:json][timeout:10];
+        [out:json][timeout:15];
         (
           node["amenity"~"{amenity_filter}"]({min_lat},{min_lon},{max_lat},{max_lon});
           way["amenity"~"{amenity_filter}"]({min_lat},{min_lon},{max_lat},{max_lon});
+          relation["amenity"~"{amenity_filter}"]({min_lat},{min_lon},{max_lat},{max_lon});
           node["healthcare"~"hospital|clinic"]({min_lat},{min_lon},{max_lat},{max_lon});
           way["healthcare"~"hospital|clinic"]({min_lat},{min_lon},{max_lat},{max_lon});
+          relation["healthcare"~"hospital|clinic"]({min_lat},{min_lon},{max_lat},{max_lon});
         );
-        out center tags 50;
+        out center tags 100;
         """
 
-        try:
-            client = await self.get_client()
-            response = await client.post(self.api_url, data={"data": query})
-            self.last_status_code = response.status_code
+        candidate_urls = [self.api_url] + [m for m in self.FALLBACK_MIRRORS if m != self.api_url]
+        client = await self.get_client()
 
-            if response.status_code == 200:
-                data = response.json()
-                elements = data.get("elements", [])
-                raw_items = []
-                for el in elements:
-                    tags = el.get("tags", {})
-                    lat = el.get("lat") or el.get("center", {}).get("lat")
-                    lon = el.get("lon") or el.get("center", {}).get("lon")
-                    if lat is None or lon is None:
-                        continue
+        for endpoint_url in candidate_urls:
+            try:
+                response = await client.post(endpoint_url, data={"data": query})
+                self.last_status_code = response.status_code
 
-                    amenity = tags.get("amenity", "")
-                    healthcare = tags.get("healthcare", "")
+                if response.status_code == 200:
+                    data = response.json()
+                    elements = data.get("elements", [])
+                    raw_items = []
+                    for el in elements:
+                        tags = el.get("tags", {})
+                        lat = el.get("lat") or el.get("center", {}).get("lat")
+                        lon = el.get("lon") or el.get("center", {}).get("lon")
+                        if lat is None or lon is None:
+                            continue
 
-                    # Categorize precisely
-                    if amenity == "hospital" or healthcare == "hospital":
-                        cat = "hospital"
-                        fallback_name = "Hospital"
-                    elif amenity == "clinic" or healthcare == "clinic":
-                        cat = "clinic"
-                        fallback_name = "Clinic"
-                    elif amenity == "police":
-                        cat = "police"
-                        fallback_name = "Police Station"
-                    elif amenity == "fuel":
-                        cat = "fuel"
-                        fallback_name = "Fuel Station"
-                    elif amenity == "fire_station":
-                        cat = "fire_station"
-                        fallback_name = "Fire Station"
-                    elif amenity == "shelter":
-                        cat = "shelter"
-                        fallback_name = "Emergency Shelter"
-                    else:
-                        continue
+                        amenity = tags.get("amenity", "")
+                        healthcare = tags.get("healthcare", "")
 
-                    name = tags.get("name") or tags.get("brand") or tags.get("operator") or fallback_name
+                        # Categorize precisely
+                        if amenity == "hospital" or healthcare == "hospital":
+                            cat = "hospital"
+                            fallback_name = "Hospital"
+                        elif amenity == "clinic" or healthcare == "clinic" or amenity == "doctors":
+                            cat = "clinic"
+                            fallback_name = "Clinic"
+                        elif amenity == "police":
+                            cat = "police"
+                            fallback_name = "Police Station"
+                        elif amenity == "fuel":
+                            cat = "fuel"
+                            fallback_name = "Fuel Station"
+                        elif amenity == "fire_station":
+                            cat = "fire_station"
+                            fallback_name = "Fire Station"
+                        elif amenity == "shelter":
+                            cat = "shelter"
+                            fallback_name = "Emergency Shelter"
+                        else:
+                            continue
 
-                    opening_hours = tags.get("opening_hours")
-                    phone = tags.get("phone") or tags.get("contact:phone")
-                    website = tags.get("website") or tags.get("contact:website")
-                    brand = tags.get("brand")
-                    operator = tags.get("operator")
-                    emergency_tag = tags.get("emergency")
+                        name = tags.get("name") or tags.get("brand") or tags.get("operator") or fallback_name
 
-                    # Verify emergency capability strictly
-                    emergency_verified = (emergency_tag == "yes") or (cat == "hospital" and emergency_tag != "no")
+                        opening_hours = tags.get("opening_hours")
+                        phone = tags.get("phone") or tags.get("contact:phone")
+                        website = tags.get("website") or tags.get("contact:website")
+                        brand = tags.get("brand")
+                        operator = tags.get("operator")
+                        emergency_tag = tags.get("emergency")
 
-                    address = (
-                        tags.get("addr:full")
-                        or (
-                            f"{tags.get('addr:street', '')} {tags.get('addr:city', '')}".strip()
-                            if tags.get("addr:street") or tags.get("addr:city")
-                            else None
-                        )
-                    )
+                        # Verify emergency capability strictly
+                        emergency_verified = (emergency_tag == "yes") or (cat == "hospital" and emergency_tag != "no")
 
-                    raw_items.append({
-                        "id": f"osm_{el.get('type')}_{el.get('id')}",
-                        "osm_id": str(el.get("id")),
-                        "osm_type": el.get("type"),
-                        "name": name,
-                        "category": cat,
-                        "latitude": float(lat),
-                        "longitude": float(lon),
-                        "opening_hours": opening_hours,
-                        "phone": phone,
-                        "website": website,
-                        "brand": brand,
-                        "operator": operator,
-                        "address": address,
-                        "emergency_verified": emergency_verified,
-                        "description": f"Verified {cat.replace('_', ' ')} via OpenStreetMap",
-                        "verification_status": "verified",
-                        "verification_timestamp": now.isoformat(),
-                        "provenance": ATTRIBUTION_NOTICE,
-                    })
-
-                # Deduplicate elements: if same category and normalized name within 50 meters, merge
-                deduped: List[Dict[str, Any]] = []
-                for item in raw_items:
-                    norm_name = item["name"].strip().lower()
-                    matched = False
-                    for existing in deduped:
-                        if existing["category"] == item["category"]:
-                            dist_m = _haversine_meters(
-                                item["latitude"], item["longitude"],
-                                existing["latitude"], existing["longitude"]
+                        address = (
+                            tags.get("addr:full")
+                            or (
+                                f"{tags.get('addr:street', '')} {tags.get('addr:city', '')}".strip()
+                                if tags.get("addr:street") or tags.get("addr:city")
+                                else None
                             )
-                            # Same normalized name or very close (<50m)
-                            if dist_m <= 50.0 and (norm_name == existing["name"].strip().lower() or not existing.get("phone")):
-                                matched = True
-                                # Merge fields, preferring non-empty values
-                                for k in ["phone", "opening_hours", "website", "brand", "operator", "address"]:
-                                    if not existing.get(k) and item.get(k):
-                                        existing[k] = item[k]
-                                if item.get("emergency_verified"):
-                                    existing["emergency_verified"] = True
-                                break
-                    if not matched:
-                        deduped.append(item)
+                        )
 
-                self.circuit_breaker.record_success()
-                self.last_success_at = now
-                self.last_error = None
-                self.last_record_count = len(deduped)
+                        raw_items.append({
+                            "id": f"osm_{el.get('type')}_{el.get('id')}",
+                            "osm_id": str(el.get("id")),
+                            "osm_type": el.get("type"),
+                            "name": name,
+                            "category": cat,
+                            "latitude": float(lat),
+                            "longitude": float(lon),
+                            "opening_hours": opening_hours,
+                            "phone": phone,
+                            "website": website,
+                            "brand": brand,
+                            "operator": operator,
+                            "address": address,
+                            "emergency_verified": emergency_verified,
+                            "description": f"Verified {cat.replace('_', ' ')} via OpenStreetMap",
+                            "verification_status": "verified",
+                            "verification_timestamp": now.isoformat(),
+                            "provenance": ATTRIBUTION_NOTICE,
+                        })
 
-                if deduped:
-                    await cache_service.set(cache_key, deduped, ttl_seconds=settings.MAP_POINTS_CACHE_TTL_SECONDS)
-                return deduped
+                    # Deduplicate elements: if same category and normalized name within 50 meters, merge
+                    deduped: List[Dict[str, Any]] = []
+                    for item in raw_items:
+                        norm_name = item["name"].strip().lower()
+                        matched = False
+                        for existing in deduped:
+                            if existing["category"] == item["category"]:
+                                dist_m = _haversine_meters(
+                                    item["latitude"], item["longitude"],
+                                    existing["latitude"], existing["longitude"]
+                                )
+                                # Same normalized name or very close (<50m)
+                                if dist_m <= 50.0 and (norm_name == existing["name"].strip().lower() or not existing.get("phone")):
+                                    matched = True
+                                    # Merge fields, preferring non-empty values
+                                    for k in ["phone", "opening_hours", "website", "brand", "operator", "address"]:
+                                        if not existing.get(k) and item.get(k):
+                                            existing[k] = item[k]
+                                    if item.get("emergency_verified"):
+                                        existing["emergency_verified"] = True
+                                    break
+                        if not matched:
+                            deduped.append(item)
 
-            elif response.status_code == 429:
-                self.last_error = "Rate limit exceeded (HTTP 429) on public Overpass."
-                self.circuit_breaker.record_failure()
-            else:
-                self.last_error = f"Upstream Overpass error (HTTP {response.status_code})"
-                self.circuit_breaker.record_failure()
+                    self.circuit_breaker.record_success()
+                    self.last_success_at = now
+                    self.last_error = None
+                    self.last_record_count = len(deduped)
 
-        except Exception as exc:
-            self.last_error = f"Error querying OSM amenities: {exc}"
-            self.circuit_breaker.record_failure()
+                    if deduped:
+                        await cache_service.set(cache_key, deduped, ttl_seconds=settings.MAP_POINTS_CACHE_TTL_SECONDS)
+                    return deduped
 
+                elif response.status_code == 429:
+                    logger.warning(f"Rate limit exceeded (HTTP 429) on Overpass mirror {endpoint_url}. Trying next...")
+                    continue
+                else:
+                    logger.warning(f"Upstream Overpass error {response.status_code} on {endpoint_url}. Trying next...")
+                    continue
+
+            except Exception as exc:
+                logger.warning(f"Error querying Overpass mirror {endpoint_url}: {exc}")
+                continue
+
+        # If all candidate endpoints failed:
+        self.last_error = "All Overpass API mirrors timed out or returned errors."
+        self.circuit_breaker.record_failure()
         return []
 
     async def close(self):

@@ -106,13 +106,46 @@ class RouteConditionAnalyzer:
 
         async def _safe_amenities():
             try:
-                return await asyncio.wait_for(
+                res = await asyncio.wait_for(
                     osm_amenities_client.fetch_amenities(min_lat, min_lon, max_lat, max_lon),
-                    timeout=3.5
+                    timeout=12.0
                 )
+                if res:
+                    return res
             except Exception as e:
-                logger.warning(f"Safe havens query failed or timed out: {e}")
-                return []
+                logger.warning(f"Live Overpass amenities query failed or timed out: {e}. Falling back to database...")
+
+            # Fallback to durable database facilities in the route bounding box
+            try:
+                from app.repositories.map_point_repo import MapPointRepository
+                p_repo = MapPointRepository(db)
+                db_pts, _ = await p_repo.list_points(
+                    min_lat=min_lat - 0.05,
+                    max_lat=max_lat + 0.05,
+                    min_lon=min_lon - 0.05,
+                    max_lon=max_lon + 0.05,
+                    limit=100
+                )
+                if db_pts:
+                    return [
+                        {
+                            "id": f"db_{p.id}",
+                            "osm_id": p.osm_id or str(p.id),
+                            "name": p.name,
+                            "category": p.category,
+                            "latitude": p.latitude,
+                            "longitude": p.longitude,
+                            "address": p.address,
+                            "phone": p.phone,
+                            "emergency_verified": True,
+                            "provenance": p.provenance,
+                        }
+                        for p in db_pts
+                    ]
+            except Exception as e_db:
+                logger.warning(f"Fallback database amenities query failed: {e_db}")
+
+            return []
 
         # 3. Query active disaster alerts from DB and run network queries concurrently
         allow_simulated = os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
