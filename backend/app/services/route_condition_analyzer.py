@@ -143,6 +143,10 @@ class RouteConditionAnalyzer:
                 return list(res.scalars().all())
             except Exception as e:
                 logger.warning(f"Database disaster alerts query failed: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
                 return []
 
         (elevation_data, forest_features, fires_res, amenity_items), candidate_alerts = await asyncio.gather(

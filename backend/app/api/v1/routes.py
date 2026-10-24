@@ -1,5 +1,8 @@
 """Route Planning and Multi-Hazard Corridor Safety Scanning API."""
+import logging
 from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

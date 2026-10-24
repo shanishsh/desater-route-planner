@@ -42,6 +42,14 @@ async def _apply_schema_migrations(conn):
         "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS routing_provider VARCHAR(50) DEFAULT 'OSRM'",
         "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS analysis_data JSON",
         "ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS last_analyzed_at TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS area_description TEXT",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS geocode_info TEXT",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS external_identifier VARCHAR(100)",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS polygon_geojson TEXT",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS center_latitude FLOAT",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS center_longitude FLOAT",
+        "ALTER TABLE disaster_alerts ADD COLUMN IF NOT EXISTS affected_radius_meters FLOAT DEFAULT 5000.0",
+        "CREATE INDEX IF NOT EXISTS ix_disaster_alerts_external_identifier ON disaster_alerts (external_identifier)",
     ]
     for stmt in statements:
         try:

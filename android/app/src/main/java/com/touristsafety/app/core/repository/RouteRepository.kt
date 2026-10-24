@@ -258,7 +258,21 @@ class RouteRepository @Inject constructor(
                 saveRouteOffline(dto)
                 Result.success(dto)
             } else {
-                Result.failure(Exception("Route planning failed: ${response.code()} ${response.message()}"))
+                val rawError = try { response.errorBody()?.string() } catch (_: Throwable) { null }
+                val detailMsg = try {
+                    if (!rawError.isNullOrBlank()) {
+                        val obj = org.json.JSONObject(rawError)
+                        obj.optString("detail", obj.optString("message", rawError))
+                    } else null
+                } catch (_: Throwable) {
+                    rawError
+                }
+                val failureMsg = if (!detailMsg.isNullOrBlank()) {
+                    detailMsg
+                } else {
+                    "${response.code()} ${response.message()}".trim()
+                }
+                Result.failure(Exception(failureMsg))
             }
         } catch (e: Exception) {
             Log.e("RouteRepository", "Error planning route", e)
