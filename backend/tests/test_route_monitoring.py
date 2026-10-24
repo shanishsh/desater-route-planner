@@ -7,7 +7,7 @@ from app.models.disaster_alert import DisasterAlert
 @pytest.mark.asyncio
 async def test_search_places(client):
     """Test searching for settlements via Open-Meteo or fallback."""
-    response = await client.get("/api/v1/places/search?q=Shimla&count=5")
+    response = await client.get("/api/v1/places/search?q=Dehradun&count=5")
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -15,19 +15,19 @@ async def test_search_places(client):
     assert "name" in first
     assert "latitude" in first
     assert "longitude" in first
-    assert "Shimla" in first["name"]
+    assert "Dehradun" in first["name"]
 
 
 @pytest.mark.asyncio
 async def test_plan_route_corridor_analysis(client):
-    """Test planning a route between Shimla and Kufri and inspecting corridor conditions."""
+    """Test planning a route between Dehradun and Mussoorie in Uttarakhand and inspecting corridor conditions."""
     payload = {
-        "origin_lat": 31.1048,
-        "origin_lon": 77.1734,
-        "origin_name": "Shimla Mall Road",
-        "destination_lat": 31.0979,
-        "destination_lon": 77.2674,
-        "destination_name": "Kufri Adventure Park",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "origin_name": "Dehradun Clock Tower",
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Mall Road",
         "travel_mode": "driving",
     }
     response = await client.post("/api/v1/routes/plan", json=payload)
@@ -35,8 +35,8 @@ async def test_plan_route_corridor_analysis(client):
     data = response.json()
 
     assert "route_id" in data
-    assert data["origin_name"] == "Shimla Mall Road"
-    assert data["destination_name"] == "Kufri Adventure Park"
+    assert data["origin_name"] == "Dehradun Clock Tower"
+    assert data["destination_name"] == "Mussoorie Mall Road"
     assert data["distance_km"] > 0
     assert data["duration_minutes"] > 0
     assert "geometry_geojson" in data
@@ -78,19 +78,18 @@ async def test_plan_route_corridor_analysis(client):
 
 @pytest.mark.asyncio
 async def test_plan_route_with_disaster_alert_intersection(client, test_db):
-    """Seed an active landslide warning along the corridor and verify route hazard detection."""
-    # Seed active disaster alert in Kufri region
+    """Seed an active landslide warning along the Uttarakhand corridor and verify route hazard detection."""
     now = datetime.now(timezone.utc)
     alert = DisasterAlert(
-        title="Landslide Warning on NH-5 Kufri Bypass",
-        description="Active debris flow blocking single lane traffic near Kufri ridge.",
+        title="Landslide Warning on Dehradun-Mussoorie Road",
+        description="Active debris flow blocking single lane traffic near Mussoorie ridge.",
         hazard_category="landslide",
         severity="SEVERE",
         status="active",
-        issuing_authority="State Disaster Management Authority",
+        issuing_authority="Uttarakhand State Disaster Management Authority",
         required_protective_instructions="Use designated valley detour and exercise caution.",
-        center_latitude=31.0980,
-        center_longitude=77.2600,
+        center_latitude=30.4000,
+        center_longitude=78.0500,
         affected_radius_meters=4000.0,
         published_at=now,
     )
@@ -98,12 +97,12 @@ async def test_plan_route_with_disaster_alert_intersection(client, test_db):
     await test_db.commit()
 
     payload = {
-        "origin_lat": 31.1048,
-        "origin_lon": 77.1734,
-        "origin_name": "Shimla",
-        "destination_lat": 31.0979,
-        "destination_lon": 77.2674,
-        "destination_name": "Kufri",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "origin_name": "Dehradun",
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie",
         "travel_mode": "driving",
     }
     response = await client.post("/api/v1/routes/plan", json=payload)
@@ -139,12 +138,13 @@ async def test_active_trip_monitoring_lifecycle(client):
     plan_res = await client.post(
         "/api/v1/routes/plan",
         json={
-            "origin_lat": 31.1048,
-            "origin_lon": 77.1734,
-            "origin_name": "Shimla",
-            "destination_lat": 31.0979,
-            "destination_lon": 77.2674,
-            "destination_name": "Kufri",
+            "origin_lat": 30.3165,
+            "origin_lon": 78.0322,
+            "origin_name": "Dehradun",
+            "destination_lat": 30.4598,
+            "destination_lon": 78.0700,
+            "destination_name": "Mussoorie",
+            "travel_mode": "driving",
         },
     )
     assert plan_res.status_code == 201
@@ -163,7 +163,7 @@ async def test_active_trip_monitoring_lifecycle(client):
     # 3. Post progress (near start point)
     prog_res = await client.post(
         f"/api/v1/trips/{trip_id}/progress",
-        json={"latitude": 31.1050, "longitude": 77.1740, "speed_kmh": 32.0},
+        json={"latitude": 30.3180, "longitude": 78.0340, "speed_kmh": 32.0},
     )
     assert prog_res.status_code == 200
     prog_data = prog_res.json()
@@ -179,7 +179,7 @@ async def test_active_trip_monitoring_lifecycle(client):
     # 5. Complete trip (post location at destination)
     arr_res = await client.post(
         f"/api/v1/trips/{trip_id}/progress",
-        json={"latitude": 31.0979, "longitude": 77.2674, "speed_kmh": 0.0},
+        json={"latitude": 30.4598, "longitude": 78.0700, "speed_kmh": 0.0},
     )
     assert arr_res.status_code == 200
     assert arr_res.json()["status"] == "COMPLETED"
@@ -195,17 +195,17 @@ async def test_plan_route_structured_contract(client):
     """Test the exact API contract: nested origin/destination, travel_mode, and contract fields."""
     payload = {
         "origin": {
-            "latitude": 31.1048,
-            "longitude": 77.1734,
-            "name": "Shimla Center",
+            "latitude": 30.3165,
+            "longitude": 78.0322,
+            "name": "Dehradun Center",
         },
         "destination": {
-            "latitude": 31.0979,
-            "longitude": 77.2674,
-            "name": "Kufri Ridge",
+            "latitude": 30.4598,
+            "longitude": 78.0700,
+            "name": "Mussoorie Ridge",
         },
         "waypoints": [],
-        "travel_mode": "walking",
+        "travel_mode": "driving",
     }
     response = await client.post("/api/v1/routes/plan", json=payload)
     assert response.status_code == 201
@@ -215,11 +215,11 @@ async def test_plan_route_structured_contract(client):
     assert "route_id" in data
     assert data["route_version"] == 1
     assert "origin" in data
-    assert data["origin"]["latitude"] == 31.1048
-    assert data["origin"]["longitude"] == 77.1734
+    assert data["origin"]["latitude"] == 30.3165
+    assert data["origin"]["longitude"] == 78.0322
     assert "destination" in data
-    assert data["destination"]["latitude"] == 31.0979
-    assert data["destination"]["longitude"] == 77.2674
+    assert data["destination"]["latitude"] == 30.4598
+    assert data["destination"]["longitude"] == 78.0700
     assert "geometry" in data
     assert data["geometry"]["type"] == "LineString"
     assert len(data["geometry"]["coordinates"]) >= 2
@@ -237,9 +237,9 @@ async def test_route_analysis_lifecycle_endpoint(client):
     plan_res = await client.post(
         "/api/v1/routes/plan",
         json={
-            "origin": {"latitude": 31.1048, "longitude": 77.1734},
-            "destination": {"latitude": 31.0979, "longitude": 77.2674},
-            "travel_mode": "walking",
+            "origin": {"latitude": 30.3165, "longitude": 78.0322},
+            "destination": {"latitude": 30.4598, "longitude": 78.0700},
+            "travel_mode": "driving",
         },
     )
     assert plan_res.status_code == 201
@@ -267,23 +267,25 @@ async def test_route_analysis_lifecycle_endpoint(client):
 @pytest.mark.asyncio
 async def test_route_selection_distinct_pairs(client):
     """Verify distinct origin/destination pairs produce different routes and geometries."""
-    # Route A: Shimla to Kufri
+    # Route A: Dehradun to Mussoorie
     res_a = await client.post(
         "/api/v1/routes/plan",
         json={
-            "origin": {"latitude": 31.1048, "longitude": 77.1734},
-            "destination": {"latitude": 31.0979, "longitude": 77.2674},
+            "origin": {"latitude": 30.3165, "longitude": 78.0322},
+            "destination": {"latitude": 30.4598, "longitude": 78.0700},
+            "travel_mode": "driving",
         },
     )
     assert res_a.status_code == 201
     data_a = res_a.json()
 
-    # Route B: Manali to Solang Valley (approx 32.2396, 77.1887 to 32.3166, 77.1575)
+    # Route B: Rishikesh to Devprayag
     res_b = await client.post(
         "/api/v1/routes/plan",
         json={
-            "origin": {"latitude": 32.2396, "longitude": 77.1887},
-            "destination": {"latitude": 32.3166, "longitude": 77.1575},
+            "origin": {"latitude": 30.0869, "longitude": 78.2676},
+            "destination": {"latitude": 30.1459, "longitude": 78.5989},
+            "travel_mode": "driving",
         },
     )
     assert res_b.status_code == 201
@@ -301,35 +303,36 @@ async def test_route_selection_distinct_pairs(client):
 async def test_route_corridor_geographic_filtering(client, test_db):
     """Verify that an alert far away is excluded from the corridor while a local alert is matched."""
     now = datetime.now(timezone.utc)
-    # Alert far away in Kullu/Rohtang (lat ~32.25, > 100km away from Shimla-Kufri ~31.10)
+    # Alert far away in Pithoragarh, Uttarakhand (~29.58, 80.21, > 200km away from Dehradun-Mussoorie)
     far_alert = DisasterAlert(
-        title="Remote Rohtang Pass Cloudburst",
-        description="High altitude cloudburst warning in Kullu district.",
+        title="Remote Pithoragarh Cloudburst",
+        description="High altitude cloudburst warning in Pithoragarh district.",
         hazard_category="severe_weather",
         severity="CRITICAL",
         status="active",
-        issuing_authority="Himachal State DMA",
-        required_protective_instructions="Avoid pass crossing.",
-        center_latitude=32.3600,
-        center_longitude=77.2200,
+        issuing_authority="Uttarakhand SDMA",
+        required_protective_instructions="Avoid riverbed areas.",
+        center_latitude=29.5800,
+        center_longitude=80.2100,
         affected_radius_meters=3000.0,
         published_at=now,
     )
     test_db.add(far_alert)
     await test_db.commit()
 
-    # Plan route in Shimla
+    # Plan route between Dehradun and Mussoorie
     res = await client.post(
         "/api/v1/routes/plan",
         json={
-            "origin": {"latitude": 31.1048, "longitude": 77.1734},
-            "destination": {"latitude": 31.0979, "longitude": 77.2674},
+            "origin": {"latitude": 30.3165, "longitude": 78.0322},
+            "destination": {"latitude": 30.4598, "longitude": 78.0700},
+            "travel_mode": "driving",
         },
     )
     assert res.status_code == 201
     data = res.json()
 
-    # Far alert must NOT intersect this Shimla-Kufri corridor
+    # Far alert must NOT intersect this Dehradun-Mussoorie corridor
     matched_alert_ids = [
         a["alert_id"]
         for c in data["conditions"]

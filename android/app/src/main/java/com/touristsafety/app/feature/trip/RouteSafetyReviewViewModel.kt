@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.touristsafety.app.core.offline.OfflineTrekPackManager
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
@@ -36,6 +37,7 @@ data class RouteSafetyReviewUiState(
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val selectedAlternativeId: String? = null,
     val isOfflineSaved: Boolean = false,
+    val currentEntity: PlannedRouteEntity? = null,
     val isLoading: Boolean = true,
     val isStartingTrip: Boolean = false,
     val message: String? = null
@@ -49,7 +51,8 @@ sealed interface RouteReviewEvent {
 @HiltViewModel
 class RouteSafetyReviewViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val routeRepository: RouteRepository
+    private val routeRepository: RouteRepository,
+    val offlineTrekPackManager: OfflineTrekPackManager
 ) : ViewModel() {
 
     private val routeId: String = checkNotNull(savedStateHandle["routeId"])
@@ -124,7 +127,17 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 safeHavens = havens,
                 alternatives = alts,
                 isOfflineSaved = entity.isSavedOffline,
+                currentEntity = entity,
                 isLoading = false
+            )
+        }
+    }
+
+    fun onOfflineDownloadCompleted() {
+        _uiState.update {
+            it.copy(
+                isOfflineSaved = true,
+                message = "Offline Trek Pack downloaded with vector map tiles and hazard corridor."
             )
         }
     }

@@ -28,9 +28,9 @@ from app.services.route_condition_analyzer import route_condition_analyzer
 async def test_corridor_construction_and_geometry():
     """Verify geodesic corridor polygon construction following route bends."""
     route_coords = [
-        (32.2396, 77.1887),  # Manali
-        (32.2700, 77.1700),  # Turn northwest
-        (32.3166, 77.1583),  # Solang
+        (30.3165, 78.0322),  # Manali
+        (30.3800, 78.0500),  # Turn northwest
+        (30.4598, 78.0700),  # Solang
     ]
     corridor = route_corridor_service.compute_corridor(route_coords, corridor_distance_meters=5000.0)
 
@@ -46,10 +46,10 @@ async def test_corridor_construction_and_geometry():
     assert corridor["area_sq_km"] > 10.0
 
     min_lat, min_lon, max_lat, max_lon = corridor["bbox"]
-    assert min_lat < 32.2396
-    assert max_lat > 32.3166
-    assert min_lon < 77.1583
-    assert max_lon > 77.1887
+    assert min_lat < 30.3165
+    assert max_lat > 30.4598
+    assert min_lon < 78.0700
+    assert max_lon > 78.0322
 
 
 @pytest.mark.asyncio
@@ -57,28 +57,28 @@ async def test_route_and_alert_polygon_intersect(client, test_db):
     """Test 1: A route and an alert polygon that intersect are included in analysis and overlays."""
     now = datetime.now(timezone.utc)
 
-    # Polygon along Manali-Solang route corridor
+    # Polygon along Dehradun-Mussoorie route corridor
     intersecting_poly = {
         "type": "Polygon",
         "coordinates": [[
-            [77.175, 32.260],
-            [77.185, 32.260],
-            [77.185, 32.270],
-            [77.175, 32.270],
-            [77.175, 32.260]
+            [78.055, 30.370],
+            [78.065, 30.370],
+            [78.065, 30.380],
+            [78.055, 30.380],
+            [78.055, 30.370]
         ]]
     }
 
     alert = DisasterAlert(
-        title="Flash Flood Flash Alert - Beas Tributary",
+        title="Flash Flood Flash Alert - Rispana River",
         description="Rapid stream swelling across trail path",
         hazard_category="flash_flood",
         severity="CRITICAL",
         status="active",
-        issuing_authority="DDMA Kullu",
+        issuing_authority="DDMA Dehradun",
         required_protective_instructions="Avoid stream crossings",
-        center_latitude=32.265,
-        center_longitude=77.180,
+        center_latitude=30.375,
+        center_longitude=78.060,
         affected_radius_meters=1500.0,
         polygon_geojson=json.dumps(intersecting_poly),
         published_at=now,
@@ -88,11 +88,11 @@ async def test_route_and_alert_polygon_intersect(client, test_db):
 
     # Plan route
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
         "corridor_distance_km": 5.0,
     })
     assert plan_res.status_code == 201
@@ -147,11 +147,11 @@ async def test_route_and_polygon_outside_configured_corridor(client, test_db):
     await test_db.commit()
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
         "corridor_distance_km": 5.0,
     })
     assert plan_res.status_code == 201
@@ -174,13 +174,13 @@ async def test_fire_point_inside_and_outside_corridor_filtering(monkeypatch, cli
     - Fire point 800m from route (inside corridor) is included with distance metrics.
     - Fire point 8.5km from route (inside bounding box rectangle, but outside 5km corridor) is EXCLUDED.
     """
-    # Route: Manali (32.2396, 77.1887) to Solang (32.3166, 77.1583)
-    # Inside fire: at 32.2700, 77.1720 (~300m from route)
-    # Outside fire: at 32.3000, 77.2600 (~9km east of route, inside bounding box)
+    # Route: Manali (30.3165, 78.0322) to Solang (30.4598, 78.0700)
+    # Inside fire: at 30.3800, 78.0520 (~300m from route)
+    # Outside fire: at 30.4200, 78.1400 (~9km east of route, inside bounding box)
     mock_fires = [
         {
-            "latitude": 32.2700,
-            "longitude": 77.1720,
+            "latitude": 30.3752,
+            "longitude": 78.0790,
             "brightness": 345.2,
             "confidence": "nominal",
             "frp_mw": 18.5,
@@ -189,8 +189,8 @@ async def test_fire_point_inside_and_outside_corridor_filtering(monkeypatch, cli
             "acquisition_time": "0430",
         },
         {
-            "latitude": 32.3000,
-            "longitude": 77.2600,
+            "latitude": 30.3752,
+            "longitude": 78.2000,
             "brightness": 360.0,
             "confidence": "high",
             "frp_mw": 45.0,
@@ -215,11 +215,11 @@ async def test_fire_point_inside_and_outside_corridor_filtering(monkeypatch, cli
     monkeypatch.setattr(nasa_firms_client, "fetch_active_fires", mock_fetch_fires)
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
         "corridor_distance_km": 5.0,
     })
     route_id = plan_res.json()["route_id"]
@@ -254,8 +254,8 @@ async def test_corridor_width_sensitivity_1km_vs_10km(client, test_db):
         status="active",
         issuing_authority="HP PWD",
         required_protective_instructions="Stay on designated valley route",
-        center_latitude=32.2700,
-        center_longitude=77.2080,  # ~3.2 km east of route
+        center_latitude=30.3752,
+        center_longitude=78.1150,  # ~3.2 km east of route
         affected_radius_meters=500.0,
         published_at=now,
     )
@@ -263,11 +263,11 @@ async def test_corridor_width_sensitivity_1km_vs_10km(client, test_db):
     await test_db.commit()
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
         "corridor_distance_km": 5.0,
     })
     route_id = plan_res.json()["route_id"]
@@ -294,28 +294,28 @@ async def test_route_destination_change_recalculates_corridor(client):
     """Test 6: Changing destination recalculates route geometry, corridor polygon, and route ID."""
     # Route 1: Manali to Solang (North)
     res1 = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
         "corridor_distance_km": 5.0,
     })
     data1 = res1.json()
 
     # Route 2: Manali to Naggar Castle (South)
     res2 = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.1158,
-        "destination_lon": 77.1654,
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.2000,
+        "destination_lon": 78.0454,
         "destination_name": "Naggar Castle",
         "corridor_distance_km": 5.0,
     })
     data2 = res2.json()
 
     assert data1["route_id"] != data2["route_id"]
-    assert data1["destination_name"] == "Solang Valley"
+    assert data1["destination_name"] == "Mussoorie Picture Palace"
     assert data2["destination_name"] == "Naggar Castle"
     assert data1["corridor_geojson"] != data2["corridor_geojson"]
 
@@ -338,11 +338,11 @@ async def test_successful_provider_response_zero_records(monkeypatch, client):
     monkeypatch.setattr(nasa_firms_client, "fetch_active_fires", mock_zero_fires)
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
     })
     route_id = plan_res.json()["route_id"]
 
@@ -365,11 +365,11 @@ async def test_provider_outage_resilience(monkeypatch, client):
     monkeypatch.setattr(nasa_firms_client, "fetch_active_fires", mock_failing_firms)
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
     })
     route_id = plan_res.json()["route_id"]
 
@@ -404,11 +404,11 @@ async def test_cap_alert_without_polygon_geometry(client, test_db):
     await test_db.commit()
 
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
     })
     route_id = plan_res.json()["route_id"]
 
@@ -427,11 +427,11 @@ async def test_cap_alert_without_polygon_geometry(client, test_db):
 async def test_weather_values_for_multiple_route_samples(client):
     """Test 11: Weather values are provided for multiple sample points along the route."""
     plan_res = await client.post("/api/v1/routes/plan", json={
-        "origin_lat": 32.2396,
-        "origin_lon": 77.1887,
-        "destination_lat": 32.3166,
-        "destination_lon": 77.1583,
-        "destination_name": "Solang Valley",
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "destination_lat": 30.4598,
+        "destination_lon": 78.0700,
+        "destination_name": "Mussoorie Picture Palace",
     })
     route_id = plan_res.json()["route_id"]
 
@@ -453,9 +453,9 @@ async def test_weather_values_for_multiple_route_samples(client):
 async def test_evaluate_route_exposure_metrics():
     """Verify explainable exposure evaluation, direct vs corridor intersections, and fire proximity."""
     route_coords = [
-        (32.2396, 77.1887),
-        (32.2700, 77.1700),
-        (32.3166, 77.1583),
+        (30.3165, 78.0322),
+        (30.3800, 78.0500),
+        (30.4598, 78.0700),
     ]
     corridor_info = route_corridor_service.compute_corridor(route_coords, corridor_distance_meters=5000.0)
     corridor_poly = corridor_info["corridor_polygon_geojson"]
@@ -467,17 +467,17 @@ async def test_evaluate_route_exposure_metrics():
         hazard_category="flash_flood",
         severity="CRITICAL",
         status="active",
-        center_latitude=32.2700,
-        center_longitude=77.1700,
+        center_latitude=30.3752,
+        center_longitude=78.0500,
         affected_radius_meters=1000.0,
         polygon_geojson=json.dumps({
             "type": "Polygon",
             "coordinates": [[
-                [77.165, 32.265],
-                [77.175, 32.265],
-                [77.175, 32.275],
-                [77.165, 32.275],
-                [77.165, 32.265]
+                [78.045, 30.375],
+                [78.055, 30.375],
+                [78.055, 30.385],
+                [78.045, 30.385],
+                [78.045, 30.375]
             ]]
         })
     )
@@ -489,16 +489,16 @@ async def test_evaluate_route_exposure_metrics():
         hazard_category="heavy_rainfall",
         severity="WARNING",
         status="active",
-        center_latitude=32.2700,
-        center_longitude=77.2000,
+        center_latitude=30.3752,
+        center_longitude=78.0800,
         affected_radius_meters=500.0,
     )
 
     # 3. Fire within 1 km of route
-    close_fire = {"latitude": 32.2710, "longitude": 77.1710, "confidence": "high", "frp_mw": 25.0}
+    close_fire = {"latitude": 30.3810, "longitude": 78.0510, "confidence": "high", "frp_mw": 25.0}
 
     # 4. Fire 4 km away in corridor
-    corridor_fire = {"latitude": 32.2700, "longitude": 77.2100, "confidence": "nominal", "frp_mw": 10.0}
+    corridor_fire = {"latitude": 30.3800, "longitude": 78.0900, "confidence": "nominal", "frp_mw": 10.0}
 
     eval_result = route_corridor_service.evaluate_route_exposure(
         route_coords,
@@ -527,7 +527,7 @@ async def test_alternative_route_comparative_ranking(test_db):
     from app.services.route_condition_analyzer import route_condition_analyzer
 
     now = datetime.now(timezone.utc)
-    # Direct alert on primary route (32.2700, 77.1700)
+    # Direct alert on primary route (30.3800, 78.0500)
     alert = DisasterAlert(
         id="alert-blocking-trail",
         title="Direct Mudslide Blocking Trail",
@@ -537,17 +537,17 @@ async def test_alternative_route_comparative_ranking(test_db):
         status="active",
         issuing_authority="SDMA",
         required_protective_instructions="Evacuate",
-        center_latitude=32.2700,
-        center_longitude=77.1700,
+        center_latitude=30.3752,
+        center_longitude=78.0500,
         affected_radius_meters=1200.0,
         polygon_geojson=json.dumps({
             "type": "Polygon",
             "coordinates": [[
-                [77.165, 32.265],
-                [77.175, 32.265],
-                [77.175, 32.275],
-                [77.165, 32.275],
-                [77.165, 32.265]
+                [78.045, 30.375],
+                [78.055, 30.375],
+                [78.055, 30.385],
+                [78.045, 30.385],
+                [78.045, 30.375]
             ]]
         }),
         published_at=now,
@@ -558,9 +558,9 @@ async def test_alternative_route_comparative_ranking(test_db):
     primary_geom = {
         "type": "LineString",
         "coordinates": [
-            [77.1887, 32.2396],
-            [77.1700, 32.2700],
-            [77.1583, 32.3166],
+            [78.0322, 30.3165],
+            [78.0500, 30.3800],
+            [78.0700, 30.4598],
         ]
     }
 
@@ -568,9 +568,9 @@ async def test_alternative_route_comparative_ranking(test_db):
     alt_geom = {
         "type": "LineString",
         "coordinates": [
-            [77.1887, 32.2396],
-            [77.2400, 32.2700],
-            [77.1583, 32.3166],
+            [78.0322, 30.3165],
+            [78.1200, 30.3800],
+            [78.0700, 30.4598],
         ]
     }
 
@@ -578,19 +578,19 @@ async def test_alternative_route_comparative_ranking(test_db):
         route_id="test-route-alternatives",
         title="Manali to Solang",
         origin_name="Manali",
-        origin_lat=32.2396,
-        origin_lon=77.1887,
+        origin_lat=30.3165,
+        origin_lon=78.0322,
         destination_name="Solang",
-        destination_lat=32.3166,
-        destination_lon=77.1583,
+        destination_lat=30.4598,
+        destination_lon=78.0700,
         travel_mode="hiking",
         distance_km=12.0,
         duration_minutes=150.0,
         geometry_geojson=primary_geom,
         waypoints=[
-            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
-            Waypoint(index=1, name="Hazard Point", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
-            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+            Waypoint(index=0, name="Manali", latitude=30.3165, longitude=78.0322, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Hazard Point", latitude=30.3800, longitude=78.0500, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=30.4598, longitude=78.0700, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
         ],
         alternatives=[
             RouteAlternative(
@@ -633,12 +633,12 @@ async def test_simulated_alerts_excluded_from_route_corridor_analysis(client, te
         status="active",
         issuing_authority="Test Simulation Agency",
         required_protective_instructions="Avoid trail",
-        center_latitude=32.29,
-        center_longitude=77.17,
+        center_latitude=30.40,
+        center_longitude=78.05,
         affected_radius_meters=3000.0,
         polygon_geojson=json.dumps({
             "type": "Polygon",
-            "coordinates": [[[77.16, 32.28], [77.18, 32.28], [77.18, 32.30], [77.16, 32.30], [77.16, 32.28]]]
+            "coordinates": [[[78.04, 30.39], [78.06, 30.39], [78.06, 30.41], [78.04, 30.41], [78.04, 30.39]]]
         }),
         is_simulated=True,
         published_at=now,
@@ -650,22 +650,22 @@ async def test_simulated_alerts_excluded_from_route_corridor_analysis(client, te
         route_id="test-sim-filter-route",
         title="Manali to Solang Sim Test",
         origin_name="Manali",
-        origin_lat=32.2396,
-        origin_lon=77.1887,
+        origin_lat=30.3165,
+        origin_lon=78.0322,
         destination_name="Solang",
-        destination_lat=32.3166,
-        destination_lon=77.1583,
+        destination_lat=30.4598,
+        destination_lon=78.0700,
         travel_mode="hiking",
         distance_km=12.0,
         duration_minutes=150.0,
         geometry_geojson={
             "type": "LineString",
-            "coordinates": [[77.1887, 32.2396], [77.1700, 32.2700], [77.1583, 32.3166]]
+            "coordinates": [[78.0322, 30.3165], [78.0500, 30.3800], [78.0700, 30.4598]]
         },
         waypoints=[
-            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
-            Waypoint(index=1, name="Mid", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
-            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+            Waypoint(index=0, name="Manali", latitude=30.3165, longitude=78.0322, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Mid", latitude=30.3800, longitude=78.0500, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=30.4598, longitude=78.0700, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
         ]
     )
 
@@ -694,8 +694,8 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
     now = datetime.now(timezone.utc)
 
     # 1. Alert with polygon holes
-    outer_ring = [[77.16, 32.25], [77.20, 32.25], [77.20, 32.29], [77.16, 32.29], [77.16, 32.25]]
-    inner_ring_hole = [[77.17, 32.26], [77.19, 32.26], [77.19, 32.28], [77.17, 32.28], [77.17, 32.26]]
+    outer_ring = [[78.04, 30.36], [78.08, 30.36], [78.08, 30.40], [78.04, 30.40], [78.04, 30.36]]
+    inner_ring_hole = [[78.05, 30.37], [78.07, 30.37], [78.07, 30.39], [78.05, 30.39], [78.05, 30.37]]
     poly_with_hole = {
         "type": "Polygon",
         "coordinates": [outer_ring, inner_ring_hole]
@@ -708,8 +708,8 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
         status="active",
         issuing_authority="Geological Survey of India",
         required_protective_instructions="Follow outer perimeter detour",
-        center_latitude=32.27,
-        center_longitude=77.18,
+        center_latitude=30.38,
+        center_longitude=78.06,
         affected_radius_meters=2000.0,
         polygon_geojson=json.dumps(poly_with_hole),
         is_simulated=False,
@@ -725,8 +725,8 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
         status="active",
         issuing_authority="State Disaster Management",
         required_protective_instructions="Caution near mile marker 14",
-        center_latitude=32.26,
-        center_longitude=77.18,
+        center_latitude=30.37,
+        center_longitude=78.06,
         affected_radius_meters=0.0,
         polygon_geojson=None,
         is_simulated=False,
@@ -745,7 +745,7 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
                 "id": "osm_way_101",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[77.17, 32.24], [77.19, 32.24], [77.19, 32.26], [77.17, 32.26], [77.17, 32.24]]]
+                    "coordinates": [[[78.05, 30.35], [78.07, 30.35], [78.07, 30.37], [78.05, 30.37], [78.05, 30.35]]]
                 },
                 "properties": {
                     "name": "Solang Pine Reserve",
@@ -764,22 +764,22 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
         route_id="test-geometry-fidelity-route",
         title="Manali to Solang Geometry Test",
         origin_name="Manali",
-        origin_lat=32.2396,
-        origin_lon=77.1887,
+        origin_lat=30.3165,
+        origin_lon=78.0322,
         destination_name="Solang",
-        destination_lat=32.3166,
-        destination_lon=77.1583,
+        destination_lat=30.4598,
+        destination_lon=78.0700,
         travel_mode="hiking",
         distance_km=12.0,
         duration_minutes=150.0,
         geometry_geojson={
             "type": "LineString",
-            "coordinates": [[77.1887, 32.2396], [77.1700, 32.2700], [77.1583, 32.3166]]
+            "coordinates": [[78.0322, 30.3165], [78.0500, 30.3800], [78.0700, 30.4598]]
         },
         waypoints=[
-            Waypoint(index=0, name="Manali", latitude=32.2396, longitude=77.1887, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
-            Waypoint(index=1, name="Mid", latitude=32.2700, longitude=77.1700, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
-            Waypoint(index=2, name="Solang", latitude=32.3166, longitude=77.1583, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
+            Waypoint(index=0, name="Manali", latitude=30.3165, longitude=78.0322, distance_from_start_km=0.0, estimated_travel_time_minutes=0.0),
+            Waypoint(index=1, name="Mid", latitude=30.3800, longitude=78.0500, distance_from_start_km=6.0, estimated_travel_time_minutes=75.0),
+            Waypoint(index=2, name="Solang", latitude=30.4598, longitude=78.0700, distance_from_start_km=12.0, estimated_travel_time_minutes=150.0),
         ]
     )
 

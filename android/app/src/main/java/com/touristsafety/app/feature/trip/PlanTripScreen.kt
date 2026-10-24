@@ -36,19 +36,80 @@ fun PlanTripScreen(
         }
     }
 
-    val quickDestinations = listOf(
-        Triple("Kufri Adventure Pass", 31.0979, 77.2674),
-        Triple("Manali Valley", 32.2432, 77.1892),
-        Triple("Solan Hills", 30.9084, 77.0999),
-        Triple("Kasol Riverside", 32.0100, 77.3150),
-        Triple("Narkanda Peak", 31.2582, 77.4589),
-        Triple("Dharamshala", 32.2190, 76.3234)
+    data class VerifiedCorridor(
+        val label: String,
+        val originName: String,
+        val originLat: Double,
+        val originLon: Double,
+        val destName: String,
+        val destLat: Double,
+        val destLon: Double,
+        val mode: String,
+        val isPedestrianOnly: Boolean
+    )
+
+    val verifiedCorridors = listOf(
+        VerifiedCorridor(
+            label = "Kedarnath Trek (Foot)",
+            originName = "Gaurikund Roadhead",
+            originLat = 30.6534,
+            originLon = 79.0268,
+            destName = "Kedarnath Temple",
+            destLat = 30.7339,
+            destLon = 79.0669,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
+            label = "Gaurikund Base (NH 107)",
+            originName = "Rudraprayag Junction",
+            originLat = 30.2844,
+            originLon = 78.9806,
+            destName = "Gaurikund",
+            destLat = 30.6534,
+            destLon = 79.0268,
+            mode = "driving",
+            isPedestrianOnly = false
+        ),
+        VerifiedCorridor(
+            label = "Mussoorie Hills",
+            originName = "Dehradun Clock Tower",
+            originLat = 30.3165,
+            originLon = 78.0322,
+            destName = "Mussoorie Mall Road",
+            destLat = 30.4598,
+            destLon = 78.0700,
+            mode = "driving",
+            isPedestrianOnly = false
+        ),
+        VerifiedCorridor(
+            label = "Devprayag Confluence",
+            originName = "Rishikesh",
+            originLat = 30.0869,
+            originLon = 78.2676,
+            destName = "Devprayag Sangam",
+            destLat = 30.1459,
+            destLon = 78.5989,
+            mode = "driving",
+            isPedestrianOnly = false
+        ),
+        VerifiedCorridor(
+            label = "Haridwar – Rishikesh",
+            originName = "Haridwar",
+            originLat = 29.9457,
+            originLon = 78.1642,
+            destName = "Rishikesh",
+            destLat = 30.0869,
+            destLon = 78.2676,
+            mode = "driving",
+            isPedestrianOnly = false
+        )
     )
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Route Disaster Monitor", fontWeight = FontWeight.Bold) },
+                title = { Text("Uttarakhand Route & Trek Safety", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -88,14 +149,14 @@ fun PlanTripScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                "Corridor Safety Analysis",
+                                "Active Pilot Region: Uttarakhand, India",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 15.sp
                             )
                             Text(
-                                "Scans the entire route corridor for weather at estimated arrival times, active wildfires, forest cover, and official disaster advisories.",
+                                "Authoritative boundary active (7,129-vertex OSM border). Stage 1 pilot corridor: Gaurikund–Kedarnath alpine trek with genuine NDMA SACHET alerts, NASA FIRMS, and Open-Meteo weather.",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                             )
                         }
                     }
@@ -219,18 +280,30 @@ fun PlanTripScreen(
                 }
             }
 
-            // Quick Mountain Destinations
+            // Verified Uttarakhand Pilot Corridors
             item {
-                Text("Popular Safe Tourism Corridors", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Verified Uttarakhand Pilot Corridors", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(quickDestinations) { (name, lat, lon) ->
+                    items(verifiedCorridors) { corridor ->
+                        val isSelected = state.destinationName == corridor.destName && state.originName == corridor.originName
                         FilterChip(
-                            selected = state.destinationName == name,
-                            onClick = { viewModel.selectQuickDestination(name, lat, lon) },
-                            label = { Text(name, fontSize = 12.sp) },
+                            selected = isSelected,
+                            onClick = {
+                                viewModel.selectVerifiedCorridor(
+                                    originName = corridor.originName,
+                                    originLat = corridor.originLat,
+                                    originLon = corridor.originLon,
+                                    destName = corridor.destName,
+                                    destLat = corridor.destLat,
+                                    destLon = corridor.destLon,
+                                    mode = corridor.mode,
+                                    isPedestrianOnly = corridor.isPedestrianOnly
+                                )
+                            },
+                            label = { Text(corridor.label, fontSize = 12.sp) },
                             leadingIcon = {
-                                if (state.destinationName == name) {
+                                if (isSelected) {
                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
                                 }
                             }
@@ -241,7 +314,27 @@ fun PlanTripScreen(
 
             // Travel Mode
             item {
-                Text("Travel Mode", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Travel Mode", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    if (state.isPedestrianOnlySelected) {
+                        Surface(
+                            color = Color(0xFFFFF3E0),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                "Pedestrian Only Corridor",
+                                color = Color(0xFFE65100),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -253,10 +346,12 @@ fun PlanTripScreen(
                         Pair("walking", "Walking")
                     )
                     modes.forEach { (mode, label) ->
+                        val isDrivingDisabled = mode == "driving" && state.isPedestrianOnlySelected
                         OutlinedButton(
                             onClick = { viewModel.setTravelMode(mode) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
+                            enabled = !isDrivingDisabled,
                             colors = if (state.travelMode == mode) {
                                 ButtonDefaults.outlinedButtonColors(
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -270,6 +365,15 @@ fun PlanTripScreen(
                             )
                         }
                     }
+                }
+                if (state.isPedestrianOnlySelected) {
+                    Text(
+                        "⚠️ Motor vehicles strictly prohibited beyond Gaurikund. Alpine foot trek only.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFC62828),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
                 }
             }
 

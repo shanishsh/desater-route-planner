@@ -7,6 +7,11 @@ from app.database.session import get_db
 from app.models.planned_route import PlannedRoute
 from app.services.routing.osrm_provider import osrm_routing_provider
 from app.services.route_condition_analyzer import route_condition_analyzer
+from app.services.spatial.region_boundary_service import region_boundary_service
+from app.services.routing.verified_corridors_registry import (
+    get_verified_corridors,
+    is_pedestrian_only_corridor,
+)
 from app.schemas.route_plan import (
     PlanRouteRequest,
     PlannedRouteResponse,
@@ -39,7 +44,37 @@ async def plan_route(
             detail="Valid destination coordinates (latitude and longitude) are required.",
         )
 
-    # 1. Calculate route geometry and waypoints
+    # 1. Geographic Scoping: Validate that origin and destination are inside Uttarakhand
+    if not region_boundary_service.is_point_in_uttarakhand(request.origin_lat, request.origin_lon):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Origin '{request.origin_name}' ({request.origin_lat:.4f}, {request.origin_lon:.4f}) "
+                f"is outside the supported Uttarakhand region. Currently, only Uttarakhand corridors are supported."
+            ),
+        )
+
+    if not region_boundary_service.is_point_in_uttarakhand(request.destination_lat, request.destination_lon):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Destination '{request.destination_name}' ({request.destination_lat:.4f}, {request.destination_lon:.4f}) "
+                f"is outside the supported Uttarakhand region. Currently, only Uttarakhand corridors are supported."
+            ),
+        )
+
+    # 2. Travel Mode Verification for Alpine Trek Corridors (e.g. Gaurikund to Kedarnath)
+    is_ped_only, ped_reason = is_pedestrian_only_corridor(
+        request.origin_lat, request.origin_lon,
+        request.destination_lat, request.destination_lon
+    )
+    if is_ped_only and (request.travel_mode or "").lower() == "driving":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ped_reason or "Motor vehicles are prohibited on this trekking corridor. Please select walking or hiking mode.",
+        )
+
+    # 3. Calculate route geometry and waypoints
     route_result = await osrm_routing_provider.calculate_route(
         origin_lat=request.origin_lat,
         origin_lon=request.origin_lon,
@@ -49,6 +84,16 @@ async def plan_route(
         dest_name=request.destination_name,
         travel_mode=request.travel_mode or "driving",
     )
+
+    # 4. Validate that calculated route stays within Uttarakhand
+    raw_coords = route_result.geometry_geojson.get("coordinates", [])
+    coords_lat_lon = [(pt[1], pt[0]) for pt in raw_coords]
+    is_inside, boundary_err = region_boundary_service.is_route_in_uttarakhand(coords_lat_lon)
+    if not is_inside:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=boundary_err or "Calculated route exits the supported Uttarakhand boundary.",
+        )
 
     # 2. Analyze corridor conditions (weather at arrival times, fires, forests, disaster alerts)
     corr_m = request.corridor_distance_meters or (
@@ -125,6 +170,23 @@ async def analyze_route_corridor(
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
     return analysis
+
+
+
+@router.get("/verified-corridors")
+async def list_verified_corridors():
+    """Returns tested and supported Uttarakhand pilot corridors."""
+    return {
+        "region": "Uttarakhand",
+        "state_code": "UK",
+        "corridors": get_verified_corridors(),
+    }
+
+
+@router.get("/region-info")
+async def get_region_scoping_info():
+    """Returns active regional scoping metadata for Uttarakhand."""
+    return region_boundary_service.get_region_metadata()
 
 
 @router.get("/{route_id}", response_model=PlannedRouteResponse)
@@ -300,5 +362,7 @@ async def select_route_alternative(
         route_id=route_id,
     )
     return analysis
+
+
 
 

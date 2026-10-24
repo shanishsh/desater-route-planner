@@ -19,6 +19,15 @@ interface PlannedRouteDao {
     @Query("SELECT * FROM planned_routes ORDER BY cachedAt DESC")
     fun getAllRoutesFlow(): Flow<List<PlannedRouteEntity>>
 
+    @Query("UPDATE planned_routes SET offlinePackStatus = :status, offlinePackSizeBytes = :sizeBytes, offlineRegionId = :regionId, offlineDownloadedAt = :downloadedAt WHERE routeId = :routeId")
+    suspend fun updateOfflinePackStatus(
+        routeId: String,
+        status: String,
+        sizeBytes: Long,
+        regionId: Long?,
+        downloadedAt: Long?
+    )
+
     @Query("DELETE FROM planned_routes WHERE routeId = :routeId")
     suspend fun deleteRoute(routeId: String)
 

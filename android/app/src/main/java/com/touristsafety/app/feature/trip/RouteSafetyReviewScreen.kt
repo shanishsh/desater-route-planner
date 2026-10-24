@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
+import com.touristsafety.app.core.offline.OfflineTrekPackDialog
+import com.touristsafety.app.core.util.TrekShareHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +33,7 @@ fun RouteSafetyReviewScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showExplanationDialog by remember { mutableStateOf(false) }
+    var showOfflinePackDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.eventFlow.collect { event ->
@@ -66,10 +69,17 @@ fun RouteSafetyReviewScreen(
                     IconButton(onClick = { viewModel.viewOnMap() }) {
                         Icon(Icons.Default.Map, contentDescription = "View on Map")
                     }
-                    IconButton(onClick = { viewModel.saveOffline() }) {
+                    IconButton(onClick = {
+                        state.currentEntity?.let { entity ->
+                            TrekShareHelper.shareTrekPlan(context, entity)
+                        }
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share Trek Plan")
+                    }
+                    IconButton(onClick = { showOfflinePackDialog = true }) {
                         Icon(
                             if (state.isOfflineSaved) Icons.Default.CloudDone else Icons.Default.SaveAlt,
-                            contentDescription = "Save Offline",
+                            contentDescription = "Offline Trek Pack",
                             tint = if (state.isOfflineSaved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -224,6 +234,51 @@ fun RouteSafetyReviewScreen(
                     }
                 }
 
+                // Offline Trek Pack Download CTA
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (state.isOfflineSaved) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (state.isOfflineSaved) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = if (state.isOfflineSaved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (state.isOfflineSaved) "Offline Trek Pack Ready" else "Download Offline Trek Pack",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (state.isOfflineSaved) Color(0xFF1B5E20) else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    if (state.isOfflineSaved) "Route geometry, OpenFreeMap vector tiles & verified hazards saved locally."
+                                    else "Preload corridor map tiles and disaster radar for network dead zones.",
+                                    fontSize = 11.sp,
+                                    color = if (state.isOfflineSaved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            FilledTonalButton(
+                                onClick = { showOfflinePackDialog = true },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(if (state.isOfflineSaved) "Manage" else "Download", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
                 // 2. Elevation Profile Canvas
                 if (state.elevationProfile.isNotEmpty()) {
                     item {
@@ -357,6 +412,18 @@ fun RouteSafetyReviewScreen(
 
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
+        }
+
+        if (showOfflinePackDialog && state.currentEntity != null) {
+            OfflineTrekPackDialog(
+                route = state.currentEntity!!,
+                offlineManager = viewModel.offlineTrekPackManager,
+                onDismiss = { showOfflinePackDialog = false },
+                onDownloadComplete = {
+                    showOfflinePackDialog = false
+                    viewModel.onOfflineDownloadCompleted()
+                }
+            )
         }
     }
 }

@@ -29,6 +29,7 @@ fun ActiveTripScreen(
     val context = LocalContext.current
     val animatedProgress by animateFloatAsState(targetValue = (state.progressPct / 100f).toFloat())
     var showSosConfirmation by remember { mutableStateOf(false) }
+    var showCompletionSummary by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -303,7 +304,7 @@ fun ActiveTripScreen(
             OutlinedButton(
                 onClick = {
                     viewModel.endTrip(context)
-                    onNavigateBack()
+                    showCompletionSummary = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -338,6 +339,88 @@ fun ActiveTripScreen(
                 dismissButton = {
                     TextButton(onClick = { showSosConfirmation = false }) {
                         Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Journey Completion Summary Dialog
+        if (showCompletionSummary) {
+            AlertDialog(
+                onDismissRequest = {
+                    showCompletionSummary = false
+                    onNavigateBack()
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Journey Completed!", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "Trek route safely navigated to ${state.destinationName}.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Total Route Distance:", fontSize = 12.sp)
+                                    Text("${state.totalDistanceKm} km", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                if (state.maxElevationM > 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Max Elevation Reached:", fontSize = 12.sp)
+                                        Text("${state.maxElevationM.toInt()} m", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                if (state.totalAscentM > 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Total Elevation Gain:", fontSize = 12.sp)
+                                        Text("${state.totalAscentM.toInt()} m", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Corridor Safety Status:", fontSize = 12.sp)
+                                    Text("SAFE / COMPLETED", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCompletionSummary = false
+                            onNavigateBack()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                    ) {
+                        Text("Done & Return", fontWeight = FontWeight.Bold)
                     }
                 }
             )

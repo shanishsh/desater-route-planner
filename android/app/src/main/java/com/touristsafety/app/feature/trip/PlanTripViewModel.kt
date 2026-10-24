@@ -26,6 +26,8 @@ data class PlanTripUiState(
     val destinationLat: Double? = null,
     val destinationLon: Double? = null,
     val travelMode: String = "driving",
+    val isPedestrianOnlySelected: Boolean = false,
+    val regionNotice: String = "Active Pilot Region: Uttarakhand, India",
     val isLocating: Boolean = false,
     val isSearchingOrigin: Boolean = false,
     val isSearchingDest: Boolean = false,
@@ -149,19 +151,59 @@ class PlanTripViewModel @Inject constructor(
         }
     }
 
+    fun selectVerifiedCorridor(
+        originName: String,
+        originLat: Double,
+        originLon: Double,
+        destName: String,
+        destLat: Double,
+        destLon: Double,
+        mode: String,
+        isPedestrianOnly: Boolean
+    ) {
+        _uiState.update {
+            it.copy(
+                originName = originName,
+                originLat = originLat,
+                originLon = originLon,
+                destinationName = destName,
+                destinationLat = destLat,
+                destinationLon = destLon,
+                travelMode = mode,
+                isPedestrianOnlySelected = isPedestrianOnly,
+                originSuggestions = emptyList(),
+                destSuggestions = emptyList(),
+                errorMessage = null
+            )
+        }
+    }
+
     fun selectQuickDestination(name: String, lat: Double, lon: Double) {
+        val isKedarnath = name.contains("Kedarnath", ignoreCase = true)
         _uiState.update {
             it.copy(
                 destinationName = name,
                 destinationLat = lat,
                 destinationLon = lon,
-                destSuggestions = emptyList()
+                destSuggestions = emptyList(),
+                travelMode = if (isKedarnath) "hiking" else it.travelMode,
+                isPedestrianOnlySelected = isKedarnath,
+                errorMessage = null
             )
         }
     }
 
     fun setTravelMode(mode: String) {
-        _uiState.update { it.copy(travelMode = mode) }
+        val state = _uiState.value
+        if (state.isPedestrianOnlySelected && mode == "driving") {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Motor vehicles are strictly prohibited on the Kedarnath pedestrian trek corridor. Please use Hiking or Walking."
+                )
+            }
+            return
+        }
+        _uiState.update { it.copy(travelMode = mode, errorMessage = null) }
     }
 
     fun planRoute() {

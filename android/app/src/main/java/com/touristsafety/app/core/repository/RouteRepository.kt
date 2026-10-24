@@ -70,6 +70,48 @@ class RouteRepository @Inject constructor(
         } catch (e: Exception) {
             null
         }
+        val corridorGeom = try {
+            if (!entity.corridorGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.corridorGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+        val hazardsGeom = try {
+            if (!entity.hazardsGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.hazardsGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+        val firesGeom = try {
+            if (!entity.firesGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.firesGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+        val facilitiesGeom = try {
+            if (!entity.facilitiesGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.facilitiesGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+        val forestsGeom = try {
+            if (!entity.forestsGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.forestsGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+        val weatherGeom = try {
+            if (!entity.weatherGeoJson.isNullOrBlank()) {
+                json.parseToJsonElement(entity.weatherGeoJson)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
 
         val dto = PlannedRouteResponseDto(
             route_id = entity.routeId,
@@ -97,6 +139,13 @@ class RouteRepository @Inject constructor(
             safe_havens = havens,
             alternatives = alternatives,
             geometry_geojson = geom,
+            corridor_distance_km = entity.corridorWidthKm,
+            corridor_geojson = corridorGeom,
+            hazards_geojson = hazardsGeom,
+            fires_geojson = firesGeom,
+            facilities_geojson = facilitiesGeom,
+            forests_geojson = forestsGeom,
+            weather_geojson = weatherGeom,
             created_at = java.util.Date(entity.cachedAt).toString()
         )
         _activeRouteFlow.value = dto
@@ -206,6 +255,14 @@ class RouteRepository @Inject constructor(
                 elevationProfileJson = elevationProfileStr,
                 safeHavensJson = safeHavensStr,
                 decisionExplanation = dto.decision_explanation,
+                corridorGeoJson = dto.corridor_geojson?.toString(),
+                hazardsGeoJson = dto.hazards_geojson?.toString(),
+                firesGeoJson = dto.fires_geojson?.toString(),
+                facilitiesGeoJson = dto.facilities_geojson?.toString(),
+                forestsGeoJson = dto.forests_geojson?.toString(),
+                weatherGeoJson = dto.weather_geojson?.toString(),
+                dataFreshnessJson = null,
+                corridorWidthKm = dto.corridor_distance_km,
                 totalAscentM = dto.total_ascent_m,
                 maxElevationM = dto.max_elevation_m,
                 isSavedOffline = true,
@@ -227,6 +284,22 @@ class RouteRepository @Inject constructor(
 
     suspend fun deletePlannedRoute(routeId: String) {
         plannedRouteDao.deleteRoute(routeId)
+    }
+
+    suspend fun updateOfflinePackStatus(
+        routeId: String,
+        status: String,
+        sizeBytes: Long = 0L,
+        regionId: Long? = null,
+        downloadedAt: Long? = System.currentTimeMillis()
+    ) {
+        plannedRouteDao.updateOfflinePackStatus(
+            routeId = routeId,
+            status = status,
+            sizeBytes = sizeBytes,
+            regionId = regionId,
+            downloadedAt = downloadedAt
+        )
     }
 
     suspend fun startTrip(routeId: String, deviceId: String? = null): Result<StartTripResponseDto> {
