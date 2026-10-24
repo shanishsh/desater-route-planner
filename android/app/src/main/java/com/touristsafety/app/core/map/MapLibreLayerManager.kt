@@ -12,6 +12,7 @@ import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory.*
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 
 /**
@@ -41,17 +42,25 @@ object MapLibreLayerManager {
     const val LAYER_DISASTER_FILL = "layer-disaster-fill"
     const val LAYER_DISASTER_LINE = "layer-disaster-line"
     const val LAYER_DISASTER_POINTS_CIRCLE = "layer-disaster-points-circle"
+    const val LAYER_DISASTER_POINTS_SYMBOL = "layer-disaster-points-symbol"
     const val LAYER_ROUTE_SECONDARY_LINE = "layer-route-secondary-line"
     const val LAYER_ROUTE_PRIMARY_LINE = "layer-route-primary-line"
     const val LAYER_ACTIVE_FIRES_CIRCLE = "layer-active-fires-circle"
+    const val LAYER_ACTIVE_FIRES_SYMBOL = "layer-active-fires-symbol"
 
     // Dedicated Essential Facility Layers
     const val LAYER_HOSPITALS_CIRCLE = "layer-hospitals-circle"
+    const val LAYER_HOSPITALS_SYMBOL = "layer-hospitals-symbol"
     const val LAYER_CLINICS_CIRCLE = "layer-clinics-circle"
+    const val LAYER_CLINICS_SYMBOL = "layer-clinics-symbol"
     const val LAYER_POLICE_CIRCLE = "layer-police-circle"
+    const val LAYER_POLICE_SYMBOL = "layer-police-symbol"
     const val LAYER_FUEL_CIRCLE = "layer-fuel-circle"
+    const val LAYER_FUEL_SYMBOL = "layer-fuel-symbol"
     const val LAYER_FIRE_STATIONS_CIRCLE = "layer-fire-stations-circle"
+    const val LAYER_FIRE_STATIONS_SYMBOL = "layer-fire-stations-symbol"
     const val LAYER_SAFE_HAVENS_CIRCLE = "layer-safe-havens-circle"
+    const val LAYER_SAFE_HAVENS_SYMBOL = "layer-safe-havens-symbol"
     const val LAYER_WEATHER_POINTS_CIRCLE = "layer-weather-points-circle"
 
     private const val EMPTY_GEOJSON = "{\"type\":\"FeatureCollection\",\"features\":[]}"
@@ -67,6 +76,9 @@ object MapLibreLayerManager {
         }
 
         try {
+            // 0. Register custom vector glyph icons into Style if not already present
+            MapIconFactory.registerMarkerImages(style)
+
             // 1. Corridor Source & Layers (Bottom-most)
             if (style.getSource(SOURCE_CORRIDOR) == null) {
                 style.addSource(GeoJsonSource(SOURCE_CORRIDOR, EMPTY_GEOJSON))
@@ -144,12 +156,24 @@ object MapLibreLayerManager {
                 val disasterPointsCircle = CircleLayer(LAYER_DISASTER_POINTS_CIRCLE, SOURCE_DISASTER_POLYGONS).apply {
                     setProperties(
                         circleColor(Color.rgb(211, 47, 47)), // Emergency Red #D32F2F
-                        circleRadius(7.0f),
+                        circleRadius(10.0f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(disasterPointsCircle)
+            }
+            if (style.getLayer(LAYER_DISASTER_POINTS_SYMBOL) == null) {
+                val disasterSymbol = SymbolLayer(LAYER_DISASTER_POINTS_SYMBOL, SOURCE_DISASTER_POLYGONS).apply {
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_DISASTER),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(disasterSymbol)
             }
 
             // 4. Route Lines Sources & Layers
@@ -183,102 +207,197 @@ object MapLibreLayerManager {
                 style.addLayer(primLine)
             }
 
-            // 5. Point Hazard & Infrastructure Circle Layers
+            // 5. Point Hazard & Infrastructure Circle & Symbol Layers
             if (style.getSource(SOURCE_SAFE_HAVENS) == null) {
                 style.addSource(GeoJsonSource(SOURCE_SAFE_HAVENS, EMPTY_GEOJSON))
             }
 
-            // Dedicated Circle Layer for Hospitals (Red)
+            // Dedicated Circle & Symbol Layers for Hospitals
             if (style.getLayer(LAYER_HOSPITALS_CIRCLE) == null) {
                 val hospCircle = CircleLayer(LAYER_HOSPITALS_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
                         eq(get("category"), literal("hospital")),
                         eq(get("category"), literal("HOSPITAL")),
-                        eq(get("facility_category"), literal("hospital"))
+                        eq(get("facility_category"), literal("hospital")),
+                        eq(get("category_enum"), literal("HOSPITAL"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(229, 57, 53)), // #E53935 Medical Red
-                        circleRadius(8.0f),
+                        circleRadius(10.0f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(hospCircle)
             }
+            if (style.getLayer(LAYER_HOSPITALS_SYMBOL) == null) {
+                val hospSymbol = SymbolLayer(LAYER_HOSPITALS_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("hospital")),
+                        eq(get("category"), literal("HOSPITAL")),
+                        eq(get("facility_category"), literal("hospital")),
+                        eq(get("category_enum"), literal("HOSPITAL"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_HOSPITAL),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(hospSymbol)
+            }
 
-            // Dedicated Circle Layer for Clinics (Teal)
+            // Dedicated Circle & Symbol Layers for Clinics
             if (style.getLayer(LAYER_CLINICS_CIRCLE) == null) {
                 val clinicCircle = CircleLayer(LAYER_CLINICS_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
                         eq(get("category"), literal("clinic")),
                         eq(get("category"), literal("CLINIC")),
-                        eq(get("facility_category"), literal("clinic"))
+                        eq(get("facility_category"), literal("clinic")),
+                        eq(get("category_enum"), literal("CLINIC"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(0, 137, 123)), // #00897B Clinic Teal
-                        circleRadius(6.8f),
+                        circleRadius(9.0f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(1.8f)
                     )
                 }
                 style.addLayer(clinicCircle)
             }
+            if (style.getLayer(LAYER_CLINICS_SYMBOL) == null) {
+                val clinicSymbol = SymbolLayer(LAYER_CLINICS_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("clinic")),
+                        eq(get("category"), literal("CLINIC")),
+                        eq(get("facility_category"), literal("clinic")),
+                        eq(get("category_enum"), literal("CLINIC"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_CLINIC),
+                        iconSize(0.80f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(clinicSymbol)
+            }
 
-            // Dedicated Circle Layer for Police (Blue)
+            // Dedicated Circle & Symbol Layers for Police
             if (style.getLayer(LAYER_POLICE_CIRCLE) == null) {
                 val policeCircle = CircleLayer(LAYER_POLICE_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
                         eq(get("category"), literal("police")),
                         eq(get("category"), literal("POLICE_STATION")),
-                        eq(get("facility_category"), literal("police"))
+                        eq(get("facility_category"), literal("police")),
+                        eq(get("category_enum"), literal("POLICE_STATION"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(30, 136, 229)), // #1E88E5 Police Blue
-                        circleRadius(7.8f),
+                        circleRadius(9.5f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(policeCircle)
             }
+            if (style.getLayer(LAYER_POLICE_SYMBOL) == null) {
+                val policeSymbol = SymbolLayer(LAYER_POLICE_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("police")),
+                        eq(get("category"), literal("POLICE_STATION")),
+                        eq(get("facility_category"), literal("police")),
+                        eq(get("category_enum"), literal("POLICE_STATION"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_POLICE),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(policeSymbol)
+            }
 
-            // Dedicated Circle Layer for Petrol Pumps (Amber Orange)
+            // Dedicated Circle & Symbol Layers for Petrol Pumps
             if (style.getLayer(LAYER_FUEL_CIRCLE) == null) {
                 val fuelCircle = CircleLayer(LAYER_FUEL_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
                         eq(get("category"), literal("fuel")),
                         eq(get("category"), literal("PETROL_PUMP")),
-                        eq(get("facility_category"), literal("fuel"))
+                        eq(get("facility_category"), literal("fuel")),
+                        eq(get("category_enum"), literal("PETROL_PUMP"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(245, 124, 0)), // #F57C00 Fuel Amber
-                        circleRadius(7.2f),
+                        circleRadius(9.0f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(1.8f)
                     )
                 }
                 style.addLayer(fuelCircle)
             }
+            if (style.getLayer(LAYER_FUEL_SYMBOL) == null) {
+                val fuelSymbol = SymbolLayer(LAYER_FUEL_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("fuel")),
+                        eq(get("category"), literal("PETROL_PUMP")),
+                        eq(get("facility_category"), literal("fuel")),
+                        eq(get("category_enum"), literal("PETROL_PUMP"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_FUEL),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(fuelSymbol)
+            }
 
-            // Dedicated Circle Layer for Fire Stations (Deep Orange)
+            // Dedicated Circle & Symbol Layers for Fire Stations
             if (style.getLayer(LAYER_FIRE_STATIONS_CIRCLE) == null) {
                 val fireStCircle = CircleLayer(LAYER_FIRE_STATIONS_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
                         eq(get("category"), literal("fire_station")),
                         eq(get("category"), literal("FIRE_STATION")),
-                        eq(get("facility_category"), literal("fire_station"))
+                        eq(get("facility_category"), literal("fire_station")),
+                        eq(get("category_enum"), literal("FIRE_STATION"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(230, 81, 0)), // #E65100 Fire Orange-Red
-                        circleRadius(7.8f),
+                        circleRadius(9.5f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(fireStCircle)
             }
+            if (style.getLayer(LAYER_FIRE_STATIONS_SYMBOL) == null) {
+                val fireStSymbol = SymbolLayer(LAYER_FIRE_STATIONS_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("fire_station")),
+                        eq(get("category"), literal("FIRE_STATION")),
+                        eq(get("facility_category"), literal("fire_station")),
+                        eq(get("category_enum"), literal("FIRE_STATION"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_FIRE_STATION),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(fireStSymbol)
+            }
 
-            // Fallback Layer for Shelters & General Safe Havens (Green)
+            // Fallback Circle & Symbol Layer for Shelters & General Safe Havens
             if (style.getLayer(LAYER_SAFE_HAVENS_CIRCLE) == null) {
                 val havenCircle = CircleLayer(LAYER_SAFE_HAVENS_CIRCLE, SOURCE_SAFE_HAVENS).apply {
                     setFilter(any(
@@ -286,16 +405,37 @@ object MapLibreLayerManager {
                         eq(get("category"), literal("SHELTER")),
                         eq(get("facility_category"), literal("shelter")),
                         eq(get("category"), literal("tourist_assistance")),
-                        eq(get("category"), literal("TOURIST_ASSISTANCE"))
+                        eq(get("category_enum"), literal("SHELTER")),
+                        eq(get("category_enum"), literal("TOURIST_ASSISTANCE"))
                     ))
                     setProperties(
                         circleColor(Color.rgb(46, 125, 50)), // #2E7D32 Green
-                        circleRadius(6.5f),
+                        circleRadius(8.5f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(1.8f)
                     )
                 }
                 style.addLayer(havenCircle)
+            }
+            if (style.getLayer(LAYER_SAFE_HAVENS_SYMBOL) == null) {
+                val havenSymbol = SymbolLayer(LAYER_SAFE_HAVENS_SYMBOL, SOURCE_SAFE_HAVENS).apply {
+                    setFilter(any(
+                        eq(get("category"), literal("shelter")),
+                        eq(get("category"), literal("SHELTER")),
+                        eq(get("facility_category"), literal("shelter")),
+                        eq(get("category"), literal("tourist_assistance")),
+                        eq(get("category_enum"), literal("SHELTER")),
+                        eq(get("category_enum"), literal("TOURIST_ASSISTANCE"))
+                    ))
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_SHELTER),
+                        iconSize(0.80f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(havenSymbol)
             }
 
             if (style.getSource(SOURCE_WEATHER_POINTS) == null) {
@@ -305,7 +445,7 @@ object MapLibreLayerManager {
                 val weatherCircle = CircleLayer(LAYER_WEATHER_POINTS_CIRCLE, SOURCE_WEATHER_POINTS).apply {
                     setProperties(
                         circleColor(Color.rgb(2, 136, 209)), // Cyan Blue #0288D1
-                        circleRadius(5.5f),
+                        circleRadius(6.0f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(1.5f)
                     )
@@ -320,12 +460,24 @@ object MapLibreLayerManager {
                 val fireCircle = CircleLayer(LAYER_ACTIVE_FIRES_CIRCLE, SOURCE_ACTIVE_FIRES).apply {
                     setProperties(
                         circleColor(Color.rgb(230, 81, 0)), // Fire Orange-Red #E65100
-                        circleRadius(7.5f),
+                        circleRadius(9.5f),
                         circleStrokeColor(Color.WHITE),
                         circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(fireCircle)
+            }
+            if (style.getLayer(LAYER_ACTIVE_FIRES_SYMBOL) == null) {
+                val fireSymbol = SymbolLayer(LAYER_ACTIVE_FIRES_SYMBOL, SOURCE_ACTIVE_FIRES).apply {
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_WILDFIRE),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(fireSymbol)
             }
 
         } catch (e: Exception) {
@@ -339,6 +491,13 @@ object MapLibreLayerManager {
     fun updateData(style: Style, state: MapUiState) {
         if (!style.isFullyLoaded) return
         setupSourcesAndLayers(style)
+
+        Log.d(TAG, "MapLibre updateData: allFeatures=${state.allFeatures.size}, " +
+                "hazardsGeoJson=${!state.hazardsGeoJson.isNullOrBlank()}, " +
+                "forestsGeoJson=${!state.forestsGeoJson.isNullOrBlank()}, " +
+                "facilitiesGeoJson=${!state.facilitiesGeoJson.isNullOrBlank()}, " +
+                "firesGeoJson=${!state.firesGeoJson.isNullOrBlank()}, " +
+                "weatherGeoJson=${!state.weatherGeoJson.isNullOrBlank()}")
 
         try {
             // 1. Update Corridor GeoJSON
@@ -374,8 +533,8 @@ object MapLibreLayerManager {
             val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
                 state.hazardsGeoJson
             } else {
-                val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE && it.geometryPolygon != null }
-                buildPolygonFeatureCollection(disasterFeatures)
+                val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
+                buildDisasterFeatureCollection(disasterFeatures)
             }
             disasterSource?.setGeoJson(disasterJson)
 
@@ -470,9 +629,15 @@ object MapLibreLayerManager {
         val shelterVis = (filterCat == null || filterCat == MapFeatureCategory.SHELTER || filterCat == MapFeatureCategory.TOURIST_ASSISTANCE) &&
                 (vis[MapFeatureCategory.SHELTER] != false)
 
+        // Fires
         style.getLayer(LAYER_ACTIVE_FIRES_CIRCLE)?.setProperties(
             visibility(if (firesVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_ACTIVE_FIRES_SYMBOL)?.setProperties(
+            visibility(if (firesVis) Property.VISIBLE else Property.NONE)
+        )
+
+        // Hazards
         style.getLayer(LAYER_DISASTER_FILL)?.setProperties(
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
@@ -482,33 +647,63 @@ object MapLibreLayerManager {
         style.getLayer(LAYER_DISASTER_POINTS_CIRCLE)?.setProperties(
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_DISASTER_POINTS_SYMBOL)?.setProperties(
+            visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
+        )
+
+        // Forests
         style.getLayer(LAYER_FOREST_FILL)?.setProperties(
             visibility(if (forestVis) Property.VISIBLE else Property.NONE)
         )
         style.getLayer(LAYER_FOREST_LINE)?.setProperties(
             visibility(if (forestVis) Property.VISIBLE else Property.NONE)
         )
+
+        // Weather
         style.getLayer(LAYER_WEATHER_POINTS_CIRCLE)?.setProperties(
             visibility(if (weatherVis) Property.VISIBLE else Property.NONE)
         )
 
-        // Facilities individual toggles
+        // Facilities individual toggles (circle background + icon symbol)
         style.getLayer(LAYER_HOSPITALS_CIRCLE)?.setProperties(
             visibility(if (hospVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_HOSPITALS_SYMBOL)?.setProperties(
+            visibility(if (hospVis) Property.VISIBLE else Property.NONE)
+        )
+
         style.getLayer(LAYER_CLINICS_CIRCLE)?.setProperties(
             visibility(if (clinicVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_CLINICS_SYMBOL)?.setProperties(
+            visibility(if (clinicVis) Property.VISIBLE else Property.NONE)
+        )
+
         style.getLayer(LAYER_POLICE_CIRCLE)?.setProperties(
             visibility(if (polVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_POLICE_SYMBOL)?.setProperties(
+            visibility(if (polVis) Property.VISIBLE else Property.NONE)
+        )
+
         style.getLayer(LAYER_FUEL_CIRCLE)?.setProperties(
             visibility(if (fuelVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_FUEL_SYMBOL)?.setProperties(
+            visibility(if (fuelVis) Property.VISIBLE else Property.NONE)
+        )
+
         style.getLayer(LAYER_FIRE_STATIONS_CIRCLE)?.setProperties(
             visibility(if (fireStVis) Property.VISIBLE else Property.NONE)
         )
+        style.getLayer(LAYER_FIRE_STATIONS_SYMBOL)?.setProperties(
+            visibility(if (fireStVis) Property.VISIBLE else Property.NONE)
+        )
+
         style.getLayer(LAYER_SAFE_HAVENS_CIRCLE)?.setProperties(
+            visibility(if (shelterVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_SAFE_HAVENS_SYMBOL)?.setProperties(
             visibility(if (shelterVis) Property.VISIBLE else Property.NONE)
         )
     }
@@ -571,6 +766,44 @@ object MapLibreLayerManager {
                     sb.append(",[${ring.first().second},${ring.first().first}]")
                 }
                 sb.append("]]}}")
+                count++
+            }
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    private fun buildDisasterFeatureCollection(features: List<UnifiedMapFeature>): String {
+        if (features.isEmpty()) return EMPTY_GEOJSON
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
+        var count = 0
+        features.forEach { feat ->
+            val ring = feat.geometryPolygon
+            if (ring != null && ring.size >= 3) {
+                if (count > 0) sb.append(",")
+                val safeTitle = feat.title.replace("\"", "\\\"")
+                val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
+                sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
+                sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Polygon\"")
+                sb.append("},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
+                ring.forEachIndexed { pIdx, pt ->
+                    if (pIdx > 0) sb.append(",")
+                    sb.append("[${pt.second},${pt.first}]")
+                }
+                if (ring.first() != ring.last()) {
+                    sb.append(",[${ring.first().second},${ring.first().first}]")
+                }
+                sb.append("]]}}")
+                count++
+            } else {
+                // Point hazard advisory
+                if (count > 0) sb.append(",")
+                val safeTitle = feat.title.replace("\"", "\\\"")
+                val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
+                sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
+                sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Point\"")
+                sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
                 count++
             }
         }

@@ -36,8 +36,8 @@ class HomeViewModel @Inject constructor(
     private var weatherJob: Job? = null
 
     init {
-        // Observe default coordinates immediately so weather renders even before itineraries finish loading
-        observeWeather(32.2396, 77.1887)
+        // Observe default Uttarakhand coordinates immediately so weather renders even before itineraries finish loading
+        observeWeather(30.3165, 78.0322)
         observeData()
         refreshAll()
     }
@@ -96,7 +96,7 @@ class HomeViewModel @Inject constructor(
             if (activeItin != null) {
                 weatherRepository.refreshWeather(activeItin.startLatitude, activeItin.startLongitude)
             } else {
-                weatherRepository.refreshWeather(32.2396, 77.1887)
+                weatherRepository.refreshWeather(30.3165, 78.0322)
             }
 
             val isOffline = itinResult.isFailure && alertResult.isFailure

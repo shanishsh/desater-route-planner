@@ -57,8 +57,8 @@ fun MapScreen(
     var mapLoadFailed by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 1. BASE MAP LAYER (MapLibre Native or Offline Canvas)
-        if (state.isOfflineMode || mapLoadFailed) {
+        // 1. BASE MAP LAYER (MapLibre Native or Fallback Offline Canvas)
+        if (mapLoadFailed) {
             OfflineVectorCanvasView(
                 routeCoordinates = state.routeCoordinates,
                 corridorPolygonCoordinates = state.corridorPolygonCoordinates,
@@ -93,20 +93,28 @@ fun MapScreen(
                                 updateMaplibreLayers(mapboxMap, state)
                             }
 
-                            // Query rendered vector features on map tap (polygons, active fires, safe havens)
+                            // Query rendered vector features on map tap (polygons, active fires, safe havens, symbols)
                             mapboxMap.addOnMapClickListener { latLng ->
                                 val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
                                 val renderedFeatures = mapboxMap.queryRenderedFeatures(
                                     screenPoint,
+                                    MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
                                     MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
                                     MapLibreLayerManager.LAYER_DISASTER_FILL,
                                     MapLibreLayerManager.LAYER_DISASTER_LINE,
+                                    MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
                                     MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
                                     MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
                                     MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_POLICE_SYMBOL,
                                     MapLibreLayerManager.LAYER_POLICE_CIRCLE,
+                                    MapLibreLayerManager.LAYER_FUEL_SYMBOL,
                                     MapLibreLayerManager.LAYER_FUEL_CIRCLE,
+                                    MapLibreLayerManager.LAYER_FIRE_STATIONS_SYMBOL,
                                     MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
+                                    MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
                                     MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
                                     MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                                     MapLibreLayerManager.LAYER_FOREST_FILL,
@@ -254,6 +262,36 @@ fun MapScreen(
                 onSelectFilter = { viewModel.onFilterSelected(it) },
                 onOpenNearbyList = { viewModel.toggleNearbySheet(true) }
             )
+
+            // Prominent Offline Mode Indicator
+            if (state.isOfflineMode) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF263238).copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, Color(0xFF78909C)),
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.CloudOff,
+                            contentDescription = "Offline Mode",
+                            tint = Color(0xFFFFB74D),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Uttarakhand Offline Mode • Cached Basemap & Hazards",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
         }
 
         // 3. FLOATING MAP CONTROLS (Right Column)

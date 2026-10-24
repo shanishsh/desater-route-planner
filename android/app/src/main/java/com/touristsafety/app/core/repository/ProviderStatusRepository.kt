@@ -56,7 +56,7 @@ class ProviderStatusRepository @Inject constructor(
         }
     }
 
-    suspend fun triggerProviderRefresh(lat: Double = 32.2396, lon: Double = 77.1887): Result<Unit> {
+    suspend fun triggerProviderRefresh(lat: Double = 30.3165, lon: Double = 78.0322): Result<Unit> {
         return try {
             val response = apiService.refreshProviders(lat, lon)
             if (response.isSuccessful) {

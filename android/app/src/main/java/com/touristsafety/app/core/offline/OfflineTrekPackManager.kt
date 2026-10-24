@@ -49,8 +49,9 @@ class OfflineTrekPackManager @Inject constructor(
     private val offlineManager = OfflineManager.getInstance(context)
 
     companion object {
-        // Strict 3,000 vector tile ceiling for OpenFreeMap bounded download
+        // Strict 3,000 vector tile and 50 MB ceilings for OpenFreeMap bounded download terms
         const val MAX_VECTOR_TILES_CEILING = 3000L
+        const val MAX_DOWNLOAD_SIZE_BYTES = 50L * 1024L * 1024L // 50 MB
     }
 
     fun downloadTrekPack(
@@ -114,8 +115,13 @@ class OfflineTrekPackManager @Inject constructor(
                             val comp = status.completedResourceCount
                             val pct = ((comp.toDouble() / req) * 100).toInt().coerceIn(0, 100)
 
-                            if (status.isComplete) {
-                                Log.i(TAG, "OfflineRegion complete: $comp resources, ${status.completedResourceSize} bytes")
+                            if (status.isComplete || comp >= MAX_VECTOR_TILES_CEILING || status.completedResourceSize >= MAX_DOWNLOAD_SIZE_BYTES) {
+                                if (comp >= MAX_VECTOR_TILES_CEILING || status.completedResourceSize >= MAX_DOWNLOAD_SIZE_BYTES) {
+                                    offlineRegion.setDownloadState(OfflineRegion.STATE_INACTIVE)
+                                    Log.i(TAG, "OpenFreeMap download ceiling reached safely: $comp tiles, ${status.completedResourceSize} bytes")
+                                } else {
+                                    Log.i(TAG, "OfflineRegion complete: $comp resources, ${status.completedResourceSize} bytes")
+                                }
                                 trySend(
                                     OfflineDownloadProgress(
                                         routeId = routeId,

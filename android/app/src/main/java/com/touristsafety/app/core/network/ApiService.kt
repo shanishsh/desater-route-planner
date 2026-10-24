@@ -78,8 +78,8 @@ interface ApiService {
 
     @POST("providers/refresh")
     suspend fun refreshProviders(
-        @Query("lat") lat: Double = 32.2396,
-        @Query("lon") lon: Double = 77.1887
+        @Query("lat") lat: Double = 30.3165,
+        @Query("lon") lon: Double = 78.0322
     ): Response<Map<String, String>>
 
     @GET("forest-areas")
