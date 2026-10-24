@@ -8,6 +8,8 @@ from app.clients.osm_forest import osm_forest_client
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.opencellid import opencellid_client
 from app.clients.ndma_sachet import ndma_sachet_client
+from app.clients.imd import imd_client
+from app.clients.uttarakhand_pwd import uttarakhand_pwd_client
 from app.services.routing.osrm_provider import osrm_routing_provider
 from app.cache.redis_cache import cache_service
 
@@ -30,9 +32,14 @@ class ProviderRegistry:
         Validates whether a provider genuinely supports data queries for the given coordinates.
         Does not infer universal coverage merely because an endpoint accepts coordinates.
         """
-        if provider_id == "ndma_sachet":
+        if provider_id in ("ndma_sachet", "imd_warning"):
             if not self.is_point_in_india(lat, lon):
-                return False, "NDMA SACHET disaster advisories cover India only. No official SACHET alerts available for this region."
+                return False, f"{provider_id} advisories cover India only. No official national alerts available for this region."
+            return True, None
+        elif provider_id == "uttarakhand_pwd":
+            in_uk = 28.7 <= lat <= 31.5 and 77.5 <= lon <= 81.1
+            if not in_uk:
+                return False, "Uttarakhand PWD advisories cover Uttarakhand mountain highways only."
             return True, None
         elif provider_id in ("open_meteo", "osm_overpass", "nasa_firms", "osrm"):
             return True, None
@@ -267,7 +274,13 @@ class ProviderRegistry:
             "registration_url": "https://sachet.ndma.gov.in/CapFeed",
         }
 
-        # 7. Database / Local Cache
+        # 7. India Meteorological Department (IMD)
+        imd_info = imd_client.get_service_status()
+
+        # 8. Uttarakhand Public Works Department (SRMD)
+        pwd_info = uttarakhand_pwd_client.get_service_status()
+
+        # 9. Database / Local Cache
         db_info = {
             "provider_id": "backend_database",
             "name": "Local PostGIS / Room Cache",
@@ -294,6 +307,8 @@ class ProviderRegistry:
             osm_info,
             nasa_firms_info,
             ndma_sachet_info,
+            imd_info,
+            pwd_info,
             fsi_info,
             opencellid_info,
             db_info,
@@ -344,6 +359,30 @@ class ProviderRegistry:
                 results["cell_towers"] = f"ERROR: {str(e)}"
         else:
             results["cell_towers"] = "UNCONFIGURED"
+
+        # 5. NDMA SACHET
+        try:
+            s_items = await ndma_sachet_client.fetch_sachet_rss()
+            results["ndma_sachet"] = f"SUCCESS ({len(s_items)} items in RSS feed)"
+        except Exception as e:
+            results["ndma_sachet"] = f"ERROR: {str(e)}"
+
+        # 6. IMD Warnings (if configured)
+        if imd_client.is_configured():
+            try:
+                imd_warnings = await imd_client.fetch_district_warnings()
+                results["imd_warning"] = f"SUCCESS ({len(imd_warnings)} warnings)"
+            except Exception as e:
+                results["imd_warning"] = f"ERROR: {str(e)}"
+        else:
+            results["imd_warning"] = "UNCONFIGURED"
+
+        # 7. Uttarakhand PWD Bulletins
+        try:
+            pwd_bulletins = await uttarakhand_pwd_client.fetch_latest_bulletins()
+            results["uttarakhand_pwd"] = f"SUCCESS ({len(pwd_bulletins)} bulletins)"
+        except Exception as e:
+            results["uttarakhand_pwd"] = f"ERROR: {str(e)}"
 
         return {
             "refreshed_at": now.isoformat(),

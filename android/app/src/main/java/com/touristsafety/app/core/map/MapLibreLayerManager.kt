@@ -134,6 +134,11 @@ object MapLibreLayerManager {
             }
             if (style.getLayer(LAYER_DISASTER_FILL) == null) {
                 val disasterFill = FillLayer(LAYER_DISASTER_FILL, SOURCE_DISASTER_POLYGONS).apply {
+                    setFilter(any(
+                        eq(geometryType(), literal("Polygon")),
+                        eq(geometryType(), literal("MultiPolygon")),
+                        eq(get("geom_type"), literal("Polygon"))
+                    ))
                     setProperties(
                         fillColor(Color.argb(70, 229, 57, 53)), // Emergency Red #E53935
                         fillOpacity(0.28f)
@@ -143,6 +148,11 @@ object MapLibreLayerManager {
             }
             if (style.getLayer(LAYER_DISASTER_LINE) == null) {
                 val disasterLine = LineLayer(LAYER_DISASTER_LINE, SOURCE_DISASTER_POLYGONS).apply {
+                    setFilter(any(
+                        eq(geometryType(), literal("Polygon")),
+                        eq(geometryType(), literal("MultiPolygon")),
+                        eq(get("geom_type"), literal("Polygon"))
+                    ))
                     setProperties(
                         lineColor(Color.rgb(211, 47, 47)), // #D32F2F
                         lineWidth(2.5f),
@@ -154,6 +164,10 @@ object MapLibreLayerManager {
             }
             if (style.getLayer(LAYER_DISASTER_POINTS_CIRCLE) == null) {
                 val disasterPointsCircle = CircleLayer(LAYER_DISASTER_POINTS_CIRCLE, SOURCE_DISASTER_POLYGONS).apply {
+                    setFilter(any(
+                        eq(geometryType(), literal("Point")),
+                        eq(get("geom_type"), literal("Point"))
+                    ))
                     setProperties(
                         circleColor(Color.rgb(211, 47, 47)), // Emergency Red #D32F2F
                         circleRadius(10.0f),
@@ -165,6 +179,10 @@ object MapLibreLayerManager {
             }
             if (style.getLayer(LAYER_DISASTER_POINTS_SYMBOL) == null) {
                 val disasterSymbol = SymbolLayer(LAYER_DISASTER_POINTS_SYMBOL, SOURCE_DISASTER_POLYGONS).apply {
+                    setFilter(any(
+                        eq(geometryType(), literal("Point")),
+                        eq(get("geom_type"), literal("Point"))
+                    ))
                     setProperties(
                         iconImage(MapIconFactory.ICON_DISASTER),
                         iconSize(0.85f),

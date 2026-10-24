@@ -466,6 +466,12 @@ private fun HazardZoneDetailContent(feature: UnifiedMapFeature) {
 
         DetailRow(icon = Icons.Default.Warning, label = "Severity Level", value = feature.details["Severity"] ?: "WARNING", tint = Color(0xFFC62828))
         DetailRow(icon = Icons.Default.Category, label = "Hazard Type", value = feature.details["Category"] ?: "NATURAL HAZARD")
+        feature.details["Area Description"]?.let {
+            DetailRow(icon = Icons.Default.Place, label = "Advisory Area", value = it)
+        }
+        feature.details["Published At"]?.let {
+            DetailRow(icon = Icons.Default.AccessTime, label = "Published At", value = it)
+        }
         DetailRow(icon = Icons.Default.Verified, label = "Issuing Authority", value = feature.sourceName)
     }
 }

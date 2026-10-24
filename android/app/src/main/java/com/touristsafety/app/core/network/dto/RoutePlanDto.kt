@@ -80,7 +80,13 @@ data class RouteDisasterAlertInfoDto(
     val center_latitude: Double? = null,
     val center_longitude: Double? = null,
     val affected_radius_meters: Double? = null,
-    val polygon_geojson: JsonElement? = null
+    val polygon_geojson: JsonElement? = null,
+    val area_description: String? = null,
+    val issuing_authority: String? = null,
+    val published_at: String? = null,
+    val effective_at: String? = null,
+    val expires_at: String? = null,
+    val source_url: String? = null
 )
 
 @Serializable

@@ -3,7 +3,7 @@ import asyncio
 import logging
 from arq.connections import RedisSettings
 from app.config import settings
-from app.jobs.scheduled_tasks import refresh_active_weather, evaluate_alert_freshness
+from app.jobs.scheduled_tasks import refresh_active_weather, evaluate_alert_freshness, ingest_disaster_alerts
 from app.jobs.outbox_processor import process_outbox_events
 from app.core.logging import setup_logging
 
@@ -21,7 +21,7 @@ async def shutdown(ctx):
 
 class WorkerSettings:
     """ARQ Worker configuration."""
-    functions = [refresh_active_weather, evaluate_alert_freshness, process_outbox_events]
+    functions = [refresh_active_weather, evaluate_alert_freshness, process_outbox_events, ingest_disaster_alerts]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
@@ -41,6 +41,7 @@ async def run_standalone_loop():
                 await process_outbox_events()
                 await refresh_active_weather(ctx)
                 await evaluate_alert_freshness(ctx)
+                await ingest_disaster_alerts(ctx)
             except Exception as e:
                 logger.error(f"Error in background task cycle: {e}")
             await asyncio.sleep(settings.OUTBOX_POLL_INTERVAL_SECONDS)

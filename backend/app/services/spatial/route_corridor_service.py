@@ -227,19 +227,23 @@ class RouteCorridorService:
         route_coords: List[Tuple[float, float]],
         corridor_polygon_geojson: Dict[str, Any],
         corridor_distance_meters: float = DEFAULT_CORRIDOR_METERS,
+        corridor_district_keywords: Optional[List[str]] = None,
     ) -> List[Tuple[Any, Dict[str, Any]]]:
         """
         Filters disaster alerts (from DB or RSS feed) against the actual route corridor.
 
         - If the alert has polygon_geojson: tests genuine polygon intersection with corridor polygon.
         - If the alert has center coordinates: tests if circle perimeter intersects the corridor.
-        - If the alert has NO usable geometry: it is EXCLUDED from corridor-specific overlays.
+        - If the alert has district text (area_description): matches corridor district keywords without fabricating coordinates.
+        - If the alert has NO usable geometry or matching district: it is EXCLUDED from corridor-specific overlays.
 
         Returns:
             List of (alert_object, spatial_metadata_dict)
         """
         corridor_shape = shape(corridor_polygon_geojson)
         matching = []
+
+        keywords_lower = [k.lower() for k in (corridor_district_keywords or []) if k]
 
         for alert in alerts:
             # Check for genuine polygon geometry
@@ -278,6 +282,18 @@ class RouteCorridorService:
                         meta["distance_along_route_km"] = round(along_m / 1000.0, 2)
                         meta["nearest_segment_index"] = seg_idx
                         meta["geometry_type"] = "Circle"
+
+            if not matched:
+                # Check genuine district/area description without fabricating fake coordinates
+                area_desc = getattr(alert, "area_description", None)
+                if area_desc and keywords_lower:
+                    desc_lower = area_desc.lower()
+                    if any(kw in desc_lower for kw in keywords_lower):
+                        matched = True
+                        meta["intersection_type"] = "district_advisory"
+                        meta["geometry_type"] = "DistrictText"
+                        meta["distance_to_route_km"] = 0.0
+                        meta["is_non_spatial_advisory"] = True
 
             if matched:
                 matching.append((alert, meta))
@@ -430,6 +446,9 @@ class RouteCorridorService:
                         matched_direct = True
                     elif dist_m <= (corridor_distance_meters + radius_m):
                         matched_corridor = True
+                elif getattr(alert, "area_description", None):
+                    # District/regional warning without specific coordinates: corridor presence
+                    matched_corridor = True
 
             sev = getattr(alert, "severity", "WARNING").upper()
             if sev not in direct_sev:

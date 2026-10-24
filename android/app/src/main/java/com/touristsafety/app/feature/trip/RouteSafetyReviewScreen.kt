@@ -681,16 +681,27 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.padding(vertical = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(alert.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                                Text(alert.required_protective_instructions, fontSize = 11.sp, color = Color(0xFFEF6C00))
                             }
+                            if (!alert.issuing_authority.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Source: ${alert.issuing_authority}", fontSize = 10.sp, color = Color(0xFFBF360C), fontWeight = FontWeight.SemiBold)
+                            }
+                            if (!alert.area_description.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Advisory Area: ${alert.area_description}", fontSize = 10.sp, color = Color(0xFFE65100))
+                            }
+                            if (!alert.published_at.isNullOrBlank()) {
+                                val pubStr = if (alert.published_at.length >= 16) alert.published_at.substring(0, 16).replace("T", " ") else alert.published_at
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Issued: $pubStr UTC", fontSize = 10.sp, color = Color(0xFF795548))
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(alert.required_protective_instructions, fontSize = 11.sp, color = Color(0xFFEF6C00))
                         }
                     }
                 }

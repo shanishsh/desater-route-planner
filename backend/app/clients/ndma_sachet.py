@@ -1,4 +1,5 @@
 """NDMA SACHET CAP (Common Alerting Protocol) RSS/XML Client with conditional ETag caching."""
+import json
 import logging
 import math
 import uuid
@@ -13,38 +14,6 @@ from app.cache.redis_cache import cache_service
 from app.models.disaster_alert import DisasterAlert
 
 logger = logging.getLogger(__name__)
-
-# State / Region centroids for geographic scoping when explicit circle/polygon is absent
-INDIA_REGION_CENTROIDS: Dict[str, Tuple[float, float]] = {
-    "himachal": (31.95, 77.25),
-    "shimla": (31.10, 77.17),
-    "kullu": (31.96, 77.11),
-    "manali": (32.24, 77.19),
-    "mandi": (31.71, 76.93),
-    "kangra": (32.09, 76.27),
-    "dharamshala": (32.22, 76.32),
-    "uttarakhand": (30.06, 79.02),
-    "dehradun": (30.32, 78.03),
-    "delhi": (28.61, 77.21),
-    "chennai": (13.08, 80.27),
-    "puducherry": (11.94, 79.81),
-    "tamil nadu": (11.13, 78.65),
-    "kerala": (10.85, 76.27),
-    "maharashtra": (19.75, 75.71),
-    "mumbai": (19.07, 72.88),
-    "karnataka": (15.31, 75.71),
-    "bengaluru": (12.97, 77.59),
-    "jammu": (32.73, 74.86),
-    "kashmir": (34.08, 74.80),
-    "ladakh": (34.15, 77.58),
-    "punjab": (31.15, 75.34),
-    "haryana": (29.06, 76.09),
-    "rajasthan": (27.02, 74.22),
-    "gujarat": (22.26, 71.19),
-    "west bengal": (22.98, 87.85),
-    "odisha": (20.95, 85.10),
-    "assam": (26.20, 92.94),
-}
 
 
 def _parse_iso_dt(dt_str: Optional[str]) -> Optional[datetime]:
@@ -192,7 +161,10 @@ class NDMASachetClient:
         return None
 
     def parse_cap_xml(self, cap_xml_str: str) -> Optional[Dict[str, Any]]:
-        """Parses OASIS CAP 1.2 XML fields."""
+        """
+        Parses OASIS CAP 1.2 XML fields authentically.
+        Never fabricates coordinates or impact polygons for unpositioned warnings.
+        """
         if not cap_xml_str:
             return None
 
@@ -200,26 +172,26 @@ class NDMASachetClient:
             root = ET.fromstring(cap_xml_str)
             ns = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
 
-            identifier = root.findtext("cap:identifier", default="", namespaces=ns)
-            sender = root.findtext("cap:sender", default="", namespaces=ns)
-            sent_str = root.findtext("cap:sent", default="", namespaces=ns)
-            status = root.findtext("cap:status", default="Actual", namespaces=ns)
-            msg_type = root.findtext("cap:msgType", default="Alert", namespaces=ns)
+            identifier = root.findtext("cap:identifier", default="", namespaces=ns).strip()
+            sender = root.findtext("cap:sender", default="", namespaces=ns).strip()
+            sent_str = root.findtext("cap:sent", default="", namespaces=ns).strip()
+            status = root.findtext("cap:status", default="Actual", namespaces=ns).strip()
+            msg_type = root.findtext("cap:msgType", default="Alert", namespaces=ns).strip()
 
             info = root.find("cap:info", ns)
             if info is None:
                 return None
 
-            event = info.findtext("cap:event", default="Disaster Alert", namespaces=ns)
-            urgency = info.findtext("cap:urgency", default="Unknown", namespaces=ns)
-            severity = info.findtext("cap:severity", default="Moderate", namespaces=ns)
-            certainty = info.findtext("cap:certainty", default="Observed", namespaces=ns)
-            headline = info.findtext("cap:headline", default="", namespaces=ns)
-            description = info.findtext("cap:description", default="", namespaces=ns)
-            instruction = info.findtext("cap:instruction", default="", namespaces=ns)
-            effective_str = info.findtext("cap:effective", default="", namespaces=ns)
-            onset_str = info.findtext("cap:onset", default="", namespaces=ns)
-            expires_str = info.findtext("cap:expires", default="", namespaces=ns)
+            event = info.findtext("cap:event", default="Disaster Alert", namespaces=ns).strip()
+            urgency = info.findtext("cap:urgency", default="Unknown", namespaces=ns).strip()
+            severity = info.findtext("cap:severity", default="Moderate", namespaces=ns).strip()
+            certainty = info.findtext("cap:certainty", default="Observed", namespaces=ns).strip()
+            headline = info.findtext("cap:headline", default="", namespaces=ns).strip()
+            description = info.findtext("cap:description", default="", namespaces=ns).strip()
+            instruction = info.findtext("cap:instruction", default="", namespaces=ns).strip()
+            effective_str = info.findtext("cap:effective", default="", namespaces=ns).strip()
+            onset_str = info.findtext("cap:onset", default="", namespaces=ns).strip()
+            expires_str = info.findtext("cap:expires", default="", namespaces=ns).strip()
             effective_at = _parse_iso_dt(effective_str) or _parse_iso_dt(sent_str)
             expires_at = _parse_iso_dt(expires_str)
 
@@ -228,29 +200,25 @@ class NDMASachetClient:
             area_desc = ""
             circle_str = ""
             polygon_str = ""
-            center_lat = 0.0
-            center_lon = 0.0
-            radius_m = 5000.0
+            center_lat: Optional[float] = None
+            center_lon: Optional[float] = None
+            radius_m: Optional[float] = None
+            polygon_geojson: Optional[str] = None
+            geocodes: List[Dict[str, str]] = []
 
             if area is not None:
-                area_desc = area.findtext("cap:areaDesc", default="", namespaces=ns)
-                circle_str = area.findtext("cap:circle", default="", namespaces=ns)
-                polygon_str = area.findtext("cap:polygon", default="", namespaces=ns)
+                area_desc = area.findtext("cap:areaDesc", default="", namespaces=ns).strip()
+                circle_str = area.findtext("cap:circle", default="", namespaces=ns).strip()
+                polygon_str = area.findtext("cap:polygon", default="", namespaces=ns).strip()
 
-            # Resolve coordinates from circle if provided: "lat,lon radius_km"
-            if circle_str and "," in circle_str:
-                parts = circle_str.strip().split()
-                coords = parts[0].split(",")
-                try:
-                    center_lat = float(coords[0])
-                    center_lon = float(coords[1])
-                    if len(parts) > 1:
-                        radius_m = float(parts[1]) * 1000.0
-                except ValueError:
-                    pass
+                # Extract all Local Government Directory (LGD) or administrative geocodes
+                for gc in area.findall("cap:geocode", namespaces=ns):
+                    vname = gc.findtext("cap:valueName", default="", namespaces=ns).strip()
+                    vval = gc.findtext("cap:value", default="", namespaces=ns).strip()
+                    if vname or vval:
+                        geocodes.append({"valueName": vname, "value": vval})
 
-            # Resolve coordinates from polygon if provided (always parse regardless of circle)
-            polygon_geojson = None
+            # 1. Resolve coordinates from polygon if provided
             if polygon_str:
                 pts = []
                 for token in polygon_str.strip().split():
@@ -258,36 +226,47 @@ class NDMASachetClient:
                         sp = token.split(",")
                         try:
                             # CAP 1.2 polygon format is "latitude,longitude"
-                            pts.append((float(sp[0]), float(sp[1])))
+                            lat_f = float(sp[0])
+                            lon_f = float(sp[1])
+                            if -90.0 <= lat_f <= 90.0 and -180.0 <= lon_f <= 180.0:
+                                pts.append((lat_f, lon_f))
                         except ValueError:
                             pass
                 if len(pts) >= 3:
-                    if not (center_lat and center_lon):
-                        center_lat = sum(p[0] for p in pts) / len(pts)
-                        center_lon = sum(p[1] for p in pts) / len(pts)
+                    center_lat = sum(p[0] for p in pts) / len(pts)
+                    center_lon = sum(p[1] for p in pts) / len(pts)
                     
                     # RFC 7946 coordinates: [longitude, latitude]
                     ring = [[p[1], p[0]] for p in pts]
                     # Ensure linear ring is closed: first coordinate equals last coordinate
                     if ring[0] != ring[-1]:
                         ring.append(list(ring[0]))
-                    import json
                     polygon_geojson = json.dumps({
                         "type": "Polygon",
                         "coordinates": [ring]
                     })
 
-            # Geographic fallback by matching named district/state in area_desc or headline
-            if not (center_lat and center_lon):
-                search_text = f"{area_desc} {headline} {sender}".lower()
-                for region_key, (r_lat, r_lon) in INDIA_REGION_CENTROIDS.items():
-                    if region_key in search_text:
-                        center_lat = r_lat
-                        center_lon = r_lon
-                        radius_m = 25000.0  # District-level radius
-                        break
+            # 2. Resolve coordinates from circle if provided: "lat,lon radius_km"
+            if circle_str and "," in circle_str:
+                parts = circle_str.strip().split()
+                coords = parts[0].split(",")
+                try:
+                    c_lat = float(coords[0])
+                    c_lon = float(coords[1])
+                    if -90.0 <= c_lat <= 90.0 and -180.0 <= c_lon <= 180.0:
+                        if center_lat is None:
+                            center_lat = c_lat
+                            center_lon = c_lon
+                        if len(parts) > 1:
+                            radius_m = float(parts[1]) * 1000.0
+                except ValueError:
+                    pass
 
-            # Map CAP severity to internal enum
+            # NOTE (Requirement 10): Never fabricate missing locations, disaster counts, polygons,
+            # or severity levels. If no genuine circle or polygon is present, coordinates remain None.
+            # The alert is treated as a district/regional text advisory.
+
+            # Map CAP severity to standard internal severity
             sev_mapped = "WARNING"
             sev_upper = severity.upper()
             if sev_upper in ["EXTREME"]:
@@ -299,7 +278,7 @@ class NDMASachetClient:
             else:
                 sev_mapped = "INFO"
 
-            # Map category
+            # Map hazard category
             cat_lower = event.lower()
             hazard_cat = "severe_weather"
             if "flood" in cat_lower:
@@ -312,6 +291,8 @@ class NDMASachetClient:
                 hazard_cat = "wildfire"
             elif "cyclone" in cat_lower or "storm" in cat_lower:
                 hazard_cat = "cyclone"
+            elif "lightning" in cat_lower:
+                hazard_cat = "lightning"
 
             return {
                 "identifier": identifier,
@@ -326,10 +307,12 @@ class NDMASachetClient:
                 "description": description or headline or event,
                 "instruction": instruction or "Follow State Disaster Management Authority guidelines.",
                 "area_desc": area_desc,
+                "area_description": area_desc,
                 "center_latitude": center_lat,
                 "center_longitude": center_lon,
                 "affected_radius_meters": radius_m,
                 "polygon_geojson": polygon_geojson,
+                "geocode_info": json.dumps(geocodes) if geocodes else None,
                 "hazard_category": hazard_cat,
                 "effective_at": effective_at,
                 "expires_at": expires_at,
@@ -339,7 +322,7 @@ class NDMASachetClient:
             logger.warning(f"Error parsing CAP XML: {e}")
             return None
 
-    async def sync_sachet_alerts(self, db: AsyncSession, max_fetch_details: int = 5) -> int:
+    async def sync_sachet_alerts(self, db: AsyncSession, max_fetch_details: int = 15) -> int:
         """
         Synchronizes live NDMA SACHET alerts into the database:
         - Parses RSS feed items.
@@ -348,6 +331,10 @@ class NDMASachetClient:
         """
         feed_xml, is_modified = await self.fetch_rss_feed()
         if not feed_xml:
+            return 0
+
+        if not is_modified:
+            logger.info("NDMA SACHET feed not modified (HTTP 304). No new alerts to sync.")
             return 0
 
         rss_items = self.parse_rss_items(feed_xml)
@@ -396,12 +383,12 @@ class NDMASachetClient:
                 existing.description = cap_data["description"]
                 existing.required_protective_instructions = cap_data["instruction"]
                 existing.severity = cap_data["severity"]
-                if cap_data["center_latitude"] and cap_data["center_longitude"]:
-                    existing.center_latitude = cap_data["center_latitude"]
-                    existing.center_longitude = cap_data["center_longitude"]
-                    existing.affected_radius_meters = cap_data["affected_radius_meters"]
-                if cap_data.get("polygon_geojson"):
-                    existing.polygon_geojson = cap_data["polygon_geojson"]
+                existing.center_latitude = cap_data["center_latitude"]
+                existing.center_longitude = cap_data["center_longitude"]
+                existing.affected_radius_meters = cap_data["affected_radius_meters"]
+                existing.polygon_geojson = cap_data.get("polygon_geojson")
+                existing.area_description = cap_data.get("area_desc")
+                existing.geocode_info = cap_data.get("geocode_info")
                 if cap_data.get("effective_at"):
                     existing.effective_at = cap_data["effective_at"]
                 if cap_data.get("expires_at"):
@@ -411,6 +398,7 @@ class NDMASachetClient:
                 published_dt = _parse_iso_dt(cap_data.get("sent_str")) or now
                 new_alert = DisasterAlert(
                     id=alert_id,
+                    external_identifier=cap_data["identifier"] or guid,
                     title=cap_data["headline"][:200],
                     description=cap_data["description"],
                     hazard_category=cap_data["hazard_category"],
@@ -422,10 +410,12 @@ class NDMASachetClient:
                     source_url=f"https://sachet.ndma.gov.in/cap_public_website/FetchXMLFile?identifier={guid}",
                     source_verification_status="GOVERNMENT_OFFICIAL_VERIFIED",
                     required_protective_instructions=cap_data["instruction"],
-                    center_latitude=cap_data["center_latitude"] or 20.5937, # Default to India geographic center if unpositioned
-                    center_longitude=cap_data["center_longitude"] or 78.9629,
+                    center_latitude=cap_data["center_latitude"],
+                    center_longitude=cap_data["center_longitude"],
                     affected_radius_meters=cap_data["affected_radius_meters"],
                     polygon_geojson=cap_data.get("polygon_geojson"),
+                    area_description=cap_data.get("area_desc"),
+                    geocode_info=cap_data.get("geocode_info"),
                     published_at=published_dt,
                     received_at=now,
                     effective_at=cap_data.get("effective_at"),
@@ -443,4 +433,3 @@ class NDMASachetClient:
 
 
 ndma_sachet_client = NDMASachetClient()
-

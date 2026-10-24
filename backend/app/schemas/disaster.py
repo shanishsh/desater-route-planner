@@ -18,10 +18,13 @@ class DisasterAlertCreate(BaseModel):
     source_verification_status: str = Field(default="VERIFIED", description="VERIFIED, UNVERIFIED, SIMULATED")
     required_protective_instructions: str = Field(..., min_length=5)
     
-    center_latitude: float = Field(..., ge=-90.0, le=90.0)
-    center_longitude: float = Field(..., ge=-180.0, le=180.0)
-    affected_radius_meters: float = Field(default=5000.0, ge=100.0)
+    center_latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    center_longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
+    affected_radius_meters: Optional[float] = Field(default=5000.0, ge=100.0)
     polygon_geojson: Optional[str] = None
+    area_description: Optional[str] = None
+    geocode_info: Optional[str] = None
+    external_identifier: Optional[str] = None
     affected_route_id: Optional[str] = None
     
     is_simulated: bool = Field(default=False, description="Flag indicating synthetic or test alert")
@@ -62,10 +65,13 @@ class DisasterAlertResponse(BaseModel):
     source_url: Optional[str] = None
     source_verification_status: str
     required_protective_instructions: str
-    center_latitude: float
-    center_longitude: float
-    affected_radius_meters: float
+    center_latitude: Optional[float] = None
+    center_longitude: Optional[float] = None
+    affected_radius_meters: Optional[float] = None
     polygon_geojson: Optional[str] = None
+    area_description: Optional[str] = None
+    geocode_info: Optional[str] = None
+    external_identifier: Optional[str] = None
     affected_route_id: Optional[str] = None
     published_at: datetime
     received_at: datetime

@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
     OPENCELLID_API_KEY: str = ""
     OPENCELLID_BASE_URL: str = "https://opencellid.org/cell/get"
+    IMD_API_KEY: str = ""
+    IMD_API_SECRET: str = ""
+    IMD_BASE_URL: str = "https://api.imd.gov.in"
     FOREST_CACHE_TTL_SECONDS: int = 86400  # 24 hours
     FIRE_CACHE_TTL_SECONDS: int = 1800  # 30 minutes
     PROVIDER_STATUS_CACHE_TTL_SECONDS: int = 60

@@ -30,11 +30,14 @@ class DisasterAlert(Base, TimestampMixin):
     
     required_protective_instructions: Mapped[str] = mapped_column(Text, nullable=False)
     
-    # Geographic scope
-    center_latitude: Mapped[float] = mapped_column(Float, nullable=False)
-    center_longitude: Mapped[float] = mapped_column(Float, nullable=False)
-    affected_radius_meters: Mapped[float] = mapped_column(Float, default=5000.0, nullable=False)
+    # Geographic scope - nullable for district-level warnings without specific coordinates
+    center_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    center_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    affected_radius_meters: Mapped[Optional[float]] = mapped_column(Float, default=5000.0, nullable=True)
     polygon_geojson: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    area_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    geocode_info: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    external_identifier: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     affected_route_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("itineraries.id", ondelete="SET NULL"), nullable=True, index=True
     )

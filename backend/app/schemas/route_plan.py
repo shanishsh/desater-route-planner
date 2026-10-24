@@ -124,6 +124,12 @@ class RouteDisasterAlertInfo(BaseModel):
     center_longitude: Optional[float] = None
     affected_radius_meters: Optional[float] = None
     polygon_geojson: Optional[Any] = None
+    area_description: Optional[str] = None
+    issuing_authority: Optional[str] = None
+    published_at: Optional[str] = None
+    effective_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    source_url: Optional[str] = None
 
     @field_validator("polygon_geojson", mode="before")
     @classmethod

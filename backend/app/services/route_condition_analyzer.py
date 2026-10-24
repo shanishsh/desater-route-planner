@@ -116,13 +116,21 @@ class RouteConditionAnalyzer:
 
         # 3. Query active disaster alerts from DB and run network queries concurrently
         allow_simulated = os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
+        from sqlalchemy import and_
+        geo_filter = or_(
+            and_(
+                DisasterAlert.center_latitude >= min_lat - 0.05,
+                DisasterAlert.center_latitude <= max_lat + 0.05,
+                DisasterAlert.center_longitude >= min_lon - 0.05,
+                DisasterAlert.center_longitude <= max_lon + 0.05,
+            ),
+            DisasterAlert.polygon_geojson.isnot(None),
+            DisasterAlert.area_description.isnot(None),
+        )
         alert_filters = [
             DisasterAlert.status.in_(["active", "updated"]),
             or_(DisasterAlert.expires_at.is_(None), DisasterAlert.expires_at > now),
-            DisasterAlert.center_latitude >= min_lat - 0.05,
-            DisasterAlert.center_latitude <= max_lat + 0.05,
-            DisasterAlert.center_longitude >= min_lon - 0.05,
-            DisasterAlert.center_longitude <= max_lon + 0.05,
+            geo_filter,
         ]
         if not allow_simulated:
             alert_filters.append(DisasterAlert.is_simulated.is_(False))
@@ -147,11 +155,21 @@ class RouteConditionAnalyzer:
 
         elev_points = elevation_data.get("points", []) if elevation_data else []
 
+        # Extract corridor district keywords from origin, destination, and waypoints
+        import re
+        corridor_district_keywords = []
+        for name_field in [route.origin_name, route.destination_name] + [wp.name for wp in route.waypoints]:
+            if name_field:
+                for tok in re.split(r"[,/\\ -]+", name_field):
+                    if len(tok) >= 3 and tok.lower() not in ("the", "and", "near", "point", "route", "stop", "station"):
+                        corridor_district_keywords.append(tok)
+
         filtered_alert_tuples = route_corridor_service.filter_disaster_alerts(
             candidate_alerts,
             route_coords_lat_lon,
             corridor_poly_geojson,
             corridor_distance_meters=corridor_dist_m,
+            corridor_district_keywords=corridor_district_keywords,
         )
         active_alerts: List[DisasterAlert] = [t[0] for t in filtered_alert_tuples]
 
@@ -324,11 +342,19 @@ class RouteConditionAnalyzer:
             matched_alerts: List[RouteDisasterAlertInfo] = []
             alerts_for_engine: List[Dict[str, Any]] = []
             for alert in active_alerts:
-                dist_km = haversine_distance_km(
-                    wp.latitude, wp.longitude, alert.center_latitude, alert.center_longitude
-                )
-                radius_km = (alert.affected_radius_meters or 5000.0) / 1000.0
-                if dist_km <= radius_km:
+                dist_km = 0.0
+                is_near = False
+                if alert.center_latitude is not None and alert.center_longitude is not None:
+                    dist_km = haversine_distance_km(
+                        wp.latitude, wp.longitude, alert.center_latitude, alert.center_longitude
+                    )
+                    radius_km = (alert.affected_radius_meters or 5000.0) / 1000.0
+                    is_near = (dist_km <= radius_km)
+                else:
+                    # Non-point alert (genuine polygon or district advisory) already filtered to corridor
+                    is_near = True
+
+                if is_near:
                     matched_alerts.append(
                         RouteDisasterAlertInfo(
                             alert_id=alert.id,
@@ -338,6 +364,16 @@ class RouteConditionAnalyzer:
                             distance_to_alert_km=round(dist_km, 2),
                             required_protective_instructions=alert.required_protective_instructions,
                             is_simulated=alert.is_simulated,
+                            center_latitude=alert.center_latitude,
+                            center_longitude=alert.center_longitude,
+                            affected_radius_meters=alert.affected_radius_meters,
+                            polygon_geojson=alert.polygon_geojson,
+                            area_description=alert.area_description,
+                            issuing_authority=alert.issuing_authority,
+                            published_at=alert.published_at.isoformat() if alert.published_at else None,
+                            effective_at=alert.effective_at.isoformat() if alert.effective_at else None,
+                            expires_at=alert.expires_at.isoformat() if alert.expires_at else None,
+                            source_url=alert.source_url,
                         )
                     )
                     alerts_for_engine.append(
@@ -398,7 +434,13 @@ class RouteConditionAnalyzer:
             analysis_limitations.append("NDMA SACHET covers Indian territory only; government disaster advisories are unavailable for this international corridor.")
         else:
             sachet_status = "LOADED" if active_alerts else "EMPTY"
-            sachet_details = "Spatial polygon and circular advisory intersection."
+            if active_alerts:
+                sachet_details = f"{len(active_alerts)} active official advisory(ies) verified in route corridor."
+            else:
+                sachet_details = (
+                    f"0 active disaster alerts in scanned {corridor_dist_km} km corridor. "
+                    "Note: Absence of active warnings does not guarantee an area is free from rapidly developing mountain hazards."
+                )
 
         if not firms_configured:
             firms_status = "UNCONFIGURED"
@@ -754,7 +796,7 @@ class RouteConditionAnalyzer:
                     geom = json.loads(alert.polygon_geojson)
                 except Exception:
                     geom = None
-            if not geom and alert.center_latitude and alert.center_longitude:
+            if not geom and alert.center_latitude is not None and alert.center_longitude is not None:
                 # If alert has a documented circle radius from CAP 1.2 (<cap:circle>)
                 if alert.affected_radius_meters and alert.affected_radius_meters > 0:
                     c_coords = []
@@ -775,6 +817,8 @@ class RouteConditionAnalyzer:
                     geom = {"type": "Point", "coordinates": [alert.center_longitude, alert.center_latitude]}
                     derived_from = "point"
 
+            # Only genuine spatial geometries (Polygon or Point) are added to map overlays
+            # District warnings without coordinates are conveyed via disaster_alerts cards
             if geom:
                 layer_type = "disaster_alert" if geom.get("type") in ["Polygon", "MultiPolygon"] else "disaster_alert_point"
                 overlay_features.append({
@@ -789,6 +833,8 @@ class RouteConditionAnalyzer:
                         "instructions": alert.required_protective_instructions,
                         "issuing_authority": alert.issuing_authority,
                         "derived_from": derived_from,
+                        "area_description": alert.area_description,
+                        "source_url": alert.source_url,
                         "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
                     }
                 })

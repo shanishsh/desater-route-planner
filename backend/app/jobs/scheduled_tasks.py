@@ -43,3 +43,28 @@ async def evaluate_alert_freshness(ctx: dict) -> int:
     logger.info(f"Alert freshness evaluation completed: {stale_count} stale alerts identified out of {total}")
     return stale_count
 
+
+async def ingest_disaster_alerts(ctx: dict) -> int:
+    """
+    Ingests official disaster alerts from NDMA SACHET CAP feeds and Uttarakhand PWD.
+    Parses genuine CAP XML, enforces idempotency, updates lifecycle, and persists records.
+    """
+    logger.info("Executing background job: ingest_disaster_alerts")
+    synced_count = 0
+    async with async_session_maker() as session:
+        try:
+            from app.clients.ndma_sachet import ndma_sachet_client
+            synced_count = await ndma_sachet_client.sync_sachet_alerts(session, max_fetch_details=15)
+        except Exception as e:
+            logger.error("NDMA SACHET background sync failed: %s", e)
+
+        try:
+            from app.clients.uttarakhand_pwd import uttarakhand_pwd_client
+            await uttarakhand_pwd_client.fetch_latest_bulletins()
+        except Exception as e:
+            logger.warning("Uttarakhand PWD background bulletin fetch failed: %s", e)
+
+    logger.info("Disaster alerts ingestion completed: %d SACHET alerts synced.", synced_count)
+    return synced_count
+
+
