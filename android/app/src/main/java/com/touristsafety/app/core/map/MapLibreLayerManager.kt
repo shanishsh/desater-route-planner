@@ -519,95 +519,131 @@ object MapLibreLayerManager {
 
         try {
             // 1. Update Corridor GeoJSON
-            val corridorSource = style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)
-            val corrJson = if (!state.corridorGeoJson.isNullOrBlank()) {
-                state.corridorGeoJson
-            } else {
-                buildCorridorGeoJson(state.corridorPolygonCoordinates)
+            try {
+                val corridorSource = style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)
+                val corrJson = if (!state.corridorGeoJson.isNullOrBlank()) {
+                    state.corridorGeoJson
+                } else {
+                    buildCorridorGeoJson(state.corridorPolygonCoordinates)
+                }
+                corridorSource?.setGeoJson(corrJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating corridor GeoJSON: ${t.message}")
             }
-            corridorSource?.setGeoJson(corrJson)
 
             // 2. Update Primary & Secondary Route GeoJSON
-            val primSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)
-            val primJson = if (!state.routePrimaryGeoJson.isNullOrBlank()) {
-                state.routePrimaryGeoJson
-            } else {
-                buildLineStringGeoJson(state.routeCoordinates)
+            try {
+                val primSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)
+                val primJson = if (!state.routePrimaryGeoJson.isNullOrBlank()) {
+                    state.routePrimaryGeoJson
+                } else {
+                    buildLineStringGeoJson(state.routeCoordinates)
+                }
+                primSource?.setGeoJson(primJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating primary route GeoJSON: ${t.message}")
             }
-            primSource?.setGeoJson(primJson)
 
-            val secSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)
-            val secJson = if (!state.routeSecondaryGeoJson.isNullOrBlank()) {
-                state.routeSecondaryGeoJson
-            } else if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
-                buildLineStringGeoJson(state.primaryRouteCoordinates)
-            } else {
-                EMPTY_GEOJSON
+            try {
+                val secSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)
+                val secJson = if (!state.routeSecondaryGeoJson.isNullOrBlank()) {
+                    state.routeSecondaryGeoJson
+                } else if (state.selectedAlternativeId != null && state.primaryRouteCoordinates.size >= 2) {
+                    buildLineStringGeoJson(state.primaryRouteCoordinates)
+                } else {
+                    EMPTY_GEOJSON
+                }
+                secSource?.setGeoJson(secJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating secondary route GeoJSON: ${t.message}")
             }
-            secSource?.setGeoJson(secJson)
 
             // 3. Update Disaster Features (Polygons & Point Advisories)
-            val disasterSource = style.getSourceAs<GeoJsonSource>(SOURCE_DISASTER_POLYGONS)
-            val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
-                state.hazardsGeoJson
-            } else {
-                val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
-                buildDisasterFeatureCollection(disasterFeatures)
+            try {
+                val disasterSource = style.getSourceAs<GeoJsonSource>(SOURCE_DISASTER_POLYGONS)
+                val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
+                    state.hazardsGeoJson
+                } else {
+                    val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
+                    buildDisasterFeatureCollection(disasterFeatures)
+                }
+                disasterSource?.setGeoJson(disasterJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating disaster GeoJSON: ${t.message}")
             }
-            disasterSource?.setGeoJson(disasterJson)
 
             // 4. Update Forest Polygons
-            val forestSource = style.getSourceAs<GeoJsonSource>(SOURCE_FOREST_POLYGONS)
-            val forestJson = if (!state.forestsGeoJson.isNullOrBlank()) {
-                state.forestsGeoJson
-            } else {
-                val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
-                buildPolygonFeatureCollection(forestFeatures)
+            try {
+                val forestSource = style.getSourceAs<GeoJsonSource>(SOURCE_FOREST_POLYGONS)
+                val forestJson = if (!state.forestsGeoJson.isNullOrBlank()) {
+                    state.forestsGeoJson
+                } else {
+                    val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
+                    buildPolygonFeatureCollection(forestFeatures)
+                }
+                forestSource?.setGeoJson(forestJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating forest GeoJSON: ${t.message}")
             }
-            forestSource?.setGeoJson(forestJson)
 
             // 5. Update Active Fires
-            val fireSource = style.getSourceAs<GeoJsonSource>(SOURCE_ACTIVE_FIRES)
-            val fireJson = if (!state.firesGeoJson.isNullOrBlank()) {
-                state.firesGeoJson
-            } else {
-                val fireFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
-                buildPointFeatureCollection(fireFeatures)
+            try {
+                val fireSource = style.getSourceAs<GeoJsonSource>(SOURCE_ACTIVE_FIRES)
+                val fireJson = if (!state.firesGeoJson.isNullOrBlank()) {
+                    state.firesGeoJson
+                } else {
+                    val fireFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
+                    buildPointFeatureCollection(fireFeatures)
+                }
+                fireSource?.setGeoJson(fireJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating fire GeoJSON: ${t.message}")
             }
-            fireSource?.setGeoJson(fireJson)
 
             // 6. Update Essential Facilities & Safe Havens
-            val havenSource = style.getSourceAs<GeoJsonSource>(SOURCE_SAFE_HAVENS)
-            val havenJson = if (!state.facilitiesGeoJson.isNullOrBlank()) {
-                state.facilitiesGeoJson
-            } else {
-                val havenFeatures = state.allFeatures.filter {
-                    it.category == MapFeatureCategory.SHELTER ||
-                    it.category == MapFeatureCategory.HOSPITAL ||
-                    it.category == MapFeatureCategory.CLINIC ||
-                    it.category == MapFeatureCategory.POLICE_STATION ||
-                    it.category == MapFeatureCategory.PETROL_PUMP ||
-                    it.category == MapFeatureCategory.FIRE_STATION ||
-                    it.category == MapFeatureCategory.TOURIST_ASSISTANCE
+            try {
+                val havenSource = style.getSourceAs<GeoJsonSource>(SOURCE_SAFE_HAVENS)
+                val havenJson = if (!state.facilitiesGeoJson.isNullOrBlank()) {
+                    state.facilitiesGeoJson
+                } else {
+                    val havenFeatures = state.allFeatures.filter {
+                        it.category == MapFeatureCategory.SHELTER ||
+                        it.category == MapFeatureCategory.HOSPITAL ||
+                        it.category == MapFeatureCategory.CLINIC ||
+                        it.category == MapFeatureCategory.POLICE_STATION ||
+                        it.category == MapFeatureCategory.PETROL_PUMP ||
+                        it.category == MapFeatureCategory.FIRE_STATION ||
+                        it.category == MapFeatureCategory.TOURIST_ASSISTANCE
+                    }
+                    buildPointFeatureCollection(havenFeatures)
                 }
-                buildPointFeatureCollection(havenFeatures)
+                havenSource?.setGeoJson(havenJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating facilities GeoJSON: ${t.message}")
             }
-            havenSource?.setGeoJson(havenJson)
 
             // 7. Update Weather Points
-            val weatherSource = style.getSourceAs<GeoJsonSource>(SOURCE_WEATHER_POINTS)
-            val weatherJson = if (!state.weatherGeoJson.isNullOrBlank()) {
-                state.weatherGeoJson
-            } else {
-                val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
-                buildPointFeatureCollection(weatherFeatures)
+            try {
+                val weatherSource = style.getSourceAs<GeoJsonSource>(SOURCE_WEATHER_POINTS)
+                val weatherJson = if (!state.weatherGeoJson.isNullOrBlank()) {
+                    state.weatherGeoJson
+                } else {
+                    val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
+                    buildPointFeatureCollection(weatherFeatures)
+                }
+                weatherSource?.setGeoJson(weatherJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating weather GeoJSON: ${t.message}")
             }
-            weatherSource?.setGeoJson(weatherJson)
 
             // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip
-            updateLayerVisibilities(style, state)
+            try {
+                updateLayerVisibilities(style, state)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating layer visibilities: ${t.message}")
+            }
 
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Error updating GeoJSON sources in style: ${e.message}", e)
         }
     }
@@ -726,13 +762,38 @@ object MapLibreLayerManager {
         )
     }
 
+    fun escapeJson(text: String?): String {
+        if (text == null) return ""
+        val sb = StringBuilder()
+        for (c in text) {
+            when (c) {
+                '"' -> sb.append("\\\"")
+                '\\' -> sb.append("\\\\")
+                '\b' -> sb.append("\\b")
+                '\u000C' -> sb.append("\\f")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> {
+                    if (c.code in 0x00..0x1F) {
+                        sb.append(String.format(java.util.Locale.US, "\\u%04x", c.code))
+                    } else {
+                        sb.append(c)
+                    }
+                }
+            }
+        }
+        return sb.toString()
+    }
+
     private fun buildCorridorGeoJson(rings: List<List<Pair<Double, Double>>>): String {
         if (rings.isEmpty()) return EMPTY_GEOJSON
         val sb = StringBuilder()
         sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
-        rings.forEachIndexed { rIdx, ring ->
+        var count = 0
+        rings.forEach { ring ->
             if (ring.size >= 3) {
-                if (rIdx > 0) sb.append(",")
+                if (count > 0) sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"properties\":{\"layer\":\"corridor\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
                 ring.forEachIndexed { pIdx, pt ->
                     if (pIdx > 0) sb.append(",")
@@ -744,6 +805,7 @@ object MapLibreLayerManager {
                     sb.append(",[${ring.first().second},${ring.first().first}]")
                 }
                 sb.append("]]}}")
+                count++
             }
         }
         sb.append("]}")
@@ -771,10 +833,11 @@ object MapLibreLayerManager {
             val ring = feat.geometryPolygon ?: return@forEach
             if (ring.size >= 3) {
                 if (count > 0) sb.append(",")
-                val safeTitle = feat.title.replace("\"", "\\\"")
-                val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
-                sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
-                sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\"")
+                val safeTitle = escapeJson(feat.title)
+                val safeSub = escapeJson(feat.subtitle)
+                val safeId = escapeJson(feat.id)
+                sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\"")
                 sb.append("},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
                 ring.forEachIndexed { pIdx, pt ->
                     if (pIdx > 0) sb.append(",")
@@ -797,13 +860,14 @@ object MapLibreLayerManager {
         sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
         var count = 0
         features.forEach { feat ->
+            val safeTitle = escapeJson(feat.title)
+            val safeSub = escapeJson(feat.subtitle)
+            val safeId = escapeJson(feat.id)
             val ring = feat.geometryPolygon
             if (ring != null && ring.size >= 3) {
                 if (count > 0) sb.append(",")
-                val safeTitle = feat.title.replace("\"", "\\\"")
-                val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
-                sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
-                sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Polygon\"")
+                sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Polygon\"")
                 sb.append("},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
                 ring.forEachIndexed { pIdx, pt ->
                     if (pIdx > 0) sb.append(",")
@@ -817,10 +881,8 @@ object MapLibreLayerManager {
             } else {
                 // Point hazard advisory
                 if (count > 0) sb.append(",")
-                val safeTitle = feat.title.replace("\"", "\\\"")
-                val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
-                sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
-                sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Point\"")
+                sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Point\"")
                 sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
                 count++
             }
@@ -835,8 +897,9 @@ object MapLibreLayerManager {
         sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
         features.forEachIndexed { idx, feat ->
             if (idx > 0) sb.append(",")
-            val safeTitle = feat.title.replace("\"", "\\\"")
-            val safeSub = (feat.subtitle ?: "").replace("\"", "\\\"")
+            val safeTitle = escapeJson(feat.title)
+            val safeSub = escapeJson(feat.subtitle)
+            val safeId = escapeJson(feat.id)
             val catSlug = when (feat.category) {
                 MapFeatureCategory.HOSPITAL -> "hospital"
                 MapFeatureCategory.CLINIC -> "clinic"
@@ -846,8 +909,8 @@ object MapLibreLayerManager {
                 MapFeatureCategory.SHELTER -> "shelter"
                 else -> feat.category.name.lowercase()
             }
-            sb.append("{\"type\":\"Feature\",\"id\":\"${feat.id}\",\"properties\":{")
-            sb.append("\"id\":\"${feat.id}\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"$catSlug\",\"category_enum\":\"${feat.category.name}\"")
+            sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
+            sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"$catSlug\",\"category_enum\":\"${feat.category.name}\"")
             sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
         }
         sb.append("]}")

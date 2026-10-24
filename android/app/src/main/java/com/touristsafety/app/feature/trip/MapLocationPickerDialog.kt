@@ -23,10 +23,12 @@ import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
@@ -104,7 +106,21 @@ fun MapLocationPickerDialog(
             // 1. MapLibre Native MapView
             AndroidView(
                 factory = { ctx ->
-                    MapView(ctx).apply {
+                    try {
+                        MapLibre.getInstance(ctx)
+                    } catch (_: Throwable) {}
+
+                    val options = try {
+                        MapLibreMapOptions.createFromAttributes(ctx).apply {
+                            textureMode(true)
+                        }
+                    } catch (_: Throwable) {
+                        MapLibreMapOptions().apply {
+                            textureMode(true)
+                        }
+                    }
+
+                    MapView(ctx, options).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -114,30 +130,38 @@ fun MapLocationPickerDialog(
                         onResume()
                         mapViewInstance = this
                         getMapAsync { map ->
-                            maplibreMap = map
-                            map.setStyle(
-                                Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                            ) {
-                                val target = LatLng(defaultLat, defaultLon)
-                                val pos = CameraPosition.Builder()
-                                    .target(target)
-                                    .zoom(11.0)
-                                    .build()
-                                map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
-                            }
+                            try {
+                                map.setStyle(
+                                    Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
+                                ) {
+                                    try {
+                                        maplibreMap = map
+                                        val target = LatLng(defaultLat, defaultLon)
+                                        val pos = CameraPosition.Builder()
+                                            .target(target)
+                                            .zoom(11.0)
+                                            .build()
+                                        map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                                    } catch (_: Throwable) {}
+                                }
 
-                            map.addOnCameraMoveListener {
-                                val target = map.cameraPosition?.target ?: return@addOnCameraMoveListener
-                                currentLat = target.latitude
-                                currentLon = target.longitude
-                            }
+                                map.addOnCameraMoveListener {
+                                    try {
+                                        val target = map.cameraPosition?.target ?: return@addOnCameraMoveListener
+                                        currentLat = target.latitude
+                                        currentLon = target.longitude
+                                    } catch (_: Throwable) {}
+                                }
 
-                            map.addOnCameraIdleListener {
-                                val target = map.cameraPosition?.target ?: return@addOnCameraIdleListener
-                                currentLat = target.latitude
-                                currentLon = target.longitude
-                                triggerReverseGeocode(target.latitude, target.longitude)
-                            }
+                                map.addOnCameraIdleListener {
+                                    try {
+                                        val target = map.cameraPosition?.target ?: return@addOnCameraIdleListener
+                                        currentLat = target.latitude
+                                        currentLon = target.longitude
+                                        triggerReverseGeocode(target.latitude, target.longitude)
+                                    } catch (_: Throwable) {}
+                                }
+                            } catch (_: Throwable) {}
                         }
                     }
                 },

@@ -35,6 +35,7 @@ import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
+import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.annotations.PolygonOptions
 import org.maplibre.android.annotations.PolylineOptions
@@ -42,6 +43,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
@@ -54,7 +56,40 @@ fun MapScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var mapLoadFailed by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, mapViewInstance) {
+        val mv = mapViewInstance
+        if (mv == null) {
+            onDispose {}
+        } else {
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                try {
+                    when (event) {
+                        androidx.lifecycle.Lifecycle.Event.ON_START -> mv.onStart()
+                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mv.onResume()
+                        androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mv.onPause()
+                        androidx.lifecycle.Lifecycle.Event.ON_STOP -> mv.onStop()
+                        androidx.lifecycle.Lifecycle.Event.ON_DESTROY -> mv.onDestroy()
+                        else -> {}
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.w("MapScreen", "Lifecycle event $event failed on MapView safely", t)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                try {
+                    mv.onPause()
+                    mv.onStop()
+                    mv.onDestroy()
+                } catch (_: Throwable) {}
+            }
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         // 1. BASE MAP LAYER (MapLibre Native or Fallback Offline Canvas)
@@ -69,106 +104,140 @@ fun MapScreen(
             AndroidView(
                 factory = { ctx ->
                     try {
-                        MapView(ctx).apply {
+                        try {
+                            MapLibre.getInstance(ctx)
+                        } catch (t: Throwable) {
+                            android.util.Log.w("MapScreen", "MapLibre.getInstance in factory: ${t.message}")
+                        }
+
+                        val options = try {
+                            MapLibreMapOptions.createFromAttributes(ctx).apply {
+                                textureMode(true)
+                            }
+                        } catch (_: Throwable) {
+                            MapLibreMapOptions().apply {
+                                textureMode(true)
+                            }
+                        }
+
+                        MapView(ctx, options).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             onCreate(null)
-                            onStart()
-                            onResume()
+                            mapViewInstance = this
+
                             getMapAsync { mapboxMap ->
-                            maplibreMapInstance = mapboxMap
-                            mapboxMap.setStyle(
-                                Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
-                            ) { style ->
-                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                                val pos = CameraPosition.Builder()
-                                    .target(target)
-                                    .zoom(state.zoomLevel)
-                                    .build()
-                                mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                                try {
+                                    mapboxMap.setStyle(
+                                        Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)
+                                    ) { style ->
+                                        try {
+                                            maplibreMapInstance = mapboxMap
+                                            val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                                            val pos = CameraPosition.Builder()
+                                                .target(target)
+                                                .zoom(state.zoomLevel)
+                                                .build()
+                                            mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
 
-                                // Render vector layers & markers
-                                updateMaplibreLayers(mapboxMap, state)
-                            }
-
-                            // Query rendered vector features on map tap (polygons, active fires, safe havens, symbols)
-                            mapboxMap.addOnMapClickListener { latLng ->
-                                val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
-                                val renderedFeatures = mapboxMap.queryRenderedFeatures(
-                                    screenPoint,
-                                    MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
-                                    MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
-                                    MapLibreLayerManager.LAYER_DISASTER_FILL,
-                                    MapLibreLayerManager.LAYER_DISASTER_LINE,
-                                    MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
-                                    MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
-                                    MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
-                                    MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_POLICE_SYMBOL,
-                                    MapLibreLayerManager.LAYER_POLICE_CIRCLE,
-                                    MapLibreLayerManager.LAYER_FUEL_SYMBOL,
-                                    MapLibreLayerManager.LAYER_FUEL_CIRCLE,
-                                    MapLibreLayerManager.LAYER_FIRE_STATIONS_SYMBOL,
-                                    MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
-                                    MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
-                                    MapLibreLayerManager.LAYER_FOREST_FILL,
-                                    MapLibreLayerManager.LAYER_FOREST_LINE
-                                )
-                                if (renderedFeatures.isNotEmpty()) {
-                                    val top = renderedFeatures.first()
-                                    val featId = top.getStringProperty("id") ?: top.id()
-                                    val clicked = state.allFeatures.firstOrNull { it.id == featId }
-                                        ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
-                                    if (clicked != null) {
-                                        viewModel.selectFeature(clicked)
-                                        return@addOnMapClickListener true
-                                    } else {
-                                        val title = top.getStringProperty("title") ?: top.getStringProperty("name")
-                                        if (!title.isNullOrBlank()) {
-                                            val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
-                                            val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
-                                            val dynamicFeature = UnifiedMapFeature(
-                                                id = featId ?: "feature-${System.currentTimeMillis()}",
-                                                title = title,
-                                                subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
-                                                category = category,
-                                                latitude = latLng.latitude,
-                                                longitude = latLng.longitude
-                                            )
-                                            viewModel.selectFeature(dynamicFeature)
-                                            return@addOnMapClickListener true
+                                            // Render vector layers & markers
+                                            updateMaplibreLayers(mapboxMap, state)
+                                        } catch (t: Throwable) {
+                                            android.util.Log.e("MapScreen", "Error during style load init: ${t.message}", t)
                                         }
                                     }
-                                }
-                                false
-                            }
 
-                            // Marker click listener
-                            mapboxMap.setOnMarkerClickListener { marker ->
-                                val snippet = marker.snippet ?: ""
-                                val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
-                                if (clicked != null) {
-                                    viewModel.selectFeature(clicked)
-                                } else {
-                                    val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
-                                    viewModel.selectFeature(byTitle)
-                                }
-                                true
-                            }
+                                    mapboxMap.addOnMapClickListener { latLng ->
+                                        try {
+                                            val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
+                                            val renderedFeatures = mapboxMap.queryRenderedFeatures(
+                                                screenPoint,
+                                                MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
+                                                MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
+                                                MapLibreLayerManager.LAYER_DISASTER_FILL,
+                                                MapLibreLayerManager.LAYER_DISASTER_LINE,
+                                                MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
+                                                MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
+                                                MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
+                                                MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_POLICE_SYMBOL,
+                                                MapLibreLayerManager.LAYER_POLICE_CIRCLE,
+                                                MapLibreLayerManager.LAYER_FUEL_SYMBOL,
+                                                MapLibreLayerManager.LAYER_FUEL_CIRCLE,
+                                                MapLibreLayerManager.LAYER_FIRE_STATIONS_SYMBOL,
+                                                MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
+                                                MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
+                                                MapLibreLayerManager.LAYER_FOREST_FILL,
+                                                MapLibreLayerManager.LAYER_FOREST_LINE
+                                            )
+                                            if (renderedFeatures.isNotEmpty()) {
+                                                val top = renderedFeatures.first()
+                                                val featId = top.getStringProperty("id") ?: top.id()
+                                                val clicked = state.allFeatures.firstOrNull { it.id == featId }
+                                                    ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
+                                                if (clicked != null) {
+                                                    viewModel.selectFeature(clicked)
+                                                    return@addOnMapClickListener true
+                                                } else {
+                                                    val title = top.getStringProperty("title") ?: top.getStringProperty("name")
+                                                    if (!title.isNullOrBlank()) {
+                                                        val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
+                                                        val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
+                                                        val dynamicFeature = UnifiedMapFeature(
+                                                            id = featId ?: "feature-${System.currentTimeMillis()}",
+                                                            title = title,
+                                                            subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
+                                                            category = category,
+                                                            latitude = latLng.latitude,
+                                                            longitude = latLng.longitude
+                                                        )
+                                                        viewModel.selectFeature(dynamicFeature)
+                                                        return@addOnMapClickListener true
+                                                    }
+                                                }
+                                            }
+                                        } catch (t: Throwable) {
+                                            android.util.Log.w("MapScreen", "Map tap query failed safely: ${t.message}")
+                                        }
+                                        false
+                                    }
 
-                            // Camera listener for zoom updates
-                            mapboxMap.addOnCameraIdleListener {
-                                val curZoom = mapboxMap.cameraPosition.zoom
-                                viewModel.setZoomLevel(curZoom)
+                                    mapboxMap.setOnMarkerClickListener { marker ->
+                                        try {
+                                            val snippet = marker.snippet ?: ""
+                                            val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
+                                            if (clicked != null) {
+                                                viewModel.selectFeature(clicked)
+                                            } else {
+                                                val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
+                                                viewModel.selectFeature(byTitle)
+                                            }
+                                        } catch (t: Throwable) {
+                                            android.util.Log.w("MapScreen", "Marker tap failed safely: ${t.message}")
+                                        }
+                                        true
+                                    }
+
+                                    mapboxMap.addOnCameraIdleListener {
+                                        try {
+                                            val curZoom = mapboxMap.cameraPosition.zoom
+                                            viewModel.setZoomLevel(curZoom)
+                                        } catch (t: Throwable) {
+                                            android.util.Log.w("MapScreen", "Camera idle callback failed: ${t.message}")
+                                        }
+                                    }
+                                } catch (t: Throwable) {
+                                    android.util.Log.e("MapScreen", "getMapAsync callback failure: ${t.message}", t)
+                                    mapLoadFailed = true
+                                }
                             }
                         }
-                    }
                     } catch (e: Throwable) {
                         android.util.Log.e("MapScreen", "Failed to initialize MapView, falling back to schematic canvas", e)
                         mapLoadFailed = true
@@ -176,8 +245,14 @@ fun MapScreen(
                     }
                 },
                 update = {
-                    maplibreMapInstance?.let { map ->
-                        updateMaplibreLayers(map, state)
+                    try {
+                        maplibreMapInstance?.let { map ->
+                            if (map.style?.isFullyLoaded == true) {
+                                updateMaplibreLayers(map, state)
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MapScreen", "Error during map update lambda: ${t.message}")
                     }
                 },
                 onRelease = { mapView ->
@@ -667,24 +742,34 @@ private fun FloatingMapControls(
 private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState) {
     try {
         val style = mapboxMap.style
-        if (style != null && style.isFullyLoaded) {
-            MapLibreLayerManager.setupSourcesAndLayers(style)
-            MapLibreLayerManager.updateData(style, state)
+        if (style == null || !style.isFullyLoaded) {
+            return
         }
 
-        // Manage lightweight GPS position marker via annotation system
-        mapboxMap.clear()
-        if (state.isUserLocationAcquired) {
-            val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
-            mapboxMap.addMarker(
-                MarkerOptions()
-                    .position(LatLng(state.userLocation.first, state.userLocation.second))
-                    .title("Your Current Location$acc")
-                    .snippet("GPS Location")
-            )
+        try {
+            MapLibreLayerManager.setupSourcesAndLayers(style)
+            MapLibreLayerManager.updateData(style, state)
+        } catch (t: Throwable) {
+            android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")
         }
-    } catch (e: Exception) {
-        // Safe catch for map lifecycle transitions
+
+        // Manage lightweight GPS position marker via annotation system only when style is fully loaded
+        try {
+            mapboxMap.clear()
+            if (state.isUserLocationAcquired) {
+                val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
+                mapboxMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(state.userLocation.first, state.userLocation.second))
+                        .title("Your Current Location$acc")
+                        .snippet("GPS Location")
+                )
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("MapScreen", "GPS annotation update failed safely: ${t.message}")
+        }
+    } catch (e: Throwable) {
+        android.util.Log.e("MapScreen", "updateMaplibreLayers failed safely: ${e.message}")
     }
 }
 
