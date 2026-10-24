@@ -47,6 +47,14 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
+enum class BaseMapStatus {
+    INITIALIZING,
+    STYLE_LOADING,
+    READY,
+    FAILED,
+    FALLBACK_RASTER_ACTIVE
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
@@ -56,77 +64,302 @@ fun MapScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
-    var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
-    var mapLoadFailed by remember { mutableStateOf(false) }
+    var baseMapStatus by remember { mutableStateOf(BaseMapStatus.INITIALIZING) }
+    var currentStyleUrl by remember { mutableStateOf(MapConfig.DEFAULT_STYLE_URL) }
+    var styleErrorMessage by remember { mutableStateOf<String?>(null) }
+    var measuredWidthPx by remember { mutableIntStateOf(0) }
+    var measuredHeightPx by remember { mutableIntStateOf(0) }
     var userToggledCanvas by remember { mutableStateOf(false) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, mapViewInstance) {
-        val mv = mapViewInstance
-        if (mv == null) {
-            onDispose {}
-        } else {
-            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                try {
-                    when (event) {
-                        androidx.lifecycle.Lifecycle.Event.ON_START -> mv.onStart()
-                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mv.onResume()
-                        androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mv.onPause()
-                        androidx.lifecycle.Lifecycle.Event.ON_STOP -> mv.onStop()
-                        androidx.lifecycle.Lifecycle.Event.ON_DESTROY -> mv.onDestroy()
-                        else -> {}
+
+    val mapView = remember {
+        try {
+            MapLibre.getInstance(context)
+        } catch (t: Throwable) {
+            android.util.Log.w("MapScreen", "MapLibre.getInstance in remember: ${t.message}")
+        }
+        val options = try {
+            MapLibreMapOptions.createFromAttributes(context)
+        } catch (_: Throwable) {
+            MapLibreMapOptions()
+        }
+        MapView(context, options).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            onCreate(null)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            try {
+                when (event) {
+                    androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                        android.util.Log.d("MapScreen", "Forwarding ON_START to MapView")
+                        mapView.onStart()
                     }
-                } catch (t: Throwable) {
-                    android.util.Log.w("MapScreen", "Lifecycle event $event failed on MapView safely", t)
+                    androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                        android.util.Log.d("MapScreen", "Forwarding ON_RESUME to MapView")
+                        mapView.onResume()
+                    }
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                        android.util.Log.d("MapScreen", "Forwarding ON_PAUSE to MapView")
+                        mapView.onPause()
+                    }
+                    androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                        android.util.Log.d("MapScreen", "Forwarding ON_STOP to MapView")
+                        mapView.onStop()
+                    }
+                    androidx.lifecycle.Lifecycle.Event.ON_DESTROY -> {
+                        android.util.Log.d("MapScreen", "Forwarding ON_DESTROY to MapView")
+                        mapView.onDestroy()
+                    }
+                    else -> {}
                 }
+            } catch (t: Throwable) {
+                android.util.Log.w("MapScreen", "Lifecycle event $event failed on MapView safely", t)
             }
-            lifecycleOwner.lifecycle.addObserver(observer)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
 
-            // Catch up immediately if the hosting activity is already in STARTED or RESUMED state
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
-                try { mv.onStart() } catch (_: Throwable) {}
-            }
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                try { mv.onResume() } catch (_: Throwable) {}
-            }
+        // Forward current lifecycle state immediately if already active
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            android.util.Log.d("MapScreen", "Current state is STARTED or above -> calling mapView.onStart()")
+            try { mapView.onStart() } catch (t: Throwable) { android.util.Log.w("MapScreen", "onStart error: ${t.message}") }
+        }
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            android.util.Log.d("MapScreen", "Current state is RESUMED -> calling mapView.onResume()")
+            try { mapView.onResume() } catch (t: Throwable) { android.util.Log.w("MapScreen", "onResume error: ${t.message}") }
+        }
 
-            onDispose {
-                lifecycleOwner.lifecycle.removeObserver(observer)
-                try {
-                    mv.onPause()
-                    mv.onStop()
-                    mv.onDestroy()
-                } catch (_: Throwable) {}
+        onDispose {
+            android.util.Log.d("MapScreen", "Disposing MapView effect, tearing down observer and MapView")
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            try {
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    LaunchedEffect(mapView) {
+        mapView.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            val w = right - left
+            val h = bottom - top
+            if (w > 0 && h > 0) {
+                measuredWidthPx = w
+                measuredHeightPx = h
+                android.util.Log.d("MapScreen", "MapView measured dimensions: ${w}x${h}")
+            }
+        }
+
+        mapView.addOnWillStartLoadingMapListener {
+            android.util.Log.d("MapScreen", "MapLibre will start loading map")
+        }
+
+        mapView.addOnDidFinishLoadingMapListener {
+            android.util.Log.d("MapScreen", "MapLibre did finish loading map")
+        }
+
+        mapView.addOnDidFailLoadingMapListener { errorMessage ->
+            android.util.Log.e("MapScreen", "MapLibre did fail loading map: $errorMessage")
+            if (baseMapStatus != BaseMapStatus.READY && baseMapStatus != BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
+                baseMapStatus = BaseMapStatus.FAILED
+                styleErrorMessage = errorMessage
+            }
+        }
+
+        mapView.addOnDidFinishLoadingStyleListener {
+            android.util.Log.i("MapScreen", "MapLibre did finish loading style")
+        }
+
+        baseMapStatus = BaseMapStatus.STYLE_LOADING
+
+        mapView.getMapAsync { mapboxMap ->
+            try {
+                maplibreMapInstance = mapboxMap
+
+                mapboxMap.setStyle(Style.Builder().fromUri(currentStyleUrl)) { style ->
+                    try {
+                        android.util.Log.i("MapScreen", "Base style loaded successfully: $currentStyleUrl")
+                        baseMapStatus = BaseMapStatus.READY
+                        styleErrorMessage = null
+
+                        val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                        val pos = CameraPosition.Builder()
+                            .target(target)
+                            .zoom(state.zoomLevel)
+                            .build()
+                        mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+
+                        // Render vector layers & markers safely on top of loaded base style
+                        updateMaplibreLayers(mapboxMap, state)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MapScreen", "Error during style load init: ${t.message}", t)
+                    }
+                }
+
+                mapboxMap.addOnMapClickListener { latLng ->
+                    try {
+                        val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
+                        val renderedFeatures = mapboxMap.queryRenderedFeatures(
+                            screenPoint,
+                            MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
+                            MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
+                            MapLibreLayerManager.LAYER_DISASTER_FILL,
+                            MapLibreLayerManager.LAYER_DISASTER_LINE,
+                            MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
+                            MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
+                            MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
+                            MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
+                            MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
+                            MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
+                            MapLibreLayerManager.LAYER_POLICE_SYMBOL,
+                            MapLibreLayerManager.LAYER_POLICE_CIRCLE,
+                            MapLibreLayerManager.LAYER_FUEL_SYMBOL,
+                            MapLibreLayerManager.LAYER_FUEL_CIRCLE,
+                            MapLibreLayerManager.LAYER_FIRE_STATIONS_SYMBOL,
+                            MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
+                            MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
+                            MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
+                            MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
+                            MapLibreLayerManager.LAYER_FOREST_FILL,
+                            MapLibreLayerManager.LAYER_FOREST_LINE
+                        )
+                        if (renderedFeatures.isNotEmpty()) {
+                            val top = renderedFeatures.first()
+                            val featId = top.getStringProperty("id") ?: top.id()
+                            val clicked = state.allFeatures.firstOrNull { it.id == featId }
+                                ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
+                            if (clicked != null) {
+                                viewModel.selectFeature(clicked)
+                                return@addOnMapClickListener true
+                            } else {
+                                val title = top.getStringProperty("title") ?: top.getStringProperty("name")
+                                if (!title.isNullOrBlank()) {
+                                    val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
+                                    val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
+                                    val dynamicFeature = UnifiedMapFeature(
+                                        id = featId ?: "feature-${System.currentTimeMillis()}",
+                                        title = title,
+                                        subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
+                                        category = category,
+                                        latitude = latLng.latitude,
+                                        longitude = latLng.longitude
+                                    )
+                                    viewModel.selectFeature(dynamicFeature)
+                                    return@addOnMapClickListener true
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MapScreen", "Map tap query failed safely: ${t.message}")
+                    }
+                    false
+                }
+
+                mapboxMap.setOnMarkerClickListener { marker ->
+                    try {
+                        val snippet = marker.snippet ?: ""
+                        val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
+                        if (clicked != null) {
+                            viewModel.selectFeature(clicked)
+                        } else {
+                            val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
+                            viewModel.selectFeature(byTitle)
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MapScreen", "Marker tap failed safely: ${t.message}")
+                    }
+                    true
+                }
+
+                mapboxMap.addOnCameraIdleListener {
+                    try {
+                        val curZoom = mapboxMap.cameraPosition.zoom
+                        viewModel.setZoomLevel(curZoom)
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MapScreen", "Camera idle callback failed: ${t.message}")
+                    }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MapScreen", "getMapAsync callback failure: ${t.message}", t)
+                baseMapStatus = BaseMapStatus.FAILED
+                styleErrorMessage = t.message
             }
         }
     }
 
-    // Safety watchdog: If style takes > 4.5s or stalls, force OSM raster style so map is never white
-    LaunchedEffect(mapViewInstance, maplibreMapInstance) {
-        val mv = mapViewInstance
-        if (mv != null && maplibreMapInstance?.style?.isFullyLoaded != true) {
-            kotlinx.coroutines.delay(4500)
-            if (maplibreMapInstance?.style?.isFullyLoaded != true) {
-                android.util.Log.w("MapScreen", "Style load timed out; forcing OSM raster style")
+    val retryStyleLoad: () -> Unit = {
+        baseMapStatus = BaseMapStatus.STYLE_LOADING
+        styleErrorMessage = null
+        currentStyleUrl = MapConfig.DEFAULT_STYLE_URL
+        maplibreMapInstance?.let { map ->
+            try {
+                map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
+                    android.util.Log.i("MapScreen", "Retry loaded base style successfully")
+                    baseMapStatus = BaseMapStatus.READY
+                    updateMaplibreLayers(map, state)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MapScreen", "Retry style load failed: ${t.message}")
+                baseMapStatus = BaseMapStatus.FAILED
+                styleErrorMessage = t.message
+            }
+        } ?: run {
+            mapView.getMapAsync { map ->
+                maplibreMapInstance = map
                 try {
-                    mv.getMapAsync { map ->
-                        if (map.style?.isFullyLoaded != true) {
-                            map.setStyle(Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)) { fallbackStyle ->
-                                maplibreMapInstance = map
-                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                                val pos = CameraPosition.Builder()
-                                    .target(target)
-                                    .zoom(state.zoomLevel)
-                                    .build()
-                                map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
-                                updateMaplibreLayers(map, state)
-                            }
-                        }
+                    map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
+                        android.util.Log.i("MapScreen", "Retry loaded base style successfully")
+                        baseMapStatus = BaseMapStatus.READY
+                        updateMaplibreLayers(map, state)
                     }
                 } catch (t: Throwable) {
-                    android.util.Log.e("MapScreen", "Watchdog fallback style failed: ${t.message}")
-                    mapLoadFailed = true
+                    android.util.Log.e("MapScreen", "Retry style load failed: ${t.message}")
+                    baseMapStatus = BaseMapStatus.FAILED
+                    styleErrorMessage = t.message
+                }
+            }
+        }
+    }
+
+    val switchToFallbackRaster: () -> Unit = {
+        baseMapStatus = BaseMapStatus.STYLE_LOADING
+        styleErrorMessage = null
+        currentStyleUrl = "OSM Raster (Offline Fallback)"
+        val fallbackBuilder = Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)
+        maplibreMapInstance?.let { map ->
+            try {
+                map.setStyle(fallbackBuilder) { style ->
+                    android.util.Log.i("MapScreen", "Applied OSM raster fallback style successfully")
+                    baseMapStatus = BaseMapStatus.FALLBACK_RASTER_ACTIVE
+                    updateMaplibreLayers(map, state)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MapScreen", "Fallback style failed: ${t.message}")
+                baseMapStatus = BaseMapStatus.FAILED
+                styleErrorMessage = t.message
+            }
+        } ?: run {
+            mapView.getMapAsync { map ->
+                maplibreMapInstance = map
+                try {
+                    map.setStyle(fallbackBuilder) { style ->
+                        android.util.Log.i("MapScreen", "Applied OSM raster fallback style successfully")
+                        baseMapStatus = BaseMapStatus.FALLBACK_RASTER_ACTIVE
+                        updateMaplibreLayers(map, state)
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("MapScreen", "Fallback style failed: ${t.message}")
+                    baseMapStatus = BaseMapStatus.FAILED
+                    styleErrorMessage = t.message
                 }
             }
         }
@@ -134,182 +367,19 @@ fun MapScreen(
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFFE5E0D8))) {
         // 1. BASE MAP LAYER (MapLibre Native or Fallback Offline Canvas)
-        if (mapLoadFailed || userToggledCanvas) {
+        if (userToggledCanvas) {
             OfflineVectorCanvasView(
                 routeCoordinates = state.routeCoordinates,
                 corridorPolygonCoordinates = state.corridorPolygonCoordinates,
                 features = state.visibleFeatures,
                 onFeatureClicked = { viewModel.selectFeature(it) },
-                onDismiss = if (userToggledCanvas) { { userToggledCanvas = false } } else null
+                onDismiss = { userToggledCanvas = false }
             )
         } else {
             AndroidView(
-                factory = { ctx ->
-                    try {
-                        try {
-                            MapLibre.getInstance(ctx)
-                        } catch (t: Throwable) {
-                            android.util.Log.w("MapScreen", "MapLibre.getInstance in factory: ${t.message}")
-                        }
-
-                        val options = try {
-                            MapLibreMapOptions.createFromAttributes(ctx).apply {
-                                textureMode(true)
-                            }
-                        } catch (_: Throwable) {
-                            MapLibreMapOptions().apply {
-                                textureMode(true)
-                            }
-                        }
-
-                        MapView(ctx, options).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            onCreate(null)
-                            onStart()
-                            onResume()
-                            mapViewInstance = this
-
-                            addOnDidFailLoadingMapListener { errorMessage ->
-                                android.util.Log.w("MapScreen", "MapLibre did fail loading map: $errorMessage; falling back to OSM style")
-                                try {
-                                    getMapAsync { map ->
-                                        if (map.style?.isFullyLoaded != true) {
-                                            map.setStyle(Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)) { fallbackStyle ->
-                                                maplibreMapInstance = map
-                                                val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                                                val pos = CameraPosition.Builder()
-                                                    .target(target)
-                                                    .zoom(state.zoomLevel)
-                                                    .build()
-                                                map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
-                                                updateMaplibreLayers(map, state)
-                                            }
-                                        }
-                                    }
-                                } catch (t: Throwable) {
-                                    android.util.Log.e("MapScreen", "Failed applying fallback style: ${t.message}")
-                                    mapLoadFailed = true
-                                }
-                            }
-
-                            getMapAsync { mapboxMap ->
-                                try {
-                                    val styleBuilder = Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)
-
-                                    mapboxMap.setStyle(styleBuilder) { style ->
-                                        try {
-                                            maplibreMapInstance = mapboxMap
-                                            val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                                            val pos = CameraPosition.Builder()
-                                                .target(target)
-                                                .zoom(state.zoomLevel)
-                                                .build()
-                                            mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
-
-                                            // Render vector layers & markers
-                                            updateMaplibreLayers(mapboxMap, state)
-                                        } catch (t: Throwable) {
-                                            android.util.Log.e("MapScreen", "Error during style load init: ${t.message}", t)
-                                        }
-                                    }
-
-                                    mapboxMap.addOnMapClickListener { latLng ->
-                                        try {
-                                            val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
-                                            val renderedFeatures = mapboxMap.queryRenderedFeatures(
-                                                screenPoint,
-                                                MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
-                                                MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
-                                                MapLibreLayerManager.LAYER_DISASTER_FILL,
-                                                MapLibreLayerManager.LAYER_DISASTER_LINE,
-                                                MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
-                                                MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
-                                                MapLibreLayerManager.LAYER_HOSPITALS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
-                                                MapLibreLayerManager.LAYER_CLINICS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_POLICE_SYMBOL,
-                                                MapLibreLayerManager.LAYER_POLICE_CIRCLE,
-                                                MapLibreLayerManager.LAYER_FUEL_SYMBOL,
-                                                MapLibreLayerManager.LAYER_FUEL_CIRCLE,
-                                                MapLibreLayerManager.LAYER_FIRE_STATIONS_SYMBOL,
-                                                MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
-                                                MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
-                                                MapLibreLayerManager.LAYER_FOREST_FILL,
-                                                MapLibreLayerManager.LAYER_FOREST_LINE
-                                            )
-                                            if (renderedFeatures.isNotEmpty()) {
-                                                val top = renderedFeatures.first()
-                                                val featId = top.getStringProperty("id") ?: top.id()
-                                                val clicked = state.allFeatures.firstOrNull { it.id == featId }
-                                                    ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
-                                                if (clicked != null) {
-                                                    viewModel.selectFeature(clicked)
-                                                    return@addOnMapClickListener true
-                                                } else {
-                                                    val title = top.getStringProperty("title") ?: top.getStringProperty("name")
-                                                    if (!title.isNullOrBlank()) {
-                                                        val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
-                                                        val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
-                                                        val dynamicFeature = UnifiedMapFeature(
-                                                            id = featId ?: "feature-${System.currentTimeMillis()}",
-                                                            title = title,
-                                                            subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
-                                                            category = category,
-                                                            latitude = latLng.latitude,
-                                                            longitude = latLng.longitude
-                                                        )
-                                                        viewModel.selectFeature(dynamicFeature)
-                                                        return@addOnMapClickListener true
-                                                    }
-                                                }
-                                            }
-                                        } catch (t: Throwable) {
-                                            android.util.Log.w("MapScreen", "Map tap query failed safely: ${t.message}")
-                                        }
-                                        false
-                                    }
-
-                                    mapboxMap.setOnMarkerClickListener { marker ->
-                                        try {
-                                            val snippet = marker.snippet ?: ""
-                                            val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
-                                            if (clicked != null) {
-                                                viewModel.selectFeature(clicked)
-                                            } else {
-                                                val byTitle = state.visibleFeatures.firstOrNull { it.title == marker.title }
-                                                viewModel.selectFeature(byTitle)
-                                            }
-                                        } catch (t: Throwable) {
-                                            android.util.Log.w("MapScreen", "Marker tap failed safely: ${t.message}")
-                                        }
-                                        true
-                                    }
-
-                                    mapboxMap.addOnCameraIdleListener {
-                                        try {
-                                            val curZoom = mapboxMap.cameraPosition.zoom
-                                            viewModel.setZoomLevel(curZoom)
-                                        } catch (t: Throwable) {
-                                            android.util.Log.w("MapScreen", "Camera idle callback failed: ${t.message}")
-                                        }
-                                    }
-                                } catch (t: Throwable) {
-                                    android.util.Log.e("MapScreen", "getMapAsync callback failure: ${t.message}", t)
-                                    mapLoadFailed = true
-                                }
-                            }
-                        }
-                    } catch (e: Throwable) {
-                        android.util.Log.e("MapScreen", "Failed to initialize MapView, falling back to schematic canvas", e)
-                        mapLoadFailed = true
-                        android.view.View(ctx)
-                    }
+                factory = { _ ->
+                    (mapView.parent as? ViewGroup)?.removeView(mapView)
+                    mapView
                 },
                 update = {
                     try {
@@ -331,19 +401,118 @@ fun MapScreen(
                         android.util.Log.w("MapScreen", "Error during map update lambda: ${t.message}")
                     }
                 },
-                onRelease = { mapView ->
-                    try {
-                        if (mapView is MapView) {
-                            mapView.onPause()
-                            mapView.onStop()
-                            mapView.onDestroy()
-                        }
-                    } catch (e: Throwable) {
-                        // Safe catch
-                    }
+                onRelease = {
+                    // Safe release handled by DisposableEffect
                 },
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // Diagnostic & Recovery Card when Base Map Fails
+        if (baseMapStatus == BaseMapStatus.FAILED) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.92f)
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Base Map Loading Issue",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("• View Size: ${measuredWidthPx} x ${measuredHeightPx} px", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                    Text("• Target Coordinates: ${String.format(java.util.Locale.US, "%.4f, %.4f", state.cameraTarget.first, state.cameraTarget.second)} (Zoom ${state.zoomLevel})", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                    Text("• Configured Style: $currentStyleUrl", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                    Text("• Status: ${baseMapStatus.name}", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                    if (!styleErrorMessage.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("• Error: $styleErrorMessage", color = Color(0xFFFCA5A5), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { retryStyleLoad() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Retry", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { switchToFallbackRaster() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = BorderStroke(1.dp, Color(0xFF94A3B8)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Use OSM Fallback", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Indicator when Base Map is in Fallback Raster Mode
+        if (baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF334155).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 110.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = null,
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "Degraded Mode: Standard OSM Raster Basemap",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Switch to Vector",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { retryStyleLoad() }
+                    )
+                }
+            }
         }
 
         // 2. TOP FLOATING INTERACTION BAR: Location Search Card & Horizontal Filters

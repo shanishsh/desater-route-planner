@@ -111,13 +111,9 @@ fun MapLocationPickerDialog(
                     } catch (_: Throwable) {}
 
                     val options = try {
-                        MapLibreMapOptions.createFromAttributes(ctx).apply {
-                            textureMode(true)
-                        }
+                        MapLibreMapOptions.createFromAttributes(ctx)
                     } catch (_: Throwable) {
-                        MapLibreMapOptions().apply {
-                            textureMode(true)
-                        }
+                        MapLibreMapOptions()
                     }
 
                     MapView(ctx, options).apply {

@@ -7,6 +7,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+layout.buildDirectory.set(file("C:/Users/shani/AppData/Local/Temp/touristsafety_app_build"))
+
 android {
     namespace = "com.touristsafety.app"
     compileSdk = 35

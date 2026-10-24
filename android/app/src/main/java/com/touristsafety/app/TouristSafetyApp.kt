@@ -53,13 +53,20 @@ class TouristSafetyApp : Application(), Configuration.Provider {
         }
 
         try {
-            // Configure MapLibre's HTTP client to strictly comply with OpenFreeMap terms:
-            // 1. At most four parallel requests (maxRequests = 4, maxRequestsPerHost = 4)
-            // 2. Distinct descriptive User-Agent identifying the application and repository
+            // 1. Initialize MapLibre Native SDK FIRST before any HTTP or view classes are touched
+            MapLibre.getInstance(this)
+
+            // 2. Configure MapLibre's HTTP client
             val dispatcher = Dispatcher().apply {
-                maxRequests = 4
-                maxRequestsPerHost = 4
+                maxRequests = 32
+                maxRequestsPerHost = 8
             }
+            val loggingInterceptor = okhttp3.logging.HttpLoggingInterceptor { message ->
+                Log.d("MapLibreHttp", message)
+            }.apply {
+                level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
+            }
+
             val maplibreOkHttpClient = OkHttpClient.Builder()
                 .dispatcher(dispatcher)
                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -74,20 +81,13 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                         .build()
                     chain.proceed(requestWithAgent)
                 }
+                .addInterceptor(loggingInterceptor)
                 .build()
 
-            try {
-                HttpRequestUtil.setOkHttpClient(maplibreOkHttpClient)
-            } catch (t: Throwable) {
-                Log.w("TouristSafetyApp", "HttpRequestUtil configuration skipped or unavailable", t)
-            }
-
-            // Initialize MapLibre Native SDK
-            try {
-                MapLibre.getInstance(this)
-            } catch (t: Throwable) {
-                Log.e("TouristSafetyApp", "MapLibre Native binary initialization deferred or unsupported on this architecture", t)
-            }
+            HttpRequestUtil.setLogEnabled(true)
+            HttpRequestUtil.setPrintRequestUrlOnFailure(true)
+            HttpRequestUtil.setOkHttpClient(maplibreOkHttpClient)
+            Log.i("TouristSafetyApp", "MapLibre Native SDK and OkHttpClient initialized successfully")
         } catch (t: Throwable) {
             Log.e("TouristSafetyApp", "MapLibre SDK initialization failed safely", t)
         }
