@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
 }
 
 layout.buildDirectory.set(file("C:/Users/shani/AppData/Local/Temp/touristsafety_app_build"))
