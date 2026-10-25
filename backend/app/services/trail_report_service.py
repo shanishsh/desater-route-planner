@@ -8,7 +8,10 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,6 +73,12 @@ class TrailReportService:
         os.makedirs(UPLOAD_SUBDIR, exist_ok=True)
         filename = f"{uuid.uuid4().hex[:16]}.jpg"
         target_path = Path(UPLOAD_SUBDIR) / filename
+
+        if Image is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Image processing service is currently unavailable (Pillow dependency missing)."
+            )
 
         try:
             # Strip EXIF and re-encode to JPEG for privacy & safety
