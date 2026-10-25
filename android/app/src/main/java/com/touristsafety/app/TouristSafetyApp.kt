@@ -58,6 +58,24 @@ class TouristSafetyApp : Application(), Configuration.Provider {
             val firebaseApp = FirebaseApp.initializeApp(this)
             if (firebaseApp != null) {
                 Log.i("TouristSafetyApp", "Firebase initialized successfully: ${firebaseApp.name}")
+
+                // Initialize App Check: Debug provider in debug builds, Play Integrity in release builds
+                try {
+                    val appCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
+                    if (BuildConfig.DEBUG) {
+                        appCheck.installAppCheckProviderFactory(
+                            com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
+                        )
+                        Log.i("TouristSafetyApp", "Firebase App Check installed with DebugAppCheckProviderFactory")
+                    } else {
+                        appCheck.installAppCheckProviderFactory(
+                            com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory.getInstance()
+                        )
+                        Log.i("TouristSafetyApp", "Firebase App Check installed with PlayIntegrityAppCheckProviderFactory")
+                    }
+                } catch (act: Throwable) {
+                    Log.w("TouristSafetyApp", "Firebase App Check initialization skipped: ${act.message}")
+                }
             } else {
                 Log.w("TouristSafetyApp", "FirebaseApp.initializeApp returned null (configuration pending)")
             }

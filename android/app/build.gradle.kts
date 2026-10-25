@@ -110,10 +110,12 @@ dependencies {
     // Location
     implementation(libs.play.services.location)
 
-    // Firebase (BOM, Analytics, Cloud Messaging)
+    // Firebase (BOM, Analytics, Cloud Messaging, App Check)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.appcheck.playintegrity)
+    implementation(libs.firebase.appcheck.debug)
 
     // Testing
     testImplementation(libs.junit)
