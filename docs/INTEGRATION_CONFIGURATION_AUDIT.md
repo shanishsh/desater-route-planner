@@ -27,7 +27,7 @@ Every provider and integration in the codebase has been audited against actual s
 | **Grounded Route Assistant** | `app/services/ai/route_summary_assistant.py` | Local deterministic engine | `AI_PROVIDER=deterministic` | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
 | **NASA FIRMS Active Fires** | `app/clients/nasa_firms.py` | `https://firms.modaps.eosdis.nasa.gov/api` | `NASA_FIRMS_MAP_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **IMD District Warnings & Nowcast** | `app/clients/imd.py` | `https://api.imd.gov.in/` | `IMD_API_KEY`, `IMD_API_SECRET` | Missing | Missing | **MISSING_CONFIG** | P1 |
-| **OpenCellID Cell Towers** | `app/clients/opencellid.py` | `https://opencellid.org/cell/get` | `OPENCELLID_API_KEY` | Missing (HTTP 401 on probe) | Missing | **MISSING_CONFIG** | P2 |
+| **OpenCellID Cell Towers** | `app/clients/opencellid.py` | `https://opencellid.org/cell/getInArea` | `OPENCELLID_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **Firebase Cloud Messaging (FCM)** | `app/services/push/` | Local BroadcastReceiver & Mock FCM | `FIREBASE_CREDENTIALS_PATH` | Mock Configured | Production Key Missing | **PARTIALLY_IMPLEMENTED** | P2 |
 | **Automated SMS Gateway** | `app/services/sms/` | Local `Intent.ACTION_SENDTO` & Mock | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Mock Configured | Twilio Key Missing | **PARTIALLY_IMPLEMENTED** | P2 |
 | **FSI Van Agni Forest Fires** | `app/services/provider_registry.py` | `https://fsiforestfire.gov.in/` | None (No REST API) | Reference link only | Reference link only | **NOT_IMPLEMENTED** (No API) | P3 |
@@ -187,11 +187,11 @@ Every provider and integration in the codebase has been audited against actual s
    - **Status**: `PARTIALLY_IMPLEMENTED` (Live endpoint degraded; offline bundled fallback healthy).
 
 5. **OpenCellID (Cell Tower Reference)**
-   - **Endpoint**: `https://opencellid.org/cell/get`
+   - **Endpoint**: `https://opencellid.org/cell/getInArea`
    - **Client**: `backend/app/clients/opencellid.py`
-   - **Authentication**: Free API Key from `opencellid.org`.
-   - **Live Probe**: **HTTP 401** returned when tested with unconfigured/invalid key, verifying that the client properly identifies unconfigured state.
-   - **Status**: `MISSING_CONFIG` (Priority P2).
+   - **Authentication**: API Key from `opencellid.org` (`OPENCELLID_API_KEY`).
+   - **Live Probe**: Verified live API response on 2026-10-26 (Dehradun coordinates `30.3165, 78.0322` successfully returned 50 cell tower mast records across Airtel 404-97, BSNL 404-54, Vodafone 404-56, and Jio 405-870 with HTTP 200). Bounding box queries are automatically clamped to $\le 950\text{ m}$ radius ($\le 3.61 \text{ sq km}$) to satisfy OpenCellID's $4,000,000 \text{ sq m}$ limit.
+   - **Status**: `CONFIGURED_AND_VERIFIED` (Local development; requires configuring `OPENCELLID_API_KEY` in Render dashboard for production).
 
 ---
 

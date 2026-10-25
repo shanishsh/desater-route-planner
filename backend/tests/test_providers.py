@@ -60,11 +60,23 @@ async def test_unconfigured_firms_graceful_handling(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unconfigured_opencellid_graceful_handling():
+async def test_unconfigured_opencellid_graceful_handling(monkeypatch):
+    monkeypatch.setattr(settings, "OPENCELLID_API_KEY", "")
     result = await opencellid_client.fetch_nearby_cells(32.2396, 77.1887)
     assert result["record_count"] == 0
     assert result["provider_status"] == "UNCONFIGURED"
     assert "OPENCELLID_API_KEY" in result["diagnostic_message"]
+
+
+@pytest.mark.asyncio
+async def test_configured_opencellid_live_or_parsing():
+    # If configured with a valid key, verify structure
+    if opencellid_client.is_configured():
+        result = await opencellid_client.fetch_nearby_cells(30.3165, 78.0322, radius_m=1000)
+        assert result["is_configured"] is True
+        assert result["provider_status"] in ("HEALTHY", "ZERO_RECORDS")
+        assert "cells" in result
+        assert isinstance(result["cells"], list)
 
 
 def test_osm_forest_element_to_geojson():

@@ -1,4 +1,5 @@
 """OpenCelliD client for cell tower coordinates and radio coverage reference."""
+import math
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
@@ -78,31 +79,79 @@ class OpenCellIDClient:
                 "is_cached": False,
             }
 
-        # Query OpenCelliD
+        # OpenCellID restricts BBOX to 4,000,000 sq. meters (~2 km x 2 km).
+        # We clamp the radius to 950 meters so the bounding box is ~1.9 km x 1.9 km (~3.61 sq km).
+        clamped_radius = min(max(radius_m, 100), 950)
+        dlat = clamped_radius / 111320.0
+        cos_lat = math.cos(math.radians(latitude))
+        dlon = clamped_radius / (111320.0 * max(abs(cos_lat), 0.01))
+
+        min_lat = round(latitude - dlat, 4)
+        max_lat = round(latitude + dlat, 4)
+        min_lon = round(longitude - dlon, 4)
+        max_lon = round(longitude + dlon, 4)
+        bbox = f"{min_lat},{min_lon},{max_lat},{max_lon}"
+
+        target_url = self.base_url
+        if target_url.endswith("/cell/get"):
+            target_url = target_url.replace("/cell/get", "/cell/getInArea")
+
         params = {
             "key": settings.OPENCELLID_API_KEY.strip(),
-            "lat": latitude,
-            "lon": longitude,
+            "BBOX": bbox,
             "format": "json",
+            "limit": 50,
         }
 
         try:
-            response = await self.client.get(self.base_url, params=params)
+            response = await self.client.get(target_url, params=params)
             self.last_status_code = response.status_code
 
             if response.status_code == 200:
                 data = response.json()
                 cells = []
-                if isinstance(data, dict) and "lat" in data and "lon" in data:
-                    cells.append({
-                        "id": f"cell_{data.get('mcc')}_{data.get('net')}_{data.get('cellid')}",
-                        "latitude": float(data.get("lat")),
-                        "longitude": float(data.get("lon")),
-                        "radio": data.get("radio", "LTE"),
-                        "mcc": data.get("mcc"),
-                        "mnc": data.get("net"),
-                        "range_m": data.get("range", 1000),
-                    })
+
+                if isinstance(data, dict) and "error" in data:
+                    err_code = data.get("code")
+                    err_msg = data.get("error", "")
+                    if err_code == 1:
+                        # Cell not found in area - valid empty result
+                        pass
+                    elif err_code == 2:
+                        self.last_error = f"OpenCelliD authentication failed: {err_msg}"
+                        self.circuit_breaker.record_failure()
+                        return self._build_error_response("AUTH_FAILED", now)
+                    elif err_code == 7:
+                        self.last_error = "OpenCelliD daily limit exceeded."
+                        self.circuit_breaker.record_failure()
+                        return self._build_error_response("RATE_LIMITED", now)
+                    else:
+                        self.last_error = f"OpenCelliD API error: {err_msg} (code {err_code})"
+                        self.circuit_breaker.record_failure()
+                        return self._build_error_response("API_ERROR", now)
+                elif isinstance(data, dict):
+                    raw_cells = data.get("cells", [])
+                    if not raw_cells and "lat" in data and "lon" in data:
+                        raw_cells = [data]
+
+                    for item in raw_cells:
+                        try:
+                            mcc = item.get("mcc")
+                            mnc = item.get("mnc") if item.get("mnc") is not None else item.get("net")
+                            cellid = item.get("cellid")
+                            cells.append({
+                                "id": f"cell_{mcc}_{mnc}_{cellid}",
+                                "latitude": float(item["lat"]),
+                                "longitude": float(item["lon"]),
+                                "radio": item.get("radio", "LTE"),
+                                "mcc": mcc,
+                                "mnc": mnc,
+                                "lac": item.get("lac"),
+                                "cellid": cellid,
+                                "range_m": item.get("range", 1000),
+                            })
+                        except (KeyError, ValueError, TypeError) as parse_err:
+                            logger.debug("Skipping unparseable cell item %s: %s", item, parse_err)
 
                 self.circuit_breaker.record_success()
                 self.last_success_at = now
@@ -114,7 +163,7 @@ class OpenCellIDClient:
                     "record_count": len(cells),
                     "provider_status": "HEALTHY",
                     "is_configured": True,
-                    "diagnostic_message": f"Successfully retrieved cell records.",
+                    "diagnostic_message": f"Successfully retrieved {len(cells)} cell records.",
                     "disclaimer": DISCLAIMER_NOTICE,
                     "retrieved_at": now.isoformat(),
                     "source_name": "OpenCelliD",
@@ -128,6 +177,10 @@ class OpenCellIDClient:
                 self.last_error = "OpenCelliD authentication failed. Check API key."
                 self.circuit_breaker.record_failure()
                 status = "AUTH_FAILED"
+            elif response.status_code == 429:
+                self.last_error = "OpenCelliD rate limit reached (HTTP 429)."
+                self.circuit_breaker.record_failure()
+                status = "RATE_LIMITED"
             else:
                 self.last_error = f"OpenCelliD server error (HTTP {response.status_code})"
                 self.circuit_breaker.record_failure()
@@ -138,6 +191,9 @@ class OpenCellIDClient:
             self.circuit_breaker.record_failure()
             status = "DOWN"
 
+        return self._build_error_response(status, now)
+
+    def _build_error_response(self, status: str, now: datetime) -> Dict[str, Any]:
         return {
             "cells": [],
             "record_count": 0,

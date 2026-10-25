@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     NASA_FIRMS_BASE_URL: str = "https://firms.modaps.eosdis.nasa.gov/api"
     OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
     OPENCELLID_API_KEY: str = ""
-    OPENCELLID_BASE_URL: str = "https://opencellid.org/cell/get"
+    OPENCELLID_BASE_URL: str = "https://opencellid.org/cell/getInArea"
     IMD_API_KEY: str = ""
     IMD_API_SECRET: str = ""
     IMD_BASE_URL: str = "https://api.imd.gov.in"
