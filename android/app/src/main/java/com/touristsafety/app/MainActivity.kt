@@ -37,6 +37,20 @@ class MainActivity : ComponentActivity() {
             android.util.Log.e("MainActivity", "Failed to schedule background sync work safely", t)
         }
 
+        // Initialize Firebase Messaging token fetch safely
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val token = task.result
+                    android.util.Log.i("MainActivity", "Firebase FCM Registration Token: $token")
+                } else {
+                    android.util.Log.d("MainActivity", "Firebase FCM token fetch pending or unconfigured")
+                }
+            }
+        } catch (t: Throwable) {
+            android.util.Log.d("MainActivity", "Firebase Messaging not active: ${t.message}")
+        }
+
         setContent {
             TouristSafetyTheme {
                 val navController = rememberNavController()

@@ -48,3 +48,4 @@ class TrailReportRepository @Inject constructor(
         }
     }
 }
+

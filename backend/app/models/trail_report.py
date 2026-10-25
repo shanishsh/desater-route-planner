@@ -110,3 +110,4 @@ class TrailReportInteraction(Base):
     __table_args__ = (
         Index("ix_trail_interactions_report_device", "report_id", "device_id"),
     )
+

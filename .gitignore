@@ -57,3 +57,14 @@ redisdata/
 
 
 uploads/
+
+# Firebase & Secrets
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+firebase-credentials*.json
+
+# Logs & Scratch
+*.log
+scratch/
+

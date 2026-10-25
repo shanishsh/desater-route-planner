@@ -71,3 +71,4 @@ data class TrailReportUploadResponseDto(
     val size_bytes: Long,
     val content_type: String
 )
+

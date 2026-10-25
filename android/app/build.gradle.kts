@@ -109,6 +109,11 @@ dependencies {
     // Location
     implementation(libs.play.services.location)
 
+    // Firebase (BOM, Analytics, Cloud Messaging)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.messaging)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

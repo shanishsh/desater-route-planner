@@ -45,8 +45,8 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres.whoagpvxrfihaukhijoo:QJZ3ehbYhNe60TFK@aws-0-ap-south-1.pooler.supabase.com:5432/postgres",
-        description="Async PostgreSQL database URL. Can be overridden with sqlite+aiosqlite for testing.",
+        default="sqlite+aiosqlite:///./tourist.db",
+        description="Async PostgreSQL database URL (postgresql+asyncpg://user:pass@host:5432/db). Defaults to local SQLite for dev.",
     )
     DATABASE_ECHO: bool = False
 
@@ -61,23 +61,22 @@ class Settings(BaseSettings):
         return v
 
     # Upstash Redis
-    UPSTASH_REDIS_REST_URL: Optional[str] = "https://viable-bluegill-237463.upstash.io"
-    UPSTASH_REDIS_REST_TOKEN: Optional[str] = "gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg"
+    UPSTASH_REDIS_REST_URL: Optional[str] = None
+    UPSTASH_REDIS_REST_TOKEN: Optional[str] = None
 
     # Redis
     REDIS_URL: str = Field(
-        default="rediss://default:gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg@viable-bluegill-237463.upstash.io:6379",
+        default="redis://localhost:6379/0",
         description="Redis connection URL. Supports rediss:// (TLS) and redis://.",
     )
     REDIS_TIMEOUT_SECONDS: float = 3.0
 
     @field_validator("REDIS_URL", mode="before")
     @classmethod
-    def assemble_redis_url(cls, v: Any, info: Any) -> str:
-        # If user explicitly sets REDIS_URL in env (not default localhost), use it
-        if isinstance(v, str) and v and not v.startswith("redis://localhost"):
-            return v
-        return "rediss://default:gQAAAAAAA5-XAAIgcDJmZjA1Y2RlNzMwMGU0MDRiOTQwYzk1NTkxMTc2MmMxNg@viable-bluegill-237463.upstash.io:6379"
+    def assemble_redis_url(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return "redis://localhost:6379/0"
 
     # Security
     SECRET_KEY: str = "tourist-safety-platform-secure-token-key-for-jwt-signing-minimum-32"
@@ -98,7 +97,7 @@ class Settings(BaseSettings):
     ITINERARY_CACHE_TTL_SECONDS: int = 7200  # 2 hours
 
     # Environmental & Hazard Providers
-    NASA_FIRMS_MAP_KEY: str = "f43538796711593bcf104566927e661d"
+    NASA_FIRMS_MAP_KEY: str = ""
     NASA_FIRMS_BASE_URL: str = "https://firms.modaps.eosdis.nasa.gov/api"
     OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
     OPENCELLID_API_KEY: str = ""
@@ -112,6 +111,7 @@ class Settings(BaseSettings):
 
     # Alert Freshness
     DEFAULT_ALERT_FRESHNESS_SECONDS: int = 3600  # 1 hour
+    ALLOW_SIMULATED_ALERTS: bool = False
 
     # Disaster Alert & Notification Module
     ADMIN_API_KEY: str = "dev-disaster-admin-key-2026"
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     OUTBOX_MAX_RETRIES: int = 5
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

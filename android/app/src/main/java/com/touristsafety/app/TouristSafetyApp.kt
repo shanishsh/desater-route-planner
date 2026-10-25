@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.touristsafety.app.core.crash.CrashReportActivity
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.Dispatcher
@@ -50,6 +51,18 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                 Log.e("FATAL_APP_CRASH", "Failed to launch CrashReportActivity", fallbackError)
                 defaultHandler?.uncaughtException(thread, throwable)
             }
+        }
+
+        // Initialize Firebase SDK safely (runs cleanly with or without google-services.json)
+        try {
+            val firebaseApp = FirebaseApp.initializeApp(this)
+            if (firebaseApp != null) {
+                Log.i("TouristSafetyApp", "Firebase initialized successfully: ${firebaseApp.name}")
+            } else {
+                Log.w("TouristSafetyApp", "FirebaseApp.initializeApp returned null (configuration pending)")
+            }
+        } catch (t: Throwable) {
+            Log.w("TouristSafetyApp", "Firebase initialization skipped or pending configuration: ${t.message}")
         }
 
         try {

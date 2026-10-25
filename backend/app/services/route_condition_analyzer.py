@@ -1,5 +1,6 @@
 """Service for analyzing environmental conditions and multi-hazard risks along a route corridor."""
 import os
+from app.config import settings
 import math
 import asyncio
 import logging
@@ -149,7 +150,7 @@ class RouteConditionAnalyzer:
             return []
 
         # 3. Query active disaster alerts from DB and run network queries concurrently
-        allow_simulated = os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
+        allow_simulated = getattr(settings, "ALLOW_SIMULATED_ALERTS", False) or os.getenv("ALLOW_SIMULATED_ALERTS", "false").lower() == "true"
         from sqlalchemy import and_
         geo_filter = or_(
             and_(

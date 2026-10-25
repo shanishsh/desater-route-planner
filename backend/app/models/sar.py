@@ -50,3 +50,4 @@ class TrekkerCheckIn(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_trekker_checkins_trip_received", "trip_id", "received_at"),
     )
+

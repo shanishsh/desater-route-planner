@@ -155,3 +155,4 @@ async def interact_trail_report(
     updated_report = await service.record_interaction(report_id, payload)
     now = datetime.now(timezone.utc)
     return _to_response_dto(updated_report, now)
+
