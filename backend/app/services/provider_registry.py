@@ -10,6 +10,7 @@ from app.clients.opencellid import opencellid_client
 from app.clients.ndma_sachet import ndma_sachet_client
 from app.clients.imd import imd_client
 from app.clients.uttarakhand_pwd import uttarakhand_pwd_client
+from app.clients.usgs_earthquake import usgs_earthquake_client
 from app.services.routing.osrm_provider import osrm_routing_provider
 from app.cache.redis_cache import cache_service
 
@@ -301,6 +302,94 @@ class ProviderRegistry:
             "registration_url": "",
         }
 
+        # 10. USGS Himalayan Seismic Events
+        usgs_info = usgs_earthquake_client.get_service_status()
+
+        # 11. GSI BhuSanket (National Landslide Forecasting Centre)
+        bhusanket_info = {
+            "provider_id": "gsi_bhusanket",
+            "name": "GSI National Landslide Forecasting Centre (BhuSanket)",
+            "category": "landslide",
+            "is_configured": False,
+            "status": "ACCESS_PENDING",
+            "coverage_scope": "STATE_UTTARAKHAND",
+            "supported_bbox": [28.7, 77.5, 31.5, 81.1],
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_http_status": None,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "ACCESS_PENDING",
+            "is_stale": False,
+            "diagnostic_message": "Official Geological Survey of India landslide forecasting portal. Operational regional bulletins integrated via document pipeline; API access pending formal partnership.",
+            "attribution": "Geological Survey of India (GSI), Ministry of Mines, Govt of India",
+            "source_url": "https://bhusanket.gsi.gov.in/",
+            "registration_url": "https://bhusanket.gsi.gov.in/",
+        }
+
+        # 12. NASA LHASA (Landslide Hazard Assessment for Situational Awareness)
+        lhasa_info = {
+            "provider_id": "nasa_lhasa",
+            "name": "NASA LHASA Landslide Hazard Model",
+            "category": "landslide_model",
+            "is_configured": True,
+            "status": "MODEL_CONTEXT",
+            "coverage_scope": "GLOBAL",
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_http_status": None,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "REFERENCE_ONLY",
+            "is_stale": False,
+            "diagnostic_message": "Global regional model combining GPM IMERG rainfall and SMAP soil moisture. Provides regional landslide susceptibility context; does not predict localized trail incidents.",
+            "attribution": "NASA Earth Science Disasters Program / LHASA Team",
+            "source_url": "https://landslides.nasa.gov/",
+            "registration_url": "https://landslides.nasa.gov/",
+        }
+
+        # 13. Central Water Commission (CWC) Flood Forecasting
+        cwc_info = {
+            "provider_id": "cwc_flood",
+            "name": "Central Water Commission (CWC) Flood Forecasting",
+            "category": "flood",
+            "is_configured": False,
+            "status": "REFERENCE_ONLY",
+            "coverage_scope": "COUNTRY_INDIA",
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_http_status": None,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "REFERENCE_ONLY",
+            "is_stale": False,
+            "diagnostic_message": "Official river monitoring telemetry for major rivers (Ganga, Yamuna, Alaknanda, Bhagirathi). Station bulletins integrated as basin context; micro-stream flash floods require on-trail caution.",
+            "attribution": "Central Water Commission, Ministry of Jal Shakti, Govt of India",
+            "source_url": "https://ffs.india-water.gov.in/",
+            "registration_url": "https://ffs.india-water.gov.in/",
+        }
+
+        # 14. DGRE Avalanche Warnings
+        dgre_info = {
+            "provider_id": "dgre_avalanche",
+            "name": "DGRE Avalanche Warning Bulletins",
+            "category": "avalanche",
+            "is_configured": False,
+            "status": "ACCESS_PENDING",
+            "coverage_scope": "HIMALAYAN_REGION",
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_http_status": None,
+            "record_count": 0,
+            "cache_age_seconds": 0,
+            "data_state": "ACCESS_PENDING",
+            "is_stale": False,
+            "diagnostic_message": "Defence Geoinformatics Research Establishment (DRDO) mountain avalanche bulletins. Seasonal elevation band advisories parsed via official advisory pipeline.",
+            "attribution": "Defence Geoinformatics Research Establishment (DGRE), DRDO, Ministry of Defence",
+            "source_url": "https://www.drdo.gov.in/",
+            "registration_url": "https://www.drdo.gov.in/",
+        }
+
         return [
             osrm_info,
             open_meteo_info,
@@ -311,6 +400,11 @@ class ProviderRegistry:
             pwd_info,
             fsi_info,
             opencellid_info,
+            usgs_info,
+            bhusanket_info,
+            lhasa_info,
+            cwc_info,
+            dgre_info,
             db_info,
         ]
 

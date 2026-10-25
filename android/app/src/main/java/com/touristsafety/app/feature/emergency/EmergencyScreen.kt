@@ -90,6 +90,120 @@ fun EmergencyScreen(
                 }
             }
 
+            // 1b. Uttarakhand Verified Emergency Directory
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color(0xFF2E7D32))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Uttarakhand Emergency Directory",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Verified state disaster response helplines (Government of Uttarakhand)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val officialContacts = listOf(
+                            Triple("SDRF Mountain Rescue", "1077", "State Disaster Response Force 24x7"),
+                            Triple("State Disaster Op Centre (SEOC)", "1070", "USDMA Emergency Operations"),
+                            Triple("Forest Fire Helpline (Van Agni)", "18001804141", "Forest Department MoEFCC"),
+                            Triple("Trekker & Pilgrim Helpline", "1364", "Uttarakhand Tourism & Char Dham"),
+                            Triple("Ambulance & Medical", "108", "State Health Emergency Service")
+                        )
+
+                        officialContacts.forEach { (title, phone, desc) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp)
+                                    .clickable {
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            data = Uri.parse("tel:$phone")
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(desc, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                }
+                                FilledTonalButton(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            data = Uri.parse("tel:$phone")
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(phone, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+
+            // 1c. Handset GPS Location Card for Emergency Dispatch
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.MyLocation, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Your Current GPS Location",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (state.userLatitude != null && state.userLongitude != null) {
+                            Text(
+                                "Latitude: " + String.format("%.5f", state.userLatitude) + "° N\nLongitude: " + String.format("%.5f", state.userLongitude) + "° E",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Read these coordinates aloud when contacting 112 / 1077 / 1070 dispatchers.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                            )
+                        } else {
+                            Text(
+                                "Acquiring satellite GPS fix... Ensure device has clear view of sky.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // 1a. Search & Rescue (SAR) SOS Field Beacon
             item {
                 Card(

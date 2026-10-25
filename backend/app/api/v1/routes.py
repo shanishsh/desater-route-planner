@@ -349,6 +349,70 @@ async def select_route_alternative(
     )
     return analysis
 
+@router.get("/{route_id}/offline-pack")
+async def get_route_offline_pack(
+    route_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generates an authoritative Pre-Trek Offline Safety Pack manifest for the specified route.
+    Bundles genuine route geometry, corridor boundary, active hazard alerts, fire detections,
+    essential facilities, weather snapshot, and freshness timestamps.
+    """
+    stmt = select(PlannedRoute).where(PlannedRoute.id == route_id)
+    result = await db.execute(stmt)
+    db_route = result.scalar_one_or_none()
 
+    if not db_route:
+        raise HTTPException(status_code=404, detail="Route not found")
 
+    freshness = db_route.data_freshness_data or {}
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=24)
+
+    # Compute bounding box with corridor margin
+    origin_lat, origin_lon = db_route.origin_lat, db_route.origin_lon
+    dest_lat, dest_lon = db_route.dest_lat, db_route.dest_lon
+    corr_km = db_route.corridor_distance_km or 5.0
+    margin = (corr_km / 111.0) * 1.5
+    min_lat = min(origin_lat, dest_lat) - margin
+    max_lat = max(origin_lat, dest_lat) + margin
+    min_lon = min(origin_lon, dest_lon) - margin
+    max_lon = max(origin_lon, dest_lon) + margin
+
+    return {
+        "pack_id": f"pack-{db_route.id[:8]}-v{db_route.route_version or 1}",
+        "route_id": db_route.id,
+        "route_version": db_route.route_version or 1,
+        "title": db_route.title,
+        "origin_name": db_route.origin_name,
+        "destination_name": db_route.destination_name,
+        "origin": {"latitude": origin_lat, "longitude": origin_lon},
+        "destination": {"latitude": dest_lat, "longitude": dest_lon},
+        "bbox": [round(min_lat, 5), round(min_lon, 5), round(max_lat, 5), round(max_lon, 5)],
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "is_stale": False,
+        "route_geometry": db_route.geometry_geojson,
+        "corridor_geojson": freshness.get("corridor_geojson"),
+        "hazards_geojson": freshness.get("hazards_geojson") or {"type": "FeatureCollection", "features": []},
+        "fires_geojson": freshness.get("fires_geojson") or {"type": "FeatureCollection", "features": []},
+        "facilities_geojson": freshness.get("facilities_geojson") or {"type": "FeatureCollection", "features": []},
+        "weather_snapshot": [c.get("weather") for c in (db_route.conditions_data or []) if c.get("weather")],
+        "conditions": db_route.conditions_data or [],
+        "alternatives": db_route.alternatives_data or [],
+        "data_provenance": {
+            "routing": "OSRM (OpenStreetMap contributors)",
+            "disasters": "NDMA SACHET CAP 1.2 Feed",
+            "weather": "India Meteorological Department (IMD) / Open-Meteo",
+            "wildfires": "NASA FIRMS NRT (MODIS/VIIRS)",
+            "facilities": "OpenStreetMap Contributors under ODbL",
+            "elevation": "Copernicus DEM 30m Grid",
+        },
+        "offline_usage_disclaimer": (
+            "Pre-trek snapshot saved for offline mountain navigation. "
+            "New disaster warnings, weather changes, and road closures cannot be received without active network coverage. "
+            "Treat cached data as advisory historical snapshot."
+        ),
+    }
 

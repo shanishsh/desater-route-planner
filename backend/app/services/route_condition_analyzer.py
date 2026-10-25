@@ -23,6 +23,7 @@ from app.schemas.route_plan import (
     RouteWildfireInfo,
     RouteDisasterAlertInfo,
     RouteAlternativeSchema,
+    RouteExposureMetrics,
     PlannedRouteResponse,
     ElevationProfilePoint,
     SafeHavenInfo,
@@ -1068,6 +1069,38 @@ class RouteConditionAnalyzer:
             "offline_cached": False,
         }
 
+        # Compute transparent, multi-factor RouteExposureMetrics
+        max_precip = max((w.weather.precipitation_mm for w in waypoint_conditions), default=0.0)
+        max_wind = max((w.weather.wind_speed_kmh for w in waypoint_conditions), default=0.0)
+        freezing_warn = any(
+            (w.elevation_m >= 2500.0 and w.weather.temperature_c <= 2.0 and w.weather.precipitation_mm > 0.5)
+            for w in waypoint_conditions
+        )
+        max_slope = max((w.slope_degrees for w in waypoint_conditions), default=0.0)
+        degraded_sources = [
+            p_id for p_id, p_info in provider_statuses.items()
+            if p_info.get("status") in ("UNCONFIGURED", "UNAVAILABLE", "ERROR", "CIRCUIT_OPEN", "UNSUPPORTED_REGION")
+        ]
+        completeness = round(
+            (len(provider_statuses) - len(degraded_sources)) / max(1, len(provider_statuses)) * 100.0, 1
+        )
+
+        exposure_metrics = RouteExposureMetrics(
+            direct_hazard_intersections_count=primary_exposure["direct_hazard_intersections_count"],
+            corridor_advisories_count=len(active_alerts),
+            active_fire_hotspots_5km_count=len([f for f in active_fires if f.get("distance_to_route_km", 99.0) <= 5.0]),
+            max_precipitation_mm_hr=max_precip,
+            max_wind_speed_kmh=max_wind,
+            freezing_elevation_warning=freezing_warn,
+            elevation_gain_m=elevation_data.get("total_ascent_m", 0.0),
+            elevation_loss_m=elevation_data.get("total_descent_m", 0.0),
+            max_slope_degrees=max_slope,
+            essential_facilities_count=len(safe_havens),
+            source_completeness_pct=completeness,
+            unconfigured_or_degraded_sources=degraded_sources,
+            decision_narrative=decision_explanation,
+        )
+
         return PlannedRouteResponse(
             route_id=route.route_id,
             route_version=1,
@@ -1113,6 +1146,7 @@ class RouteConditionAnalyzer:
             min_elevation_m=elevation_data.get("min_elevation_m", 0.0),
             max_elevation_m=elevation_data.get("max_elevation_m", 0.0),
             decision_explanation=decision_explanation,
+            exposure_metrics=exposure_metrics,
             conditions=waypoint_conditions,
             elevation_profile=elevation_profile_points,
             safe_havens=safe_havens,
@@ -1258,6 +1292,7 @@ class RouteConditionAnalyzer:
             overall_hazard_score=db_route.overall_hazard_score,
             overall_safety_status=db_route.overall_safety_status,
             decision_explanation=analysis.decision_explanation,
+            exposure_metrics=analysis.exposure_metrics,
             provider_statuses=provider_items,
             weather_by_waypoint=weather_list,
             disaster_alerts=alert_list,

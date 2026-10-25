@@ -4,14 +4,32 @@ Official India Meteorological Department (IMD) API Client.
 Reference: https://api.imd.gov.in/public/api_reference.html
 Authentication: X-API-KEY and OAuth JWT Bearer token acquired from https://api.imd.gov.in/api/oauth/token.php
 """
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import httpx
 from app.config import settings
 from app.clients.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
+
+# Authoritative Uttarakhand 13 Districts with known IMD aliases
+UTTARAKHAND_DISTRICTS = {
+    "DEHRADUN": {"name": "Dehradun", "aliases": ["dehradun", "ddn"]},
+    "UTTARKASHI": {"name": "Uttarkashi", "aliases": ["uttarkashi", "uttar kashi"]},
+    "CHAMOLI": {"name": "Chamoli", "aliases": ["chamoli", "joshimath", "badrinath"]},
+    "RUDRAPRAYAG": {"name": "Rudraprayag", "aliases": ["rudraprayag", "kedarnath"]},
+    "TEHRI_GARHWAL": {"name": "Tehri Garhwal", "aliases": ["tehri garhwal", "tehri"]},
+    "PAURI_GARHWAL": {"name": "Pauri Garhwal", "aliases": ["pauri garhwal", "pauri", "kotdwar", "srinagar"]},
+    "PITHORAGARH": {"name": "Pithoragarh", "aliases": ["pithoragarh", "dharchula", "munsiyari"]},
+    "BAGESHWAR": {"name": "Bageshwar", "aliases": ["bageshwar"]},
+    "ALMORA": {"name": "Almora", "aliases": ["almora", "ranikhet"]},
+    "CHAMPAWAT": {"name": "Champawat", "aliases": ["champawat"]},
+    "NAINITAL": {"name": "Nainital", "aliases": ["nainital", "haldwani"]},
+    "UDHAM_SINGH_NAGAR": {"name": "Udham Singh Nagar", "aliases": ["udham singh nagar", "us nagar", "pantnagar"]},
+    "HARIDWAR": {"name": "Haridwar", "aliases": ["haridwar", "hardwar", "roorkee"]},
+}
 
 
 class IMDClient:
@@ -26,6 +44,7 @@ class IMDClient:
         self.last_record_count: int = 0
         self._jwt_token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
+        self._auth_lock = asyncio.Lock()
 
     def is_configured(self) -> bool:
         """Returns True if the IMD API key credentials are configured in the environment."""
@@ -73,7 +92,7 @@ class IMDClient:
         }
 
     async def fetch_token(self) -> Optional[str]:
-        """Fetches JWT bearer token using registered API credentials."""
+        """Fetches JWT bearer token using registered API credentials with concurrency protection."""
         if not self.is_configured():
             return None
 
@@ -81,47 +100,51 @@ class IMDClient:
         if self._jwt_token and self._token_expires_at and now < self._token_expires_at:
             return self._jwt_token
 
-        token_url = f"{settings.IMD_BASE_URL.rstrip('/')}/api/oauth/token.php"
-        headers = {
-            "X-API-KEY": settings.IMD_API_KEY,
-            "Accept": "application/json",
-            "User-Agent": "TouristSafetyPlatform/1.0 (IMD-Client)",
-        }
-        data = {
-            "api_key": settings.IMD_API_KEY,
-            "api_secret": settings.IMD_API_SECRET,
-        }
+        async with self._auth_lock:
+            # Double check inside lock
+            if self._jwt_token and self._token_expires_at and now < self._token_expires_at:
+                return self._jwt_token
 
-        try:
-            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-                res = await client.post(token_url, headers=headers, json=data)
-                if res.status_code == 200:
-                    payload = res.json()
-                    self._jwt_token = payload.get("token") or payload.get("access_token")
-                    expires_in = payload.get("expires_in", 3600)
-                    self._token_expires_at = now + timedelta(seconds=int(expires_in) - 60)
-                    return self._jwt_token
-                else:
-                    self.last_error = f"IMD OAuth failed HTTP {res.status_code}: {res.text[:150]}"
-                    return None
-        except Exception as e:
-            self.last_error = f"IMD OAuth error: {str(e)}"
-            return None
+            token_url = f"{settings.IMD_BASE_URL.rstrip('/')}/api/oauth/token.php"
+            headers = {
+                "X-API-KEY": settings.IMD_API_KEY,
+                "Accept": "application/json",
+                "User-Agent": "TouristSafetyPlatform/1.0 (IMD-Client)",
+            }
+            data = {
+                "api_key": settings.IMD_API_KEY,
+                "api_secret": settings.IMD_API_SECRET,
+            }
 
-    async def fetch_district_warnings(self, district_code: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Fetches official severe weather warnings from the IMD warning endpoint.
-        Never fabricates records when credentials are missing or upstream is unavailable.
-        """
+            try:
+                async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                    res = await client.post(token_url, headers=headers, json=data)
+                    if res.status_code == 200:
+                        payload = res.json()
+                        self._jwt_token = payload.get("token") or payload.get("access_token")
+                        expires_in = payload.get("expires_in", 3600)
+                        # Refresh 5 minutes before expiration
+                        self._token_expires_at = now + timedelta(seconds=max(60, int(expires_in) - 300))
+                        return self._jwt_token
+                    elif res.status_code in (401, 403):
+                        self.last_error = f"IMD OAuth auth failed (HTTP {res.status_code}). Verify IP binding on IMD portal."
+                        return None
+                    else:
+                        self.last_error = f"IMD OAuth failed HTTP {res.status_code}: {res.text[:150]}"
+                        return None
+            except Exception as e:
+                self.last_error = f"IMD OAuth error: {str(e)}"
+                return None
+
+    async def _make_authenticated_request(
+        self, endpoint: str, params: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Optional[Any], Optional[int], Optional[str]]:
+        """Helper to execute an authenticated GET request with 1 token-retry on 401."""
         if not self.is_configured():
-            return []
-
-        now = datetime.now(timezone.utc)
-        self.last_attempt_at = now
+            return None, None, "IMD API credentials unconfigured"
 
         if not self.circuit_breaker.can_execute():
-            logger.warning("IMD API circuit breaker is OPEN; skipping upstream fetch.")
-            return []
+            return None, None, "IMD API circuit breaker is OPEN"
 
         token = await self.fetch_token()
         headers = {
@@ -132,34 +155,111 @@ class IMDClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        endpoint = f"{settings.IMD_BASE_URL.rstrip('/')}/api/v1/warning/district"
-        params = {}
-        if district_code:
-            params["district_code"] = district_code
+        url = f"{settings.IMD_BASE_URL.rstrip('/')}{endpoint}"
+        now = datetime.now(timezone.utc)
+        self.last_attempt_at = now
 
         try:
             async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
-                res = await client.get(endpoint, headers=headers, params=params)
+                res = await client.get(url, headers=headers, params=params)
                 self.last_status_code = res.status_code
 
+                if res.status_code == 401:
+                    # Token may have expired prematurely; force clear and retry once
+                    self._jwt_token = None
+                    new_token = await self.fetch_token()
+                    if new_token:
+                        headers["Authorization"] = f"Bearer {new_token}"
+                        res = await client.get(url, headers=headers, params=params)
+                        self.last_status_code = res.status_code
+
                 if res.status_code == 200:
+                    self.circuit_breaker.record_success()
                     self.last_success_at = now
                     self.last_error = None
-                    self.circuit_breaker.record_success()
-                    data = res.json()
-                    records = data if isinstance(data, list) else data.get("warnings", data.get("data", []))
-                    self.last_record_count = len(records)
-                    return records
+                    return res.json(), 200, None
                 else:
-                    self.last_error = f"HTTP {res.status_code}: {res.text[:200]}"
+                    err_msg = f"HTTP {res.status_code}: {res.text[:200]}"
+                    self.last_error = err_msg
                     self.circuit_breaker.record_failure()
-                    return []
+                    return None, res.status_code, err_msg
         except Exception as e:
-            self.last_error = str(e)
+            err_msg = str(e)
+            self.last_error = err_msg
             self.circuit_breaker.record_failure()
-            logger.warning(f"Error calling IMD warning API: {e}")
+            return None, None, err_msg
+
+    async def fetch_district_warnings(self, state_name: str = "UTTARAKHAND") -> List[Dict[str, Any]]:
+        """
+        Fetches official severe weather warnings from /api/v1/districtwarning.
+        Returns color-coded district warnings (Green, Yellow, Orange, Red) with issue and validity dates.
+        """
+        data, status, err = await self._make_authenticated_request(
+            "/api/v1/districtwarning", params={"state": state_name}
+        )
+        if not data:
             return []
+
+        records = data if isinstance(data, list) else data.get("warnings", data.get("data", []))
+        self.last_record_count = len(records)
+        return records
+
+    async def fetch_district_nowcast(self, district_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches 3-hour severe convective nowcast from /api/v1/districtnowcast.
+        Identifies impending severe thunderstorms, squalls, lightning, or localized cloudbursts.
+        """
+        params = {}
+        if district_name:
+            params["district"] = district_name
+        data, status, err = await self._make_authenticated_request("/api/v1/districtnowcast", params=params)
+        if not data:
+            return []
+
+        records = data if isinstance(data, list) else data.get("nowcasts", data.get("data", []))
+        return records
+
+    async def fetch_state_district_rainfall_forecast(self, state_name: str = "UTTARAKHAND") -> List[Dict[str, Any]]:
+        """
+        Fetches multi-day district quantitative precipitation forecast from /api/v1/state_district_rainfall_forecast.
+        """
+        data, status, err = await self._make_authenticated_request(
+            "/api/v1/state_district_rainfall_forecast", params={"state": state_name}
+        )
+        if not data:
+            return []
+
+        records = data if isinstance(data, list) else data.get("forecasts", data.get("data", []))
+        return records
+
+    async def fetch_basin_qpf(self, basin_name: Optional[str] = "Ganga") -> List[Dict[str, Any]]:
+        """
+        Fetches River Basin Quantitative Precipitation Forecast from /api/v1/basinqpf.
+        Provides meteorological precipitation context for major river catchment areas (e.g. Alaknanda, Bhagirathi).
+        """
+        params = {}
+        if basin_name:
+            params["basin"] = basin_name
+        data, status, err = await self._make_authenticated_request("/api/v1/basinqpf", params=params)
+        if not data:
+            return []
+
+        records = data if isinstance(data, list) else data.get("basin_qpf", data.get("data", []))
+        return records
+
+    async def fetch_current_wx(self, station_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches surface weather station observations from /api/v1/current_wx.
+        """
+        params = {}
+        if station_id:
+            params["station_id"] = station_id
+        data, status, err = await self._make_authenticated_request("/api/v1/current_wx", params=params)
+        if not data:
+            return []
+
+        records = data if isinstance(data, list) else data.get("stations", data.get("data", []))
+        return records
 
 
 imd_client = IMDClient()
-

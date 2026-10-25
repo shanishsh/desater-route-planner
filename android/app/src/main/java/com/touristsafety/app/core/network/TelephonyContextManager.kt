@@ -33,7 +33,11 @@ class TelephonyContextManager @Inject constructor(
             isEmergencyOnly = true
         )
 
-        val carrier = tm.networkOperatorName.ifBlank { "Unknown Carrier" }
+        val carrier = try {
+            tm.networkOperatorName.ifBlank { "Unknown Carrier" }
+        } catch (e: Exception) {
+            "Unknown Carrier"
+        }
 
         val hasPhonePermission = ContextCompat.checkSelfPermission(
             context,
@@ -41,15 +45,21 @@ class TelephonyContextManager @Inject constructor(
         ) == PackageManager.PERMISSION_GRANTED
 
         val networkTypeStr = if (hasPhonePermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            when (tm.dataNetworkType) {
-                TelephonyManager.NETWORK_TYPE_NR -> "5G NR"
-                TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
-                TelephonyManager.NETWORK_TYPE_HSPA,
-                TelephonyManager.NETWORK_TYPE_HSPAP,
-                TelephonyManager.NETWORK_TYPE_UMTS -> "3G UMTS/HSPA"
-                TelephonyManager.NETWORK_TYPE_EDGE,
-                TelephonyManager.NETWORK_TYPE_GPRS -> "2G GSM/EDGE"
-                else -> "Cellular (Standard)"
+            try {
+                when (tm.dataNetworkType) {
+                    TelephonyManager.NETWORK_TYPE_NR -> "5G NR"
+                    TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
+                    TelephonyManager.NETWORK_TYPE_HSPA,
+                    TelephonyManager.NETWORK_TYPE_HSPAP,
+                    TelephonyManager.NETWORK_TYPE_UMTS -> "3G UMTS/HSPA"
+                    TelephonyManager.NETWORK_TYPE_EDGE,
+                    TelephonyManager.NETWORK_TYPE_GPRS -> "2G GSM/EDGE"
+                    else -> "Cellular (Standard)"
+                }
+            } catch (e: SecurityException) {
+                "Cellular (Permission Restricted)"
+            } catch (e: Exception) {
+                "Cellular (Standard)"
             }
         } else {
             "Cellular (Permission Restricted)"
@@ -57,12 +67,27 @@ class TelephonyContextManager @Inject constructor(
 
         // On Android 9+, tm.signalStrength provides getLevel()
         val signalLevel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            tm.signalStrength?.level ?: 2
+            try {
+                tm.signalStrength?.level ?: 2
+            } catch (e: Exception) {
+                2
+            }
         } else {
             2
         }
 
-        val isEmergency = tm.networkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
+        val isEmergency = try {
+            if (hasPhonePermission) {
+                @Suppress("DEPRECATION")
+                tm.networkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
+            } else {
+                false
+            }
+        } catch (e: SecurityException) {
+            false
+        } catch (e: Exception) {
+            false
+        }
 
         return TelephonyCoverageState(
             networkType = networkTypeStr,

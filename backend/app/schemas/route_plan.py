@@ -240,6 +240,22 @@ class ProviderStatusItem(BaseModel):
     details: Optional[str] = None
 
 
+class RouteExposureMetrics(BaseModel):
+    direct_hazard_intersections_count: int = 0
+    corridor_advisories_count: int = 0
+    active_fire_hotspots_5km_count: int = 0
+    max_precipitation_mm_hr: float = 0.0
+    max_wind_speed_kmh: float = 0.0
+    freezing_elevation_warning: bool = False
+    elevation_gain_m: float = 0.0
+    elevation_loss_m: float = 0.0
+    max_slope_degrees: float = 0.0
+    essential_facilities_count: int = 0
+    source_completeness_pct: float = 100.0
+    unconfigured_or_degraded_sources: List[str] = Field(default_factory=list)
+    decision_narrative: str = ""
+
+
 class PlannedRouteResponse(BaseModel):
     route_id: str
     route_version: int = 1
@@ -277,6 +293,7 @@ class PlannedRouteResponse(BaseModel):
     min_elevation_m: float = 0.0
     max_elevation_m: float = 0.0
     decision_explanation: str = ""
+    exposure_metrics: Optional[RouteExposureMetrics] = None
     conditions: List[RouteWaypointCondition] = Field(default_factory=list)
     elevation_profile: List[ElevationProfilePoint] = Field(default_factory=list)
     safe_havens: List[SafeHavenInfo] = Field(default_factory=list)
@@ -327,6 +344,7 @@ class RouteAnalysisRequest(BaseModel):
 
 class RouteAnalysisResponse(BaseModel):
     route_id: str
+    exposure_metrics: Optional[RouteExposureMetrics] = None
     route_version: int = 1
     corridor_distance_meters: float = 5000.0
     corridor_distance_km: float = 5.0

@@ -676,6 +676,21 @@ object MapLibreLayerManager {
         }
     }
 
+    /**
+     * Safely clears route and corridor geometries when changing routes.
+     */
+    fun clearRouteSpecificLayers(style: Style) {
+        if (!style.isFullyLoaded) return
+        try {
+            style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)?.setGeoJson(EMPTY_GEOJSON)
+            style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)?.setGeoJson(EMPTY_GEOJSON)
+            style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)?.setGeoJson(EMPTY_GEOJSON)
+            Log.d(TAG, "Cleared route and corridor layers from MapLibre style.")
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed clearing route layers: ${e.message}")
+        }
+    }
+
     private fun updateLayerVisibilities(style: Style, state: MapUiState) {
         val vis = state.layerVisibilities
         val filterCat = state.selectedFilter?.category
