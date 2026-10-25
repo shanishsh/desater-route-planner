@@ -158,7 +158,7 @@ async def analyze_route_corridor(
         raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
 
     try:
-        summary_obj = route_summary_assistant.generate_grounded_summary(analysis.model_dump())
+        summary_obj = await route_summary_assistant.generate_grounded_summary_async(analysis.model_dump())
         analysis.grounded_summary = summary_obj.model_dump()
     except Exception as e:
         logger.warning(f"Could not generate grounded route summary: {e}")
@@ -356,7 +356,7 @@ async def select_route_alternative(
         route_id=route_id,
     )
     try:
-        summary_obj = route_summary_assistant.generate_grounded_summary(analysis.model_dump())
+        summary_obj = await route_summary_assistant.generate_grounded_summary_async(analysis.model_dump())
         analysis.grounded_summary = summary_obj.model_dump()
     except Exception as e:
         logger.warning(f"Could not generate grounded route summary: {e}")

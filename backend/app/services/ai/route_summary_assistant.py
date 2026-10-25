@@ -148,5 +148,49 @@ class RouteSummaryAssistant:
             is_ai_generated=False,
         )
 
+    async def generate_grounded_summary_async(
+        self,
+        route_response: Dict[str, Any],
+        use_llm: bool = True,
+    ) -> GroundedRouteSummary:
+        """Asynchronously generates a route briefing, using Groq AI when configured with deterministic fallback."""
+        summary = self.generate_grounded_summary(route_response, use_llm=False)
+
+        from app.config import settings
+        from app.clients.groq_client import groq_client
+
+        if settings.AI_PROVIDER == "groq" and groq_client.is_configured() and use_llm:
+            try:
+                system_prompt = (
+                    "You are the Trek Safety Briefing AI for the Tourist Safety Platform. "
+                    "Generate a concise, evidence-based hiker briefing strictly from the verified facts provided. "
+                    "RULES:\n"
+                    "1. Always cite exact alert IDs and distances.\n"
+                    "2. NEVER say any mountain trail is '100% safe' or risk-free.\n"
+                    "3. Highlight active direct hazard intersections in bold.\n"
+                    "4. If data sources are degraded, remind the trekker of data limitations.\n"
+                    "5. Keep the briefing under 150 words with clear bullet points."
+                )
+                user_prompt = (
+                    f"Route ID: {summary.route_id}\n"
+                    f"Direct Intersecting Hazards: {summary.direct_intersections or ['None reported']}\n"
+                    f"Regional Valley Hazards: {summary.regional_context or ['None']}\n"
+                    f"Emergency Facilities: {summary.nearby_facilities or ['None mapped']}\n"
+                    f"Degraded/Unmonitored Data Sources: {summary.stale_or_missing_sources or ['None']}\n"
+                    f"Alternative Route Tradeoffs: {summary.alternative_tradeoffs or ['None']}\n\n"
+                    "Generate the grounded safety briefing."
+                )
+                ai_text = await groq_client.chat_completion([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ])
+                if ai_text and len(ai_text) > 30:
+                    summary.summary_text = ai_text
+                    summary.is_ai_generated = True
+            except Exception as e:
+                logger.warning("Groq AI summary generation failed, using deterministic fallback: %s", e)
+
+        return summary
+
 
 route_summary_assistant = RouteSummaryAssistant()

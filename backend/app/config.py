@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     OUTBOX_POLL_INTERVAL_SECONDS: float = 2.0
     OUTBOX_MAX_RETRIES: int = 5
 
+    # AI / LLM Configuration
+    AI_PROVIDER: str = "groq"  # "groq", "deterministic", "openai", "gemini"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",

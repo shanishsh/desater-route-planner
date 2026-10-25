@@ -13,6 +13,7 @@ from app.clients.nasa_firms import nasa_firms_client
 from app.clients.ndma_sachet import ndma_sachet_client
 from app.clients.imd import imd_client
 from app.clients.opencellid import opencellid_client
+from app.clients.groq_client import groq_client
 from app.clients.osm_amenities import osm_amenities_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.usgs_earthquake import usgs_earthquake_client
@@ -260,13 +261,20 @@ async def integrations_health(db: AsyncSession = Depends(get_db)) -> Dict[str, A
     }
 
     # 16. AI Grounded Summary (P3)
+    if settings.AI_PROVIDER == "groq" and groq_client.is_configured():
+        ai_details = f"Groq AI fast inference active (model: {settings.GROQ_MODEL}) with deterministic fallback."
+        ai_auth = "Groq Cloud API Key"
+    else:
+        ai_details = "Deterministic template synthesis grounded strictly in database records (zero hallucinations)."
+        ai_auth = "Deterministic Rule Engine (Optional LLM)"
+
     providers["ai_summary"] = {
         "name": "Grounded Route Safety Assistant",
         "priority": "P3",
         "required": False,
         "state": "healthy",
-        "auth_type": "Deterministic Rule Engine (Optional LLM)",
-        "details": "Deterministic template synthesis grounded strictly in database records (zero hallucinations, zero external API keys needed).",
+        "auth_type": ai_auth,
+        "details": ai_details,
     }
 
     # Summary counts

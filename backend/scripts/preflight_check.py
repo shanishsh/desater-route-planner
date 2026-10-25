@@ -280,6 +280,30 @@ class PreflightChecker:
             else:
                 self._record("OpenCelliD Cell Towers", "P2", "PASS", "OPENCELLID_API_KEY credentials configured in environment.")
 
+            # 8. AI Provider (P3)
+            if settings.AI_PROVIDER == "groq":
+                if not settings.GROQ_API_KEY.strip():
+                    self._record(
+                        "Groq AI Inference",
+                        "P3",
+                        "INFO",
+                        "GROQ_API_KEY is unconfigured. Defaults to deterministic rule engine.",
+                    )
+                else:
+                    self._record(
+                        "Groq AI Inference",
+                        "P3",
+                        "PASS",
+                        f"Groq API key configured (model: {settings.GROQ_MODEL}).",
+                    )
+            else:
+                self._record(
+                    "Deterministic Rule Engine",
+                    "P3",
+                    "PASS",
+                    "Deterministic safety summary engine active (zero hallucinations).",
+                )
+
     def print_text_report(self):
         """Prints a colorized terminal report."""
         print("=" * 80)

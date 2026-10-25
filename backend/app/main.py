@@ -23,6 +23,7 @@ from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.nasa_firms import nasa_firms_client
 from app.clients.opencellid import opencellid_client
+from app.clients.groq_client import groq_client
 
 
 @asynccontextmanager
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     await osm_forest_client.close()
     await nasa_firms_client.close()
     await opencellid_client.close()
+    await groq_client.close()
     await close_db()
 
 

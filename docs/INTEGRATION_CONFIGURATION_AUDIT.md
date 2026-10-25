@@ -24,7 +24,7 @@ Every provider and integration in the codebase has been audited against actual s
 | **OSM Overpass Amenities** | `app/clients/osm_amenities.py` | `https://overpass-api.de/api/interpreter` | `OVERPASS_API_URL` | Degraded Live (Public Timeout) | Offline Bundled Fallback | **PARTIALLY_IMPLEMENTED** | P1 |
 | **OSM Overpass Forest** | `app/clients/osm_forest.py` | `https://overpass-api.de/api/interpreter` | `OVERPASS_API_URL` | Degraded Live (Public Timeout) | Offline Bundled Fallback | **PARTIALLY_IMPLEMENTED** | P1 |
 | **Community Photo Storage** | `app/services/trail_report_service.py` | Local filesystem (`uploads/`) | None | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
-| **Grounded Route Assistant** | `app/services/ai/route_summary_assistant.py` | Local deterministic engine | `AI_PROVIDER=deterministic` | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
+| **Grounded Route Assistant & Groq AI** | `app/services/ai/` | `https://api.groq.com/openai/v1` | `AI_PROVIDER=groq`, `GROQ_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P1 |
 | **NASA FIRMS Active Fires** | `app/clients/nasa_firms.py` | `https://firms.modaps.eosdis.nasa.gov/api` | `NASA_FIRMS_MAP_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **IMD District Warnings & Nowcast** | `app/clients/imd.py` | `https://api.imd.gov.in/` | `IMD_API_KEY`, `IMD_API_SECRET` | Missing | Missing | **MISSING_CONFIG** | P1 |
 | **OpenCellID Cell Towers** | `app/clients/opencellid.py` | `https://opencellid.org/cell/getInArea` | `OPENCELLID_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
@@ -196,16 +196,16 @@ Every provider and integration in the codebase has been audited against actual s
 ---
 
 ### 3.4 AI and Document Processing
-1. **Grounded Route Safety Assistant**
-   - **Service**: `backend/app/services/ai/route_summary_assistant.py`
-   - **Implementation**: Deterministic synthesis engine strictly grounded in database records. Synthesizes distance, duration, direct vs. regional hazard alerts, active FIRMS fire hotspots, nearby medical/police facilities, and provider statuses.
-   - **Safety**: Completely avoids AI hallucinations; explicitly forbids stating that any mountain trail is "100% safe".
-   - **Authentication**: Zero external API keys needed.
-   - **Status**: `CONFIGURED_AND_VERIFIED`.
+1. **Grounded Route Safety Assistant & Groq AI Inference**
+   - **Service**: `backend/app/services/ai/route_summary_assistant.py` and `backend/app/clients/groq_client.py`
+   - **Model**: `qwen/qwen3.8-27b` via Groq Cloud ultra-fast inference (`https://api.groq.com/openai/v1`).
+   - **Grounding & Safety Rules**: Prompts enforce that the LLM is strictly grounded in genuine database records (alert IDs, distances, medical/police facilities). Completely avoids AI hallucinations; explicitly forbids stating that any mountain trail is "100% safe".
+   - **Deterministic Fallback**: If Groq is unreachable, unconfigured, or times out, the assistant immediately falls back to a deterministic rule-based template with zero latency penalty or user interruption.
+   - **Status**: `CONFIGURED_AND_VERIFIED` (Local development; requires configuring `AI_PROVIDER=groq` and `GROQ_API_KEY` on Render).
 
 2. **Government Bulletin Document Extractor**
    - **Service**: `backend/app/services/ai/bulletin_extractor.py`
-   - **Implementation**: Rule-based regex and keyword parser with confidence scoring for extracting affected districts, hazard classifications, and severity terms from government notices.
+   - **Implementation**: AI-assisted JSON extraction with Groq, backed by rule-based regex and keyword parser with confidence scoring for extracting affected districts, hazard classifications, and severity terms from government notices.
    - **Status**: `CONFIGURED_AND_VERIFIED`.
 
 ---

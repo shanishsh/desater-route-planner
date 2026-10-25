@@ -115,5 +115,57 @@ class BulletinExtractorService:
             raw_text=raw_text,
         )
 
+    async def extract_structured_advisory_async(
+        self,
+        raw_text: str,
+        document_id: str,
+        source_agency: str = "Uttarakhand PWD / SDMA",
+    ) -> StructuredBulletinDraft:
+        """Extracts structured advisory fields using Groq AI when available, falling back to rule engine."""
+        base = self.extract_structured_advisory(raw_text, document_id, source_agency)
+
+        from app.config import settings
+        from app.clients.groq_client import groq_client
+
+        if settings.AI_PROVIDER == "groq" and groq_client.is_configured():
+            try:
+                system_prompt = (
+                    "Extract structured disaster bulletin data as JSON with exact keys: "
+                    '{"hazard_type": string, "affected_districts": [string], "severity_term": string, "cited_snippet": string}. '
+                    "Districts must be from Uttarakhand. Hazard must be one of: landslide, avalanche, road_closure, flash_flood, weather. "
+                    "Severity must be: CRITICAL, HIGH, MODERATE, or ADVISORY. Return ONLY valid JSON."
+                )
+                res = await groq_client.chat_completion(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": raw_text[:1000]},
+                    ],
+                    temperature=0.1,
+                    max_tokens=200,
+                )
+                if res:
+                    import json
+                    cleaned = re.sub(r"^```json\s*|\s*```$", "", res.strip(), flags=re.MULTILINE)
+                    data = json.loads(cleaned)
+                    if isinstance(data, dict):
+                        h_type = data.get("hazard_type")
+                        if h_type:
+                            base.hazard_type = h_type
+                        dists = data.get("affected_districts")
+                        if isinstance(dists, list) and dists:
+                            base.affected_districts = dists
+                        sev = data.get("severity_term")
+                        if sev in ("CRITICAL", "HIGH", "MODERATE", "ADVISORY"):
+                            base.severity_term = sev
+                        snippet = data.get("cited_snippet")
+                        if snippet:
+                            base.cited_source_text = snippet[:250]
+                        base.confidence_score = 0.95
+                        base.needs_manual_review = False
+            except Exception as e:
+                logger.debug("Groq extraction fallback to rule-based: %s", e)
+
+        return base
+
 
 bulletin_extractor_service = BulletinExtractorService()
