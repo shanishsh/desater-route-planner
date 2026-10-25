@@ -45,8 +45,19 @@ class FirebaseFCMProvider(PushProvider):
             # 2. Try file path
             if cred is None and settings.FIREBASE_CREDENTIALS_PATH:
                 path = settings.FIREBASE_CREDENTIALS_PATH.strip()
-                if os.path.exists(path):
-                    cred = credentials.Certificate(path)
+                candidate_paths = [
+                    path,
+                    os.path.join("backend", path),
+                    os.path.join(os.path.dirname(__file__), "..", "..", "..", path),
+                ]
+                resolved_path = None
+                for cp in candidate_paths:
+                    if os.path.exists(cp):
+                        resolved_path = cp
+                        break
+
+                if resolved_path:
+                    cred = credentials.Certificate(resolved_path)
                 else:
                     logger.warning("FIREBASE_CREDENTIALS_PATH does not exist: %s", path)
 
@@ -122,3 +133,4 @@ class FirebaseFCMProvider(PushProvider):
                 is_simulated=False,
                 error=str(exc),
             )
+

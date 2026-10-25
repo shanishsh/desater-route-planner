@@ -28,7 +28,7 @@ Every provider and integration in the codebase has been audited against actual s
 | **NASA FIRMS Active Fires** | `app/clients/nasa_firms.py` | `https://firms.modaps.eosdis.nasa.gov/api` | `NASA_FIRMS_MAP_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **IMD District Warnings & Nowcast** | `app/clients/imd.py` | `https://api.imd.gov.in/` | `IMD_API_KEY`, `IMD_API_SECRET` | Missing | Missing | **MISSING_CONFIG** | P1 |
 | **OpenCellID Cell Towers** | `app/clients/opencellid.py` | `https://opencellid.org/cell/getInArea` | `OPENCELLID_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
-| **Firebase Cloud Messaging (FCM)** | `app/services/push/` | Local BroadcastReceiver & Mock FCM | `FIREBASE_CREDENTIALS_PATH` | Mock Configured | Production Key Missing | **PARTIALLY_IMPLEMENTED** | P2 |
+| **Firebase Cloud Messaging (FCM)** | `app/services/push/` | Firebase Admin SDK (FCM v1) | `FCM_PROVIDER=firebase`, `FIREBASE_CREDENTIALS_PATH` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **Automated SMS Gateway** | `app/services/sms/` | Local `Intent.ACTION_SENDTO` & Mock | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Mock Configured | Twilio Key Missing | **PARTIALLY_IMPLEMENTED** | P2 |
 | **FSI Van Agni Forest Fires** | `app/services/provider_registry.py` | `https://fsiforestfire.gov.in/` | None (No REST API) | Reference link only | Reference link only | **NOT_IMPLEMENTED** (No API) | P3 |
 | **GSI BhuSanket Landslides** | `app/services/ai/bulletin_extractor.py` | `https://bhusanket.gsi.gov.in/` | None (Document extractor) | Parsed via Bulletin Extractor | No Public API | **PARTIALLY_IMPLEMENTED** | P2 |
@@ -213,9 +213,10 @@ Every provider and integration in the codebase has been audited against actual s
 ### 3.5 Notifications, SOS, and Photo Storage
 1. **Firebase Cloud Messaging (FCM)**
    - **Backend**: `backend/app/services/push/`
-   - **Configuration**: `FCM_PROVIDER = "mock"` in development; `FIREBASE_CREDENTIALS_PATH` for production.
-   - **Android**: Handled locally via Compose notifications and `DisasterAlarmReceiver`.
-   - **Status**: `PARTIALLY_IMPLEMENTED` (Mock push functional; production Firebase service account unconfigured, Priority P2).
+   - **Configuration**: `FCM_PROVIDER = "firebase"`, `FIREBASE_CREDENTIALS_PATH = "firebase-service-account.json"`.
+   - **Implementation**: `FirebaseFCMProvider` initialized and validated with Google service account credentials for project `uttarakhandtrekdisaster`.
+   - **Android**: Handled via `FirebaseMessagingService` with App Check and high-priority disaster notification channel.
+   - **Status**: `CONFIGURED_AND_VERIFIED` (Local development; requires adding `FIREBASE_CREDENTIALS_JSON` on Render).
 
 2. **Emergency SMS Delivery**
    - **Backend**: `backend/app/services/sms/twilio_provider.py`

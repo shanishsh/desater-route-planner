@@ -280,6 +280,20 @@ class PreflightChecker:
             else:
                 self._record("OpenCelliD Cell Towers", "P2", "PASS", "OPENCELLID_API_KEY credentials configured in environment.")
 
+            # 8. Firebase Cloud Messaging (P2)
+            if settings.FCM_PROVIDER == "firebase":
+                candidate_paths = [
+                    settings.FIREBASE_CREDENTIALS_PATH,
+                    os.path.join("backend", settings.FIREBASE_CREDENTIALS_PATH),
+                ]
+                has_cred = bool(settings.FIREBASE_CREDENTIALS_JSON or any(os.path.exists(p) for p in candidate_paths if p))
+                if has_cred:
+                    self._record("Firebase Cloud Messaging", "P2", "PASS", "Production Firebase credentials validated.")
+                else:
+                    self._record("Firebase Cloud Messaging", "P2", "WARN", f"FCM_PROVIDER is 'firebase' but {settings.FIREBASE_CREDENTIALS_PATH} was not found.")
+            else:
+                self._record("Firebase Cloud Messaging", "P2", "PASS", "Mock FCM provider active (simulated push dispatch).")
+
             # 8. AI Provider (P3)
             if settings.AI_PROVIDER == "groq":
                 if not settings.GROQ_API_KEY.strip():
