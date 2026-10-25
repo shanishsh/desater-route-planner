@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 10
     FCM_PROVIDER: str = "mock"  # "mock" or "firebase"
     FIREBASE_CREDENTIALS_PATH: str = ""
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
     OUTBOX_POLL_INTERVAL_SECONDS: float = 2.0
     OUTBOX_MAX_RETRIES: int = 5
 
