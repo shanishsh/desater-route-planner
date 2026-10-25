@@ -12,6 +12,7 @@ import com.touristsafety.app.core.location.DeviceLocationRepository
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.repository.RouteRepository
+import com.touristsafety.app.core.repository.TrailReportRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
@@ -45,8 +46,11 @@ class ActiveTripViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val routeRepository: RouteRepository,
     private val deviceLocationRepository: DeviceLocationRepository,
+    val trailReportRepository: TrailReportRepository? = null,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    val locationState = deviceLocationRepository.locationState
 
     val tripId: String = checkNotNull(savedStateHandle["tripId"])
     private val json = Json { ignoreUnknownKeys = true }

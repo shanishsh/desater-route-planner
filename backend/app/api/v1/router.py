@@ -19,6 +19,7 @@ from app.api.v1.places import router as places_router
 from app.api.v1.routes import router as routes_router
 from app.api.v1.trips import router as trips_router
 from app.api.v1.sar import router as sar_router
+from app.api.v1.trail_reports import router as trail_reports_router
 
 api_v1_router = APIRouter()
 
@@ -41,4 +42,5 @@ api_v1_router.include_router(places_router)
 api_v1_router.include_router(routes_router)
 api_v1_router.include_router(trips_router)
 api_v1_router.include_router(sar_router)
+api_v1_router.include_router(trail_reports_router, prefix="/trail-reports", tags=["trail-reports"])
 

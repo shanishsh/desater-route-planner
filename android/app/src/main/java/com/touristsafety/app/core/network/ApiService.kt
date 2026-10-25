@@ -128,6 +128,11 @@ interface ApiService {
         @Path("id") id: String
     ): Response<PlannedRouteResponseDto>
 
+    @GET("routes/{id}/offline-pack")
+    suspend fun getRouteOfflinePack(
+        @Path("id") id: String
+    ): Response<RouteOfflinePackDto>
+
     @GET("routes/{id}/conditions")
     suspend fun getRouteConditions(
         @Path("id") id: String
@@ -181,4 +186,26 @@ interface ApiService {
 
     @GET("auth/me")
     suspend fun getMe(): Response<UserMeResponseDto>
+
+    @POST("trail-reports")
+    suspend fun submitTrailReport(
+        @Body body: TrailReportCreateDto
+    ): Response<TrailReportResponseDto>
+
+    @GET("trail-reports")
+    suspend fun getTrailReports(
+        @Query("bbox") bbox: String? = null,
+        @Query("category") category: String? = null,
+        @Query("status") status: String? = null,
+        @Query("route_id") routeId: String? = null,
+        @Query("include_expired") includeExpired: Boolean = false,
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0
+    ): Response<TrailReportListResponseDto>
+
+    @POST("trail-reports/{id}/interact")
+    suspend fun interactTrailReport(
+        @Path("id") id: String,
+        @Body body: TrailReportInteractionCreateDto
+    ): Response<TrailReportResponseDto>
 }

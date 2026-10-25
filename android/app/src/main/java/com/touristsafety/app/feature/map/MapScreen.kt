@@ -33,6 +33,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
+import com.touristsafety.app.feature.report.ReportTrailConditionBottomSheet
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import org.maplibre.android.MapLibre
@@ -70,6 +71,7 @@ fun MapScreen(
     var measuredWidthPx by remember { mutableIntStateOf(0) }
     var measuredHeightPx by remember { mutableIntStateOf(0) }
     var userToggledCanvas by remember { mutableStateOf(false) }
+    var showReportConditionSheet by remember { mutableStateOf(false) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -687,10 +689,24 @@ fun MapScreen(
                 userToggledCanvas = !userToggledCanvas
                 viewModel.toggleOfflineSchematic()
             },
+            onReportTrailCondition = { showReportConditionSheet = true },
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 12.dp)
         )
+
+        if (showReportConditionSheet && viewModel.trailReportRepository != null) {
+            val locState by viewModel.locationState.collectAsState()
+            ReportTrailConditionBottomSheet(
+                initialLat = locState.latitude ?: if (state.userLocation.first != 0.0) state.userLocation.first else null,
+                initialLon = locState.longitude ?: if (state.userLocation.second != 0.0) state.userLocation.second else null,
+                initialAccuracyM = locState.location?.accuracy?.toDouble() ?: 10.0,
+                routeId = state.activeRouteId,
+                trailReportRepository = viewModel.trailReportRepository!!,
+                onDismiss = { showReportConditionSheet = false },
+                onReportSubmitted = { showReportConditionSheet = false }
+            )
+        }
 
         // 4. BOTTOM ROUTE SUMMARY CARD (Active Route Only) OR MINIMAL ACTION PILL
         val hasActiveRoute = state.activeRouteId != null || state.routeCoordinates.size >= 2
@@ -1016,6 +1032,7 @@ private fun FloatingMapControls(
     onFitRoute: () -> Unit,
     onOpenLayers: () -> Unit,
     onToggleOffline: () -> Unit,
+    onReportTrailCondition: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -1053,6 +1070,21 @@ private fun FloatingMapControls(
             elevation = FloatingActionButtonDefaults.elevation(4.dp)
         ) {
             Icon(Icons.Default.Layers, contentDescription = "Layers", modifier = Modifier.size(20.dp))
+        }
+
+        FloatingActionButton(
+            onClick = onReportTrailCondition,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Report,
+                contentDescription = "Report a Trail Condition",
+                modifier = Modifier.size(20.dp)
+            )
         }
 
         FloatingActionButton(

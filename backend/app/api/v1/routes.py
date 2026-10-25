@@ -10,6 +10,7 @@ from app.database.session import get_db
 from app.models.planned_route import PlannedRoute
 from app.services.routing.osrm_provider import osrm_routing_provider
 from app.services.route_condition_analyzer import route_condition_analyzer
+from app.services.ai.route_summary_assistant import route_summary_assistant
 from app.services.spatial.region_boundary_service import region_boundary_service
 from app.services.routing.verified_corridors_registry import (
     get_verified_corridors,
@@ -155,6 +156,13 @@ async def analyze_route_corridor(
     )
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
+
+    try:
+        summary_obj = route_summary_assistant.generate_grounded_summary(analysis.model_dump())
+        analysis.grounded_summary = summary_obj.model_dump()
+    except Exception as e:
+        logger.warning(f"Could not generate grounded route summary: {e}")
+
     return analysis
 
 
@@ -347,6 +355,11 @@ async def select_route_alternative(
         db=db,
         route_id=route_id,
     )
+    try:
+        summary_obj = route_summary_assistant.generate_grounded_summary(analysis.model_dump())
+        analysis.grounded_summary = summary_obj.model_dump()
+    except Exception as e:
+        logger.warning(f"Could not generate grounded route summary: {e}")
     return analysis
 
 @router.get("/{route_id}/offline-pack")

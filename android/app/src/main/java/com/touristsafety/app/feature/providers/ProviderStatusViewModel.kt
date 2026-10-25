@@ -43,7 +43,7 @@ class ProviderStatusViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         ProviderStatusUiState(
             currentBaseUrl = serverConfigManager.getCurrentUrl(),
-            telephony = telephonyManager.getLocalCoverageState()
+            telephony = null
         )
     )
     val uiState: StateFlow<ProviderStatusUiState> = _uiState.asStateFlow()
@@ -95,9 +95,12 @@ class ProviderStatusViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, userMessage = null)
             val result = providerStatusRepository.refreshStatuses()
             connectivityMonitor.probeBackend()
+            val localTelephony = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { telephonyManager.getLocalCoverageState() }.getOrNull()
+            }
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
-                telephony = telephonyManager.getLocalCoverageState(),
+                telephony = localTelephony,
                 userMessage = if (result.isSuccess) "Provider statuses updated." else "Failed to contact backend."
             )
         }

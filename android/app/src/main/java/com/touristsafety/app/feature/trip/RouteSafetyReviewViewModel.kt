@@ -8,6 +8,7 @@ import com.touristsafety.app.core.offline.OfflineTrekPackManager
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
 import com.touristsafety.app.core.location.ActiveTripTrackingService
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
+import com.touristsafety.app.core.network.dto.GroundedRouteSummaryDto
 import com.touristsafety.app.core.network.dto.ProviderStatusItemDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
@@ -38,6 +39,7 @@ data class RouteSafetyReviewUiState(
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val providerStatuses: Map<String, ProviderStatusItemDto> = emptyMap(),
     val analysisLimitations: List<String> = emptyList(),
+    val groundedSummary: GroundedRouteSummaryDto? = null,
     val selectedAlternativeId: String? = null,
     val isOfflineSaved: Boolean = false,
     val currentEntity: PlannedRouteEntity? = null,
@@ -148,6 +150,7 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 alternatives = alts,
                 providerStatuses = statuses,
                 analysisLimitations = limits,
+                groundedSummary = activeDto?.grounded_summary,
                 isOfflineSaved = entity.isSavedOffline,
                 currentEntity = entity,
                 isLoading = false

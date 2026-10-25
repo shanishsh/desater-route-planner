@@ -31,8 +31,10 @@ class OSMAmenitiesClient:
     """Client for retrieving genuine hospitals, clinics, police stations, fuel stations, and fire stations from OpenStreetMap Overpass."""
 
     FALLBACK_MIRRORS = [
-        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     ]
 
     def __init__(self):
@@ -55,8 +57,11 @@ class OSMAmenitiesClient:
         if self._client is None or self._client.is_closed or self._loop != loop:
             self._loop = loop
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=5.0, read=12.0, write=5.0, pool=5.0),
-                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Emergency-Amenities; OSM-Overpass)"},
+                timeout=httpx.Timeout(connect=4.0, read=10.0, write=4.0, pool=4.0),
+                headers={
+                    "User-Agent": "UttarakhandTrekSafety/2.0 (Contact: safety@touristsafety.org; OpenStreetMap Ingestion)",
+                    "Accept": "application/json",
+                },
             )
         return self._client
 

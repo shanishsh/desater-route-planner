@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.touristsafety.app.feature.report.ReportTrailConditionBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +30,7 @@ fun ActiveTripScreen(
     val context = LocalContext.current
     val animatedProgress by animateFloatAsState(targetValue = (state.progressPct / 100f).toFloat())
     var showSosConfirmation by remember { mutableStateOf(false) }
+    var showReportConditionSheet by remember { mutableStateOf(false) }
     var showCompletionSummary by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -300,6 +302,21 @@ fun ActiveTripScreen(
                 Text("TRIGGER EMERGENCY SOS", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
 
+            // Report Trail Condition Action
+            OutlinedButton(
+                onClick = { showReportConditionSheet = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Report, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Report a Trail Condition", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             // End Trip Action
             OutlinedButton(
                 onClick = {
@@ -315,6 +332,20 @@ fun ActiveTripScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("End Trip Monitoring", fontSize = 14.sp)
             }
+        }
+
+        // Trail Condition Report Sheet
+        if (showReportConditionSheet && viewModel.trailReportRepository != null) {
+            val locState by viewModel.locationState.collectAsState()
+            ReportTrailConditionBottomSheet(
+                initialLat = locState.latitude,
+                initialLon = locState.longitude,
+                initialAccuracyM = locState.location?.accuracy?.toDouble() ?: 10.0,
+                routeId = state.routeId,
+                trailReportRepository = viewModel.trailReportRepository!!,
+                onDismiss = { showReportConditionSheet = false },
+                onReportSubmitted = { showReportConditionSheet = false }
+            )
         }
 
         // SOS Confirmation Dialog

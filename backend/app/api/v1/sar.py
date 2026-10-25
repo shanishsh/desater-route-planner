@@ -5,8 +5,10 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_db
+from app.models.sar import SARIncident, TrekkerCheckIn
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +108,29 @@ async def submit_check_in(
     }
     _ACTIVE_CHECKINS[payload.trip_id] = record
 
+    # Durable database persistence
+    try:
+        db_checkin = TrekkerCheckIn(
+            id=checkin_id,
+            trip_id=payload.trip_id,
+            device_id=payload.device_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            elevation_m=payload.elevation_m or 0.0,
+            gps_accuracy_m=payload.gps_accuracy_m or 10.0,
+            battery_pct=payload.battery_pct or 100,
+            status=payload.status,
+            notes=payload.notes,
+            recorded_at=ts,
+            received_at=now,
+            next_check_in_due=next_due,
+        )
+        db.add(db_checkin)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist check-in to database: {e}")
+        await db.rollback()
+
     logger.info(f"Check-in recorded for trip {payload.trip_id} at ({payload.latitude}, {payload.longitude})")
 
     return TrekkerCheckInResponse(
@@ -144,6 +169,28 @@ async def trigger_emergency_sos(
     }
     _ACTIVE_INCIDENTS[incident_id] = incident_record
 
+    # Durable database persistence
+    try:
+        db_incident = SARIncident(
+            id=incident_id,
+            trip_id=payload.trip_id,
+            device_id=payload.device_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            elevation_m=payload.elevation_m or 0.0,
+            battery_pct=payload.battery_pct or 100,
+            emergency_type=payload.emergency_type,
+            details=payload.details,
+            route_id=payload.route_id,
+            status="ACTIVE_RESCUE",
+            escalation_level="RED_PRIORITY_1",
+        )
+        db.add(db_incident)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist SAR incident to database: {e}")
+        await db.rollback()
+
     logger.warning(
         f"EMERGENCY SOS: Incident {incident_id} created for trip {payload.trip_id} at ({payload.latitude}, {payload.longitude})"
     )
@@ -169,6 +216,31 @@ async def export_sar_package(
     Contains Last Known Location (LKL), uncertainty search perimeter, and device telemetry.
     """
     incident = _ACTIVE_INCIDENTS.get(incident_id)
+    if not incident:
+        # Query durable PostgreSQL database first
+        try:
+            stmt = select(SARIncident).where(SARIncident.id == incident_id)
+            res = await db.execute(stmt)
+            db_obj = res.scalar_one_or_none()
+            if db_obj:
+                incident = {
+                    "incident_id": db_obj.id,
+                    "trip_id": db_obj.trip_id,
+                    "device_id": db_obj.device_id,
+                    "latitude": db_obj.latitude,
+                    "longitude": db_obj.longitude,
+                    "elevation_m": db_obj.elevation_m,
+                    "battery_pct": db_obj.battery_pct,
+                    "emergency_type": db_obj.emergency_type,
+                    "details": db_obj.details,
+                    "route_id": db_obj.route_id,
+                    "created_at": db_obj.created_at.isoformat() if db_obj.created_at else now.isoformat(),
+                    "status": db_obj.status,
+                    "escalation_level": db_obj.escalation_level,
+                }
+        except Exception as e:
+            logger.warning(f"Database lookup for SAR incident failed: {e}")
+
     if not incident:
         # Fallback to simulated or last known checkin if available
         checkin_vals = list(_ACTIVE_CHECKINS.values())

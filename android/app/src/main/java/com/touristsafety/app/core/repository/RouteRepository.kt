@@ -427,6 +427,28 @@ class RouteRepository @Inject constructor(
         )
     }
 
+    suspend fun downloadRouteOfflinePack(routeId: String): Result<RouteOfflinePackDto> {
+        return try {
+            val response = apiService.getRouteOfflinePack(routeId)
+            if (response.isSuccessful && response.body() != null) {
+                val pack = response.body()!!
+                val file = File(getRoutesDir(), "${routeId}_pack.json")
+                file.writeText(json.encodeToString(pack))
+                updateOfflinePackStatus(
+                    routeId = routeId,
+                    status = "COMPLETE",
+                    downloadedAt = System.currentTimeMillis()
+                )
+                Result.success(pack)
+            } else {
+                Result.failure(Exception("Failed to fetch route offline pack: ${response.code()} ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Log.e("RouteRepository", "Error downloading route offline pack for $routeId", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun startTrip(routeId: String, deviceId: String? = null): Result<StartTripResponseDto> {
         return try {
             val response = apiService.startTrip(StartTripRequestDto(route_id = routeId, device_id = deviceId))

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from app.config import settings
 from app.database.base import Base
+import app.models.sar
+import app.models.trail_report
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,10 @@ async def _apply_schema_migrations(conn):
         "ALTER TABLE map_points ADD COLUMN IF NOT EXISTS osm_id VARCHAR(100)",
         "ALTER TABLE map_points ADD COLUMN IF NOT EXISTS osm_type VARCHAR(20)",
         "CREATE INDEX IF NOT EXISTS ix_map_points_osm_id ON map_points (osm_id)",
+        "CREATE TABLE IF NOT EXISTS sar_incidents (id VARCHAR(64) PRIMARY KEY, trip_id VARCHAR(64) NOT NULL, device_id VARCHAR(128), latitude FLOAT NOT NULL, longitude FLOAT NOT NULL, elevation_m FLOAT DEFAULT 0.0, battery_pct INTEGER DEFAULT 100, emergency_type VARCHAR(50) DEFAULT 'MANUAL_PANIC', status VARCHAR(50) DEFAULT 'ACTIVE_RESCUE', escalation_level VARCHAR(50) DEFAULT 'RED_PRIORITY_1', details TEXT, route_id VARCHAR(64), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE INDEX IF NOT EXISTS ix_sar_incidents_trip_id ON sar_incidents (trip_id)",
+        "CREATE TABLE IF NOT EXISTS trekker_checkins (id VARCHAR(64) PRIMARY KEY, trip_id VARCHAR(64) NOT NULL, device_id VARCHAR(128), latitude FLOAT NOT NULL, longitude FLOAT NOT NULL, elevation_m FLOAT DEFAULT 0.0, gps_accuracy_m FLOAT DEFAULT 10.0, battery_pct INTEGER DEFAULT 100, status VARCHAR(50) DEFAULT 'OK', notes TEXT, recorded_at TIMESTAMP WITH TIME ZONE NOT NULL, received_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, next_check_in_due TIMESTAMP WITH TIME ZONE NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE INDEX IF NOT EXISTS ix_trekker_checkins_trip_id ON trekker_checkins (trip_id)",
     ]
     for stmt in statements:
         try:

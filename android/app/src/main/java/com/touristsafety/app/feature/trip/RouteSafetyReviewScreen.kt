@@ -235,6 +235,75 @@ fun RouteSafetyReviewScreen(
                     }
                 }
 
+                                // Authoritative Grounded Route Briefing (REM-07)
+                val summaryObj = state.groundedSummary
+                if (summaryObj != null || state.decisionExplanation.isNotBlank()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.VerifiedUser,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Authoritative Trail Briefing",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    summaryObj?.summary_text ?: state.decisionExplanation,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (summaryObj != null && summaryObj.direct_intersections.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "Direct Trail Intersections:",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    summaryObj.direct_intersections.forEach { item ->
+                                        Text("• " + item, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                                if (summaryObj != null && summaryObj.nearby_facilities.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "Shelters & Safe Havens:",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    summaryObj.nearby_facilities.forEach { item ->
+                                        Text("• " + item, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    summaryObj?.disclaimer ?: "Advisory summary grounded strictly in retrieved database records. Mountain conditions can change rapidly.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Provider Status & Regional Coverage Card
                 if (state.providerStatuses.isNotEmpty() || state.analysisLimitations.isNotEmpty()) {
                     item {

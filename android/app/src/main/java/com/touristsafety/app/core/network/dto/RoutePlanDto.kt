@@ -221,7 +221,8 @@ data class PlannedRouteResponseDto(
     val geometry_diagnostics: Map<String, JsonElement> = emptyMap(),
     val provider_statuses: Map<String, ProviderStatusItemDto> = emptyMap(),
     val analysis_limitations: List<String> = emptyList(),
-    val created_at: String = ""
+    val created_at: String = "",
+    val grounded_summary: GroundedRouteSummaryDto? = null
 )
 
 @Serializable
@@ -251,7 +252,8 @@ data class RouteAnalysisResponseDto(
     val alternatives: List<RouteAlternativeDto> = emptyList(),
     val analysis_limitations: List<String> = emptyList(),
     val overlays_geojson: JsonElement? = null,
-    val geometry_diagnostics: Map<String, JsonElement> = emptyMap()
+    val geometry_diagnostics: Map<String, JsonElement> = emptyMap(),
+    val grounded_summary: GroundedRouteSummaryDto? = null
 )
 
 @Serializable
@@ -355,4 +357,51 @@ data class EmergencySOSResponseDto(
     val broadcast_timestamp: String,
     val sar_export_url: String,
     val message: String
+)
+
+
+@Serializable
+data class GroundedRouteSummaryDto(
+    val route_id: String = "",
+    val route_version: Int = 1,
+    val summary_text: String = "",
+    val direct_intersections: List<String> = emptyList(),
+    val regional_context: List<String> = emptyList(),
+    val nearby_facilities: List<String> = emptyList(),
+    val stale_or_missing_sources: List<String> = emptyList(),
+    val alternative_tradeoffs: List<String> = emptyList(),
+    val is_ai_generated: Boolean = false,
+    val disclaimer: String = ""
+)
+
+@Serializable
+data class LatLonDto(
+    val latitude: Double,
+    val longitude: Double
+)
+
+@Serializable
+data class RouteOfflinePackDto(
+    val pack_id: String,
+    val route_id: String,
+    val route_version: Int = 1,
+    val title: String,
+    val origin_name: String,
+    val destination_name: String,
+    val origin: LatLonDto,
+    val destination: LatLonDto,
+    val bbox: List<Double> = emptyList(),
+    val created_at: String,
+    val expires_at: String,
+    val is_stale: Boolean = false,
+    val route_geometry: JsonElement? = null,
+    val corridor_geojson: JsonElement? = null,
+    val hazards_geojson: JsonElement? = null,
+    val fires_geojson: JsonElement? = null,
+    val facilities_geojson: JsonElement? = null,
+    val weather_snapshot: List<JsonElement> = emptyList(),
+    val conditions: List<JsonElement> = emptyList(),
+    val alternatives: List<JsonElement> = emptyList(),
+    val data_provenance: Map<String, String> = emptyMap(),
+    val offline_usage_disclaimer: String = ""
 )

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,6 +24,7 @@ fun OfflineTrekPackDialog(
     onDismiss: () -> Unit,
     onDownloadComplete: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     var selectedCorridorKm by remember { mutableStateOf(5.0) }
     var isDownloading by remember { mutableStateOf(false) }
     var progressPct by remember { mutableIntStateOf(0) }
@@ -177,11 +179,37 @@ fun OfflineTrekPackDialog(
                         isDownloading = true
                         downloadState = "DOWNLOADING"
                         statusText = "Downloading vector tiles & style resources..."
-                        // In actual UI flow, launch collector
-                        isDownloading = false
-                        downloadState = "COMPLETE"
-                        statusText = "Download complete"
-                        onDownloadComplete()
+                        coroutineScope.launch {
+                            try {
+                                offlineManager.downloadTrekPack(route, selectedCorridorKm).collect { progress ->
+                                    progressPct = progress.progressPct
+                                    downloadState = progress.state
+                                    when (progress.state) {
+                                        "DOWNLOADING" -> {
+                                            statusText = "Downloading tiles: ${progress.completedResources} / ${progress.requiredResources} (${progress.completedSizeBytes / 1024} KB)"
+                                        }
+                                        "COMPLETE" -> {
+                                            isDownloading = false
+                                            statusText = "Download complete (${progress.completedResources} tiles, ${progress.completedSizeBytes / 1024} KB)"
+                                            onDownloadComplete()
+                                        }
+                                        "FAILED" -> {
+                                            isDownloading = false
+                                            statusText = "Download failed: ${progress.errorMessage ?: "Network error"}"
+                                        }
+                                        "PARTIAL" -> {
+                                            isDownloading = false
+                                            statusText = progress.errorMessage ?: "Tile ceiling reached"
+                                            onDownloadComplete()
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                isDownloading = false
+                                downloadState = "FAILED"
+                                statusText = "Download error: ${e.message}"
+                            }
+                        }
                     },
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(10.dp),

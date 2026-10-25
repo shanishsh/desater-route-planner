@@ -125,8 +125,11 @@ class MapViewModel @Inject constructor(
     private val weatherRepository: WeatherRepository,
     private val providerStatusRepository: ProviderStatusRepository,
     private val connectivityMonitor: NetworkConnectivityMonitor,
-    private val deviceLocationRepository: DeviceLocationRepository
+    private val deviceLocationRepository: DeviceLocationRepository,
+    val trailReportRepository: TrailReportRepository? = null
 ) : ViewModel() {
+
+    val locationState = deviceLocationRepository.locationState
 
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
