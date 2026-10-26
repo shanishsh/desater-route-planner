@@ -2,6 +2,7 @@ package com.touristsafety.app.feature.trip
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
 import com.touristsafety.app.core.location.LocationFixResult
 import com.touristsafety.app.core.location.LocationHelper
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
@@ -34,7 +35,7 @@ data class PlanTripUiState(
     val travelMode: String = "hiking",
     val corridorDistanceKm: Double = 5.0,
     val isPedestrianOnlySelected: Boolean = false,
-    val regionNotice: String = "Global Routing & Multi-Source Radar Active",
+    val regionNotice: String = "Uttarakhand Alpine Safety Radar Active",
     val isLocating: Boolean = false,
     val isSearchingOrigin: Boolean = false,
     val isSearchingDest: Boolean = false,
@@ -55,7 +56,8 @@ sealed interface PlanTripEvent {
 @HiltViewModel
 class PlanTripViewModel @Inject constructor(
     private val routeRepository: RouteRepository,
-    private val locationHelper: LocationHelper
+    private val locationHelper: LocationHelper,
+    private val boundaryValidator: UttarakhandBoundaryValidator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlanTripUiState())
@@ -85,21 +87,39 @@ class PlanTripViewModel @Inject constructor(
             when (fixResult) {
                 is LocationFixResult.Success -> {
                     val loc = fixResult.location
-                    val fallbackName = String.format(java.util.Locale.US, "Current GPS (%.4f, %.4f)", loc.latitude, loc.longitude)
-                    _uiState.update {
-                        it.copy(
-                            originName = fallbackName,
-                            originLat = loc.latitude,
-                            originLon = loc.longitude,
-                            isLocating = false
-                        )
-                    }
-                    // Reverse geocode in background to provide readable place name
-                    viewModelScope.launch {
-                        val rev = routeRepository.reverseGeocode(loc.latitude, loc.longitude)
-                        rev.getOrNull()?.let { place ->
-                            if (place.display_name.isNotBlank()) {
-                                _uiState.update { it.copy(originName = place.display_name) }
+                    if (!boundaryValidator.isPointInUttarakhand(loc.latitude, loc.longitude)) {
+                        _uiState.update {
+                            it.copy(
+                                isLocating = false,
+                                originName = "",
+                                originLat = null,
+                                originLon = null,
+                                errorMessage = String.format(
+                                    java.util.Locale.US,
+                                    "Current GPS (%.4f, %.4f) is outside Uttarakhand. Route planning is strictly scoped to Uttarakhand. Please choose a starting trailhead within the state.",
+                                    loc.latitude,
+                                    loc.longitude
+                                )
+                            )
+                        }
+                    } else {
+                        val fallbackName = String.format(java.util.Locale.US, "Current GPS (%.4f, %.4f)", loc.latitude, loc.longitude)
+                        _uiState.update {
+                            it.copy(
+                                originName = fallbackName,
+                                originLat = loc.latitude,
+                                originLon = loc.longitude,
+                                isLocating = false,
+                                errorMessage = null
+                            )
+                        }
+                        // Reverse geocode in background to provide readable place name
+                        viewModelScope.launch {
+                            val rev = routeRepository.reverseGeocode(loc.latitude, loc.longitude)
+                            rev.getOrNull()?.let { place ->
+                                if (place.display_name.isNotBlank()) {
+                                    _uiState.update { it.copy(originName = place.display_name) }
+                                }
                             }
                         }
                     }
@@ -155,6 +175,19 @@ class PlanTripViewModel @Inject constructor(
     }
 
     fun onLocationConfirmedFromMap(lat: Double, lon: Double, displayName: String) {
+        if (!boundaryValidator.isPointInUttarakhand(lat, lon)) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = String.format(
+                        java.util.Locale.US,
+                        "Selected point (%.4f, %.4f) is outside Uttarakhand. Please choose a location within the state.",
+                        lat,
+                        lon
+                    )
+                )
+            }
+            return
+        }
         val target = _uiState.value.mapPickerTarget
         if (target == MapPickerTarget.ORIGIN) {
             _uiState.update {
@@ -238,12 +271,21 @@ class PlanTripViewModel @Inject constructor(
     }
 
     fun selectOrigin(place: PlaceSearchResultDto) {
+        if (!boundaryValidator.isPointInUttarakhand(place.latitude, place.longitude)) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "${place.display_name} is outside Uttarakhand. Please select a starting point within the state."
+                )
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 originName = place.display_name,
                 originLat = place.latitude,
                 originLon = place.longitude,
-                originSuggestions = emptyList()
+                originSuggestions = emptyList(),
+                errorMessage = null
             )
         }
     }
@@ -269,6 +311,14 @@ class PlanTripViewModel @Inject constructor(
     }
 
     fun selectDestination(place: PlaceSearchResultDto) {
+        if (!boundaryValidator.isPointInUttarakhand(place.latitude, place.longitude)) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "${place.display_name} is outside Uttarakhand. Please select a destination within the state."
+                )
+            }
+            return
+        }
         val isKedarnath = place.display_name.contains("Kedarnath", ignoreCase = true)
         _uiState.update {
             it.copy(
@@ -277,7 +327,8 @@ class PlanTripViewModel @Inject constructor(
                 destinationLon = place.longitude,
                 destSuggestions = emptyList(),
                 travelMode = if (isKedarnath) "hiking" else it.travelMode,
-                isPedestrianOnlySelected = isKedarnath
+                isPedestrianOnlySelected = isKedarnath,
+                errorMessage = null
             )
         }
     }
@@ -350,6 +401,24 @@ class PlanTripViewModel @Inject constructor(
         val destLon = state.destinationLon
         if (destLat == null || destLon == null || state.destinationName.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Please choose a destination via map picker or search.") }
+            return
+        }
+
+        if (!boundaryValidator.isPointInUttarakhand(originLat, originLon)) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Route origin is outside Uttarakhand. Please select a trailhead within Uttarakhand."
+                )
+            }
+            return
+        }
+
+        if (!boundaryValidator.isPointInUttarakhand(destLat, destLon)) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Route destination is outside Uttarakhand. Please select a destination within Uttarakhand."
+                )
+            }
             return
         }
 

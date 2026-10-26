@@ -357,6 +357,20 @@ class NDMASachetClient:
             if not cap_data:
                 continue
 
+            # Filter alert strictly to Uttarakhand territory
+            c_lat = cap_data.get("center_latitude")
+            c_lon = cap_data.get("center_longitude")
+            area_desc = (cap_data.get("area_desc") or "").lower()
+            is_uk = False
+            if c_lat is not None and c_lon is not None:
+                from app.services.spatial.region_boundary_service import region_boundary_service
+                is_uk = region_boundary_service.is_point_in_uttarakhand(c_lat, c_lon)
+            if not is_uk and ("uttarakhand" in area_desc or "dehradun" in area_desc or "chamoli" in area_desc or "rudraprayag" in area_desc or "uttarkashi" in area_desc):
+                is_uk = True
+
+            if not is_uk:
+                continue
+
             alert_id = f"sachet-{guid}"
             msg_type = cap_data["msg_type"].upper()
 

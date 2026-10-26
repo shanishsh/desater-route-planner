@@ -36,6 +36,11 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                 // Ignore secondary errors during file write
             }
 
+            // Record fatal crash in Firebase Crashlytics
+            try {
+                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(throwable)
+            } catch (_: Throwable) {}
+
             try {
                 val crashIntent = Intent(this, CrashReportActivity::class.java).apply {
                     putExtra(
@@ -75,6 +80,17 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                     }
                 } catch (act: Throwable) {
                     Log.w("TouristSafetyApp", "Firebase App Check initialization skipped: ${act.message}")
+                }
+
+                // Initialize Firebase Crashlytics with safe diagnostic baseline
+                try {
+                    val crashlytics = com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
+                    crashlytics.setCrashlyticsCollectionEnabled(true)
+                    crashlytics.setCustomKey("app_scope", "Uttarakhand_Disaster_Route_Planner")
+                    crashlytics.setCustomKey("pilot_corridor", "Kedarnath_Valley")
+                    Log.i("TouristSafetyApp", "Firebase Crashlytics initialized and collection enabled")
+                } catch (ct: Throwable) {
+                    Log.w("TouristSafetyApp", "Firebase Crashlytics initialization skipped: ${ct.message}")
                 }
             } else {
                 Log.w("TouristSafetyApp", "FirebaseApp.initializeApp returned null (configuration pending)")

@@ -550,6 +550,75 @@ class RouteRepository @Inject constructor(
         }
     }
 
+        suspend fun syncTrackPointsEntitiesBatch(
+        tripId: String,
+        entities: List<com.touristsafety.app.core.database.entity.TrekTrackPointEntity>
+    ): Result<TrackPointsSyncResponseDto> {
+        val dtos = entities.map {
+            TrackPointBatchItemDto(
+                latitude = it.latitude,
+                longitude = it.longitude,
+                altitude_m = it.altitudeMeters,
+                accuracy_m = it.accuracyMeters.toDouble(),
+                speed_kmh = it.speedKmh,
+                recorded_at = it.recordedAtEpochMs.toString()
+            )
+        }
+        return syncTrackPointsBatch(tripId, dtos)
+    }
+
+suspend fun syncTrackPointsBatch(
+        tripId: String,
+        points: List<TrackPointBatchItemDto>
+    ): Result<TrackPointsSyncResponseDto> {
+        if (points.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Points batch cannot be empty"))
+        }
+        return try {
+            val response = apiService.syncTrackPoints(tripId, TrackPointsSyncRequestDto(points))
+            if (response.isSuccessful && response.body() != null) {
+                val dto = response.body()!!
+                val existing = activeTripDao.getTripById(tripId)
+                if (existing != null) {
+                    activeTripDao.insertOrUpdate(
+                        existing.copy(
+                            lastLatitude = dto.latest_latitude,
+                            lastLongitude = dto.latest_longitude,
+                            currentSegmentIndex = dto.current_segment_index,
+                            progressPct = dto.progress_pct,
+                            isOffRoute = dto.is_off_route,
+                            nearestHazardDistKm = dto.distance_to_nearest_hazard_km,
+                            nearestHazardTitle = dto.nearest_hazard_title,
+                            lastSyncedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                Result.success(dto)
+            } else {
+                Result.failure(Exception("Batch track points sync failed: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.w("RouteRepository", "Batch sync failed (network unreachable): ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncActiveTrip(): Result<Unit> {
+        return try {
+            val active = activeTripDao.getCurrentActiveTrip() ?: return Result.success(Unit)
+            if (active.lastLatitude != null && active.lastLongitude != null) {
+                recordTripProgress(
+                    tripId = active.tripId,
+                    latitude = active.lastLatitude,
+                    longitude = active.lastLongitude
+                )
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun stopTrip(tripId: String): Result<Unit> {
         return try {
             apiService.stopTrip(tripId)

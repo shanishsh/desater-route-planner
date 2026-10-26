@@ -7,9 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.text.font.FontWeight
 import com.touristsafety.app.core.auth.TokenManager
+import com.touristsafety.app.core.designsystem.ForestGreenPrimary
+import com.touristsafety.app.core.designsystem.SageContainer
 import com.touristsafety.app.core.designsystem.TouristSafetyTheme
 import com.touristsafety.app.core.sync.SyncManager
 import com.touristsafety.app.navigation.AppNavGraph
@@ -83,12 +87,28 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (!isFullScreen) {
-                            NavigationBar {
+                            NavigationBar(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 6.dp
+                            ) {
                                 Screen.bottomNavScreens.filterNotNull().forEach { screen ->
                                     NavigationBarItem(
                                         icon = { Icon(screen.icon, contentDescription = screen.title) },
-                                        label = { Text(screen.title) },
+                                        label = {
+                                            Text(
+                                                screen.title,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = if (currentRoute == screen.route) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        },
                                         selected = currentRoute == screen.route,
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = ForestGreenPrimary,
+                                            selectedTextColor = ForestGreenPrimary,
+                                            indicatorColor = SageContainer,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
                                         onClick = {
                                             val targetRoute = screen.route
                                             if (currentRoute != targetRoute) {

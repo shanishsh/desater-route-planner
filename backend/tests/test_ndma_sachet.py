@@ -24,7 +24,7 @@ SAMPLE_RSS_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 SAMPLE_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
   <cap:identifier>TEST_SACHET_001</cap:identifier>
-  <cap:sender>HP-SDMA</cap:sender>
+  <cap:sender>UK-SDMA</cap:sender>
   <cap:sent>2026-10-23T17:30:00+05:30</cap:sent>
   <cap:status>Actual</cap:status>
   <cap:msgType>Alert</cap:msgType>
@@ -33,12 +33,12 @@ SAMPLE_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
     <cap:urgency>Immediate</cap:urgency>
     <cap:severity>Extreme</cap:severity>
     <cap:certainty>Observed</cap:certainty>
-    <cap:headline>High water levels in Beas River. Immediate evacuation advised.</cap:headline>
+    <cap:headline>High water levels in Mandakini River. Immediate evacuation advised.</cap:headline>
     <cap:description>Continuous heavy precipitation has caused river levels to rise rapidly.</cap:description>
     <cap:instruction>Move away from riverbank and proceed to designated relief shelters.</cap:instruction>
     <cap:area>
-      <cap:areaDesc>Kullu and Manali subdivisions, Himachal Pradesh</cap:areaDesc>
-      <cap:circle>32.24,77.19 12.0</cap:circle>
+      <cap:areaDesc>Kedarnath and Gaurikund subdivisions, Rudraprayag, Uttarakhand</cap:areaDesc>
+      <cap:circle>30.73,79.06 12.0</cap:circle>
     </cap:area>
   </cap:info>
 </cap:alert>
@@ -46,7 +46,7 @@ SAMPLE_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
 
 SAMPLE_CANCEL_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
   <cap:identifier>TEST_SACHET_001</cap:identifier>
-  <cap:sender>HP-SDMA</cap:sender>
+  <cap:sender>UK-SDMA</cap:sender>
   <cap:sent>2026-10-23T20:00:00+05:30</cap:sent>
   <cap:status>Actual</cap:status>
   <cap:msgType>Cancel</cap:msgType>
@@ -59,7 +59,8 @@ SAMPLE_CANCEL_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:ca
     <cap:description>River flow returned to normal seasonal volumes.</cap:description>
     <cap:instruction>Resume regular activities while observing local advisories.</cap:instruction>
     <cap:area>
-      <cap:areaDesc>Kullu and Manali subdivisions, Himachal Pradesh</cap:areaDesc>
+      <cap:areaDesc>Kedarnath and Gaurikund subdivisions, Rudraprayag, Uttarakhand</cap:areaDesc>
+      <cap:circle>30.73,79.06 12.0</cap:circle>
     </cap:area>
   </cap:info>
 </cap:alert>
@@ -80,12 +81,12 @@ async def test_parse_cap_xml_fields():
     parsed = ndma_sachet_client.parse_cap_xml(SAMPLE_CAP_XML)
     assert parsed is not None
     assert parsed["identifier"] == "TEST_SACHET_001"
-    assert parsed["sender"] == "HP-SDMA"
+    assert parsed["sender"] == "UK-SDMA"
     assert parsed["event"] == "Flash Flood"
     assert parsed["severity"] == "CRITICAL"
     assert parsed["hazard_category"] == "flash_flood"
-    assert parsed["center_latitude"] == 32.24
-    assert parsed["center_longitude"] == 77.19
+    assert parsed["center_latitude"] == 30.73
+    assert parsed["center_longitude"] == 79.06
     assert parsed["affected_radius_meters"] == 12000.0
     assert "evacuation advised" in parsed["headline"]
 
@@ -109,7 +110,7 @@ async def test_sync_sachet_alerts_ingestion_and_cancellation(test_db):
         assert alert.status == "active"
         assert alert.severity == "CRITICAL"
         assert alert.is_simulated is False
-        assert alert.center_latitude == 32.24
+        assert alert.center_latitude == 30.73
 
         # 2. Ingest cancellation
         mock_cap.return_value = SAMPLE_CANCEL_CAP_XML
@@ -163,8 +164,8 @@ SAMPLE_EXPIRED_CAP_XML = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:c
     <cap:description>Rain event concluded.</cap:description>
     <cap:instruction>None.</cap:instruction>
     <cap:area>
-      <cap:areaDesc>Kullu</cap:areaDesc>
-      <cap:circle>31.96,77.11 10.0</cap:circle>
+      <cap:areaDesc>Dehradun and Rishikesh, Uttarakhand</cap:areaDesc>
+      <cap:circle>30.31,78.03 10.0</cap:circle>
     </cap:area>
   </cap:info>
 </cap:alert>

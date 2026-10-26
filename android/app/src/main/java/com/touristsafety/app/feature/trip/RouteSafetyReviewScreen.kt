@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.touristsafety.app.core.designsystem.*
+import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 import com.touristsafety.app.core.offline.OfflineTrekPackDialog
@@ -86,7 +88,7 @@ fun RouteSafetyReviewScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
@@ -97,25 +99,13 @@ fun RouteSafetyReviewScreen(
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Button(
-                        onClick = { viewModel.startTrip(context) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        enabled = !state.isStartingTrip && !state.isLoading
-                    ) {
-                        if (state.isStartingTrip) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Start Monitored Trip", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    AppPrimaryButton(
+                        text = "Start Monitored Trip",
+                        icon = AppIcons.StartTrek,
+                        isLoading = state.isStartingTrip,
+                        enabled = !state.isStartingTrip && !state.isLoading,
+                        onClick = { viewModel.startTrip(context) }
+                    )
                 }
             }
         }
@@ -588,6 +578,7 @@ fun RouteSafetyReviewScreen(
             OfflineTrekPackDialog(
                 route = state.currentEntity!!,
                 offlineManager = viewModel.offlineTrekPackManager,
+                routeRepository = viewModel.routeRepository,
                 onDismiss = { showOfflinePackDialog = false },
                 onDownloadComplete = {
                     showOfflinePackDialog = false

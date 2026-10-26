@@ -14,19 +14,19 @@ Every provider and integration in the codebase has been audited against actual s
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **OpenFreeMap Vector Tiles** | `android/.../MapScreen.kt`, `config.py` | `https://tiles.openfreemap.org/styles/liberty` | `MAP_STYLE_URL` | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P0 |
 | **PostGIS Primary Database** | `backend/app/database/` | `aws-0-ap-south-1.pooler.supabase.com:5432` | `DATABASE_URL` | Configured | Verifiable | **CONFIGURED_AND_VERIFIED** | P0 |
-| **Upstash Redis Cache** | `backend/app/cache/` | `viable-bluegill-237463.upstash.io:6379` | `REDIS_URL` | Configured | Verifiable | **CONFIGURED_AND_VERIFIED** | P0 |
+| **Upstash Redis Cache** | `backend/app/cache/` | `viable-bluegill-237463.upstash.io:6379` | `REDIS_URL` | Verified Live TLS | Verified Live TLS | **CONFIGURED_AND_VERIFIED** | P0 |
 | **Open-Meteo Weather** | `app/clients/open_meteo.py` | `https://api.open-meteo.com/v1/forecast` | `OPEN_METEO_BASE_URL` | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
 | **Open-Meteo Geocoding** | `app/api/v1/places.py` | `https://geocoding-api.open-meteo.com/v1/search` | None (Free API) | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
-| **OSRM Routing Engine** | `app/services/routing/osrm_provider.py` | `https://router.project-osrm.org/route/v1/` | None (Public OSRM) | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
+| **OSRM Routing Engine** | `app/services/routing/osrm_provider.py` | `https://router.project-osrm.org/route/v1/` | None (Public OSRM) | Road Only | Road Only | **ROAD_ONLY (No Alpine Hiking)** | P1 |
 | **NDMA SACHET Disaster Alerts** | `app/clients/ndma_sachet.py` | `https://sachet.ndma.gov.in/cap_public_website/rss/rss_india.xml` | None (Public CAP RSS) | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
 | **USGS Himalayan Earthquakes** | `app/clients/usgs_earthquake.py` | `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson` | None (Public GeoJSON) | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
-| **Uttarakhand PWD SRMD** | `app/clients/uttarakhand_pwd.py` | `https://pwd.uk.gov.in/srmd-reports-1/` | None (Public Web Portal) | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
+| **Uttarakhand PWD SRMD** | `app/clients/uttarakhand_pwd.py` | `https://pwd.uk.gov.in/srmd-reports-1/` | None (Public Web Portal) | Web Portal Only | Web Portal Only | **PARTIALLY_IMPLEMENTED** (PDF Portal) | P1 |
 | **OSM Overpass Amenities** | `app/clients/osm_amenities.py` | `https://overpass-api.de/api/interpreter` | `OVERPASS_API_URL` | Degraded Live (Public Timeout) | Offline Bundled Fallback | **PARTIALLY_IMPLEMENTED** | P1 |
 | **OSM Overpass Forest** | `app/clients/osm_forest.py` | `https://overpass-api.de/api/interpreter` | `OVERPASS_API_URL` | Degraded Live (Public Timeout) | Offline Bundled Fallback | **PARTIALLY_IMPLEMENTED** | P1 |
-| **Community Photo Storage** | `app/services/trail_report_service.py` | Local filesystem (`uploads/`) | None | Configured | Configured | **CONFIGURED_AND_VERIFIED** | P1 |
+| **Community Photo Storage** | `app/services/trail_report_service.py` | Local filesystem (`uploads/`) | None | Ephemeral Local | Data Loss on Redeploy | **DEFECTIVE_IN_PRODUCTION** (Ephemeral Disk) | P1 |
 | **Grounded Route Assistant & Groq AI** | `app/services/ai/` | `https://api.groq.com/openai/v1` | `AI_PROVIDER=groq`, `GROQ_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P1 |
 | **NASA FIRMS Active Fires** | `app/clients/nasa_firms.py` | `https://firms.modaps.eosdis.nasa.gov/api` | `NASA_FIRMS_MAP_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
-| **IMD District Warnings & Nowcast** | `app/clients/imd.py` | `https://api.imd.gov.in/` | `IMD_API_KEY`, `IMD_API_SECRET` | Missing | Missing | **MISSING_CONFIG** | P1 |
+| **IMD District Warnings & Nowcast** | `app/clients/imd.py` | `https://api.imd.gov.in/` | `IMD_EMAIL`, `IMD_PASSWORD` (or `IMD_API_KEY`) | Missing + Dynamic IP | Missing + Dynamic IP | **MISSING_CONFIG & IP_BINDING** | P1 |
 | **OpenCellID Cell Towers** | `app/clients/opencellid.py` | `https://opencellid.org/cell/getInArea` | `OPENCELLID_API_KEY` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **Firebase Cloud Messaging (FCM)** | `app/services/push/` | Firebase Admin SDK (FCM v1) | `FCM_PROVIDER=firebase`, `FIREBASE_CREDENTIALS_PATH` | Configured & Validated | Unverified on Render | **CONFIGURED_AND_VERIFIED** (Local) | P2 |
 | **Automated SMS Gateway** | `app/services/sms/` | Local `Intent.ACTION_SENDTO` & Mock | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Mock Configured | Twilio Key Missing | **PARTIALLY_IMPLEMENTED** | P2 |

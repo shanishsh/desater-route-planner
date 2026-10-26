@@ -30,9 +30,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.touristsafety.app.core.crash.CrashReporter
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
+import com.touristsafety.app.core.map.HazardAnimationController
 import com.touristsafety.app.feature.report.ReportTrailConditionBottomSheet
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
@@ -73,6 +75,7 @@ fun MapScreen(
     var userToggledCanvas by remember { mutableStateOf(false) }
     var showReportConditionSheet by remember { mutableStateOf(false) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
+    val animationController = remember { HazardAnimationController() }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -142,6 +145,7 @@ fun MapScreen(
         onDispose {
             android.util.Log.d("MapScreen", "Disposing MapView effect, tearing down observer and MapView")
             lifecycleOwner.lifecycle.removeObserver(observer)
+            animationController.stop()
             try {
                 mapView.onPause()
                 mapView.onStop()
@@ -171,6 +175,7 @@ fun MapScreen(
 
         mapView.addOnDidFailLoadingMapListener { errorMessage ->
             android.util.Log.e("MapScreen", "MapLibre did fail loading map: $errorMessage")
+            CrashReporter.recordNonFatal(RuntimeException("MapLibre map load failure: $errorMessage"), "MAPLIBRE_STYLE_LOAD")
             if (baseMapStatus != BaseMapStatus.READY && baseMapStatus != BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
                 baseMapStatus = BaseMapStatus.FAILED
                 styleErrorMessage = errorMessage
@@ -193,12 +198,26 @@ fun MapScreen(
                         baseMapStatus = BaseMapStatus.READY
                         styleErrorMessage = null
 
-                        val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                        val pos = CameraPosition.Builder()
-                            .target(target)
-                            .zoom(state.zoomLevel)
+                        // Restrict camera navigation strictly to Uttarakhand administrative territory
+                        val bounds = org.maplibre.android.geometry.LatLngBounds.Builder()
+                            .include(LatLng(MapConfig.UTTARAKHAND_MIN_LAT, MapConfig.UTTARAKHAND_MIN_LON))
+                            .include(LatLng(MapConfig.UTTARAKHAND_MAX_LAT, MapConfig.UTTARAKHAND_MAX_LON))
                             .build()
-                        mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                        mapboxMap.setLatLngBoundsForCameraTarget(bounds)
+                        mapboxMap.setMinZoomPreference(MapConfig.MIN_ZOOM_LEVEL)
+                        mapboxMap.setMaxZoomPreference(MapConfig.MAX_ZOOM_LEVEL)
+
+                        val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
+                        if (state.cameraTarget.first == MapConfig.DEFAULT_LATITUDE && state.cameraTarget.second == MapConfig.DEFAULT_LONGITUDE) {
+                            // Frame complete Uttarakhand state boundary with clean padding
+                            mapboxMap.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 32))
+                        } else {
+                            val pos = CameraPosition.Builder()
+                                .target(target)
+                                .zoom(state.zoomLevel)
+                                .build()
+                            mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+                        }
 
                         // Render vector layers & markers safely on top of loaded base style
                         updateMaplibreLayers(mapboxMap, state)
@@ -212,6 +231,7 @@ fun MapScreen(
                         val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
                         val renderedFeatures = mapboxMap.queryRenderedFeatures(
                             screenPoint,
+                            MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
                             MapLibreLayerManager.LAYER_DISASTER_FILL,
@@ -237,6 +257,14 @@ fun MapScreen(
                         if (renderedFeatures.isNotEmpty()) {
                             val top = renderedFeatures.first()
                             val featId = top.getStringProperty("id") ?: top.id()
+                            val seqLabel = top.getStringProperty("sequence_label")
+
+                            // Check if tapped feature is in the ordered hazard sequence
+                            val seqItem = state.routeHazardSequence.firstOrNull { it.feature.id == featId || it.sequenceLabel == seqLabel }
+                            if (seqItem != null) {
+                                viewModel.selectHazardSequenceItem(seqItem)
+                                return@addOnMapClickListener true
+                            }
                             val clicked = state.allFeatures.firstOrNull { it.id == featId }
                                 ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
                             if (clicked != null) {
@@ -312,6 +340,21 @@ fun MapScreen(
             maplibreMapInstance?.let { map ->
                 if (map.style?.isFullyLoaded == true) {
                     updateMaplibreLayers(map, state)
+                }
+            }
+        }
+    }
+
+    // Control hazard icon & polygon animation loop
+    LaunchedEffect(state.isAnimationEnabled, baseMapStatus) {
+        if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
+            maplibreMapInstance?.let { map ->
+                if (map.style?.isFullyLoaded == true) {
+                    animationController.start(
+                        coroutineScope = this,
+                        style = map.style,
+                        isAnimationEnabled = state.isAnimationEnabled
+                    )
                 }
             }
         }
@@ -712,33 +755,49 @@ fun MapScreen(
         val hasActiveRoute = state.activeRouteId != null || state.routeCoordinates.size >= 2
 
         if (hasActiveRoute) {
-            RouteSummaryCard(
-                routeTitle = state.routeTitle,
-                distanceKm = state.routeDistanceKm,
-                durationHours = state.routeDurationHours,
-                isOffline = state.isOfflineMode,
-                activeAlertsCount = state.activeDisasterAlertsCount,
-                weather = state.routeSummaryWeather,
-                fireCount = state.routeSummaryFireCount,
-                forestCount = state.routeSummaryForestCount,
-                nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
-                isExpanded = state.isBottomRouteExpanded,
-                onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
-                plannedRouteAlternatives = state.plannedRouteAlternatives,
-                selectedAlternativeId = state.selectedAlternativeId,
-                overallSafetyStatus = state.routeSafetyStatus,
-                overallHazardScore = state.routeOverallHazardScore,
-                onSelectAlternative = { viewModel.selectRouteAlternative(it) },
-                corridorDistanceKm = state.corridorDistanceKm,
-                isAnalyzingCorridor = state.isAnalyzingCorridor,
-                onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
-                analysisLimitations = state.analysisLimitations,
-                onOpenComparison = { viewModel.toggleComparisonSheet(true) },
-                onClearRoute = { viewModel.clearRoute() },
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 6.dp)
-            )
+            ) {
+                // Route Hazard Timeline Bar (Priority 2: Most relevant upcoming hazard)
+                if (state.routeHazardSequence.isNotEmpty()) {
+                    RouteHazardTimelineBar(
+                        hazardSequence = state.routeHazardSequence,
+                        selectedItem = state.selectedHazardSequenceItem,
+                        isAnimationEnabled = state.isAnimationEnabled,
+                        onToggleAnimation = { viewModel.toggleAnimation() },
+                        onExpandTimeline = { viewModel.toggleHazardTimelineExpanded(true) },
+                        onSelectItem = { item -> viewModel.selectHazardSequenceItem(item) }
+                    )
+                }
+
+                RouteSummaryCard(
+                    routeTitle = state.routeTitle,
+                    distanceKm = state.routeDistanceKm,
+                    durationHours = state.routeDurationHours,
+                    isOffline = state.isOfflineMode,
+                    activeAlertsCount = state.activeDisasterAlertsCount,
+                    weather = state.routeSummaryWeather,
+                    fireCount = state.routeSummaryFireCount,
+                    forestCount = state.routeSummaryForestCount,
+                    nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
+                    isExpanded = state.isBottomRouteExpanded,
+                    onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
+                    plannedRouteAlternatives = state.plannedRouteAlternatives,
+                    selectedAlternativeId = state.selectedAlternativeId,
+                    overallSafetyStatus = state.routeSafetyStatus,
+                    overallHazardScore = state.routeOverallHazardScore,
+                    onSelectAlternative = { viewModel.selectRouteAlternative(it) },
+                    corridorDistanceKm = state.corridorDistanceKm,
+                    isAnalyzingCorridor = state.isAnalyzingCorridor,
+                    onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
+                    analysisLimitations = state.analysisLimitations,
+                    onOpenComparison = { viewModel.toggleComparisonSheet(true) },
+                    onClearRoute = { viewModel.clearRoute() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         } else {
             // Sleek floating pill when exploring the map without an active route
             Surface(

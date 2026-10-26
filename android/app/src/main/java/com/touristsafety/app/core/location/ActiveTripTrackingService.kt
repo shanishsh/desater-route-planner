@@ -19,14 +19,12 @@ import androidx.core.app.ServiceCompat
 import com.google.android.gms.location.*
 import com.touristsafety.app.MainActivity
 import com.touristsafety.app.R
-import com.touristsafety.app.core.database.dao.HazardZoneDao
-import com.touristsafety.app.core.database.entity.HazardZoneEntity
-import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
-import com.touristsafety.app.core.notification.DisasterNotificationManager
+import com.touristsafety.app.core.database.dao.ActiveTripDao
+import com.touristsafety.app.core.database.dao.TrekTrackPointDao
+import com.touristsafety.app.core.database.entity.TrekTrackPointEntity
 import com.touristsafety.app.core.repository.RouteRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -36,10 +34,13 @@ class ActiveTripTrackingService : Service() {
     lateinit var routeRepository: RouteRepository
 
     @Inject
-    lateinit var hazardZoneDao: HazardZoneDao
+    lateinit var trekTrackPointDao: TrekTrackPointDao
 
     @Inject
-    lateinit var disasterNotificationManager: DisasterNotificationManager
+    lateinit var activeTripDao: ActiveTripDao
+
+    @Inject
+    lateinit var hazardAlertEngine: HazardAlertEngine
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
@@ -49,9 +50,18 @@ class ActiveTripTrackingService : Service() {
     private var currentTripId: String = ""
     private var currentRouteId: String = ""
     private var destinationName: String = "Destination"
-    private var cachedWaypoints: List<RouteWaypointConditionDto> = emptyList()
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private var lastAcceptedLat: Double? = null
+    private var lastAcceptedLon: Double? = null
+    private var lastAcceptedEpochMs: Long? = null
+
+    private var cumulativeDistanceMeters: Double = 0.0
+    private var startTimeEpochMs: Long = System.currentTimeMillis()
+    private var isPaused: Boolean = false
+    private var totalPausedDurationMs: Long = 0L
+    private var pauseStartEpochMs: Long? = null
+
+    private var durationTimerJob: Job? = null
 
     companion object {
         private const val TAG = "TripTrackingService"
@@ -62,7 +72,10 @@ class ActiveTripTrackingService : Service() {
         const val EXTRA_TRIP_ID = "extra_trip_id"
         const val EXTRA_ROUTE_ID = "extra_route_id"
         const val EXTRA_DEST_NAME = "extra_dest_name"
+
         const val ACTION_START = "ACTION_START_TRACKING"
+        const val ACTION_PAUSE = "ACTION_PAUSE_TRACKING"
+        const val ACTION_RESUME = "ACTION_RESUME_TRACKING"
         const val ACTION_STOP = "ACTION_STOP_TRACKING"
 
         fun start(context: Context, tripId: String, routeId: String, destinationName: String) {
@@ -77,6 +90,20 @@ class ActiveTripTrackingService : Service() {
             } else {
                 context.startService(intent)
             }
+        }
+
+        fun pause(context: Context) {
+            val intent = Intent(context, ActiveTripTrackingService::class.java).apply {
+                action = ACTION_PAUSE
+            }
+            context.startService(intent)
+        }
+
+        fun resume(context: Context) {
+            val intent = Intent(context, ActiveTripTrackingService::class.java).apply {
+                action = ACTION_RESUME
+            }
+            context.startService(intent)
         }
 
         fun stop(context: Context) {
@@ -95,42 +122,113 @@ class ActiveTripTrackingService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { location ->
-                    onLocationChanged(location)
+                    onLocationReceived(location)
                 }
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action ?: ACTION_START
-        if (action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_PAUSE -> {
+                handlePause()
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                handleResume()
+                return START_STICKY
+            }
+            else -> {
+                currentTripId = intent?.getStringExtra(EXTRA_TRIP_ID) ?: ""
+                currentRouteId = intent?.getStringExtra(EXTRA_ROUTE_ID) ?: ""
+                destinationName = intent?.getStringExtra(EXTRA_DEST_NAME) ?: "Destination"
+
+                startTimeEpochMs = System.currentTimeMillis()
+                startForegroundWithNotification("Active Trek Started", "Monitoring route to $destinationName")
+
+                loadTripStateAndResume()
+                startLocationUpdates()
+                startDurationTimer()
+                return START_STICKY
+            }
         }
-
-        currentTripId = intent?.getStringExtra(EXTRA_TRIP_ID) ?: ""
-        currentRouteId = intent?.getStringExtra(EXTRA_ROUTE_ID) ?: ""
-        destinationName = intent?.getStringExtra(EXTRA_DEST_NAME) ?: "Destination"
-
-        startForegroundWithNotification("Active Trip Monitoring Started", "Tracking route to $destinationName")
-
-        loadRouteWaypoints()
-        startLocationUpdates()
-
-        return START_STICKY
     }
 
-    private fun loadRouteWaypoints() {
+    private fun loadTripStateAndResume() {
         serviceScope.launch {
-            val route = routeRepository.getRouteById(currentRouteId)
-            if (route != null) {
-                try {
-                    cachedWaypoints = json.decodeFromString(route.conditionsJson)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed parsing cached waypoints: ${e.message}")
+            val existingTrip = activeTripDao.getTripById(currentTripId)
+            if (existingTrip != null) {
+                cumulativeDistanceMeters = existingTrip.traveledDistanceMeters
+                isPaused = existingTrip.isPaused
+                if (existingTrip.lastLatitude != null && existingTrip.lastLongitude != null) {
+                    lastAcceptedLat = existingTrip.lastLatitude
+                    lastAcceptedLon = existingTrip.lastLongitude
+                    lastAcceptedEpochMs = existingTrip.lastSyncedAt
                 }
             }
         }
+    }
+
+    private fun handlePause() {
+        if (!isPaused) {
+            isPaused = true
+            pauseStartEpochMs = System.currentTimeMillis()
+            updateNotification("Trek Paused", "Distance accumulation suspended • To $destinationName")
+            serviceScope.launch {
+                val existing = activeTripDao.getTripById(currentTripId)
+                if (existing != null) {
+                    activeTripDao.insertOrUpdate(
+                        existing.copy(
+                            isPaused = true,
+                            pausedAtEpochMs = pauseStartEpochMs
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun handleResume() {
+        if (isPaused) {
+            isPaused = false
+            pauseStartEpochMs?.let {
+                totalPausedDurationMs += (System.currentTimeMillis() - it)
+            }
+            pauseStartEpochMs = null
+            updateNotification("Trek Active", "Tracking route to $destinationName")
+            serviceScope.launch {
+                val existing = activeTripDao.getTripById(currentTripId)
+                if (existing != null) {
+                    activeTripDao.insertOrUpdate(
+                        existing.copy(
+                            isPaused = false,
+                            pausedAtEpochMs = null
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun startDurationTimer() {
+        durationTimerJob?.cancel()
+        durationTimerJob = serviceScope.launch {
+            while (isActive) {
+                delay(5000L)
+                updateTripEntityMetrics()
+            }
+        }
+    }
+
+    private fun getElapsedSeconds(): Long {
+        val now = System.currentTimeMillis()
+        val currentPauseExtra = if (isPaused && pauseStartEpochMs != null) (now - pauseStartEpochMs!!) else 0L
+        val activeMs = (now - startTimeEpochMs) - totalPausedDurationMs - currentPauseExtra
+        return maxOf(0L, activeMs / 1000L)
     }
 
     @SuppressLint("MissingPermission")
@@ -143,74 +241,112 @@ class ActiveTripTrackingService : Service() {
         try {
             fusedLocationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
         } catch (e: SecurityException) {
-            Log.e(TAG, "Location permission missing for tracking service: ${e.message}")
+            Log.e(TAG, "Location permission missing: ${e.message}")
         }
     }
 
-    private fun onLocationChanged(location: Location) {
+    private fun onLocationReceived(location: Location) {
         serviceScope.launch {
+            val now = System.currentTimeMillis()
             val speedKmh = location.speed * 3.6
-            val result = routeRepository.recordTripProgress(
-                tripId = currentTripId,
-                latitude = location.latitude,
-                longitude = location.longitude,
-                speedKmh = speedKmh
+
+            // Apply strict GPS noise, drift, and multipath filtering
+            val filterResult = GpsFilter.filter(
+                lastAcceptedLat = lastAcceptedLat,
+                lastAcceptedLon = lastAcceptedLon,
+                lastAcceptedEpochMs = lastAcceptedEpochMs,
+                lat = location.latitude,
+                lon = location.longitude,
+                accuracyMeters = location.accuracy,
+                speedKmh = speedKmh,
+                timestampEpochMs = now
             )
 
-            val (statusText, subText) = if (result.isSuccess) {
-                val prog = result.getOrNull()!!
-                val hazardPart = if (prog.distance_to_nearest_hazard_km != null && prog.distance_to_nearest_hazard_km <= 4.0) {
-                    "⚠️ Hazard in ${prog.distance_to_nearest_hazard_km}km"
-                } else "Route Normal"
+            val isAccepted = filterResult.isAcceptedForDistance && !isPaused
 
-                val wpName = prog.next_waypoint?.name ?: "Next Pass"
-                val weather = prog.next_waypoint?.weather?.let { "${it.temperature_c.toInt()}°C ${it.weather_description}" } ?: ""
-                Pair("To $destinationName • ${prog.progress_pct.toInt()}% Complete", "$wpName: $weather | $hazardPart")
-            } else {
-                Pair("En Route to $destinationName (Offline)", "Monitoring offline hazard corridor")
+            if (isAccepted) {
+                cumulativeDistanceMeters += filterResult.deltaMeters
+                lastAcceptedLat = location.latitude
+                lastAcceptedLon = location.longitude
+                lastAcceptedEpochMs = now
             }
 
-            updateNotification(statusText, subText)
-
-            // Local offline hazard proximity check
-            checkOfflineHazardProximity(location)
-        }
-    }
-
-    private suspend fun checkOfflineHazardProximity(location: Location) {
-        val activeZones = hazardZoneDao.getAllActiveList()
-        for (zone in activeZones) {
-            val distanceM = computeDistanceMeters(
-                location.latitude, location.longitude,
-                zone.centerLatitude, zone.centerLongitude
-            )
-            // Trigger emergency warning if tourist enters or is within 1.5 km of hazard
-            if (distanceM <= (zone.radiusMeters + 1500.0)) {
-                disasterNotificationManager.showDisasterNotification(
-                    alertId = zone.alertId,
-                    title = "Hazard Zone Near Route: ${zone.title}",
-                    instructions = "${zone.requiredProtectiveInstructions}\nDistance: ${(distanceM / 1000.0).format(1)} km",
-                    category = zone.hazardCategory,
-                    issuingAuthority = zone.issuingAuthority,
-                    isCached = true
+            // Save individual breadcrumb locally in Room
+            trekTrackPointDao.insert(
+                TrekTrackPointEntity(
+                    tripId = currentTripId,
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    altitudeMeters = location.altitude,
+                    accuracyMeters = location.accuracy,
+                    speedKmh = speedKmh,
+                    recordedAtEpochMs = now,
+                    isAcceptedForDistance = isAccepted,
+                    isSynced = false
                 )
-                break
-            }
+            )
+
+            // Update ActiveTripEntity
+            updateTripEntityMetrics(location)
+
+            // Check hazard proximity
+            hazardAlertEngine.evaluatePosition(location.latitude, location.longitude, isInBackground = true)
+
+            // Trigger sync for unsynced points if network is available
+            syncPendingPointsBatch()
         }
     }
 
-    private fun computeDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val r = 6371000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2)
-        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-        return r * c
+    private suspend fun updateTripEntityMetrics(latestLocation: Location? = null) {
+        val existing = activeTripDao.getTripById(currentTripId) ?: return
+        val elapsedSec = getElapsedSeconds()
+
+        val updated = existing.copy(
+            lastLatitude = latestLocation?.latitude ?: existing.lastLatitude,
+            lastLongitude = latestLocation?.longitude ?: existing.lastLongitude,
+            traveledDistanceMeters = cumulativeDistanceMeters,
+            elapsedDurationSeconds = elapsedSec,
+            isPaused = isPaused,
+            lastSyncedAt = System.currentTimeMillis()
+        )
+        activeTripDao.insertOrUpdate(updated)
+
+        val kmStr = String.format(java.util.Locale.US, "%.2f km", cumulativeDistanceMeters / 1000.0)
+        val timeStr = formatDuration(elapsedSec)
+        val gpsPart = if (latestLocation != null) "GPS: ±${latestLocation.accuracy.toInt()}m" else "GPS Active"
+        val statusPart = if (isPaused) "PAUSED" else "ACTIVE"
+
+        updateNotification(
+            title = "$statusPart • $kmStr in $timeStr",
+            content = "$gpsPart • En route to $destinationName"
+        )
     }
 
-    private fun Double.format(digits: Int) = String.format(java.util.Locale.US, "%.${digits}f", this)
+    private suspend fun syncPendingPointsBatch() {
+        try {
+            val unsynced = trekTrackPointDao.getUnsyncedPoints(currentTripId, limit = 50)
+            if (unsynced.isNotEmpty()) {
+                val syncResult = routeRepository.syncTrackPointsEntitiesBatch(currentTripId, unsynced)
+                if (syncResult.isSuccess) {
+                    trekTrackPointDao.markPointsSynced(unsynced.map { it.id })
+                }
+            }
+        } catch (t: Throwable) {
+            // Offline resilience: Silently retain in Room queue until next update
+            Log.d(TAG, "Batch sync postponed: ${t.message}")
+        }
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        val hrs = seconds / 3600
+        val mins = (seconds % 3600) / 60
+        val secs = seconds % 60
+        return if (hrs > 0) {
+            String.format(java.util.Locale.US, "%02d:%02d:%02d", hrs, mins, secs)
+        } else {
+            String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
+        }
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -270,6 +406,7 @@ class ActiveTripTrackingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         fusedLocationClient.removeLocationUpdates(locationCallback)
+        durationTimerJob?.cancel()
         serviceJob.cancel()
     }
 

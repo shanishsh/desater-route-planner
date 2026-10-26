@@ -19,9 +19,10 @@ import com.touristsafety.app.core.database.entity.*
         FireHotspotEntity::class,
         ProviderStatusEntity::class,
         PlannedRouteEntity::class,
-        ActiveTripEntity::class
+        ActiveTripEntity::class,
+        TrekTrackPointEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,5 +38,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun providerStatusDao(): ProviderStatusDao
     abstract fun plannedRouteDao(): PlannedRouteDao
     abstract fun activeTripDao(): ActiveTripDao
+    abstract fun trekTrackPointDao(): TrekTrackPointDao
 }
-

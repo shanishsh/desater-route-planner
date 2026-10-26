@@ -14,6 +14,7 @@ from app.schemas.trail_report import (
     TrailReportUploadResponse,
 )
 from app.services.trail_report_service import TrailReportService
+from app.services.spatial.region_boundary_service import region_boundary_service
 
 router = APIRouter()
 
@@ -69,6 +70,11 @@ async def create_trail_report(
     Submits a new trail condition report with idempotency support, location validation,
     and automatic matching against active trek corridors to notify approaching trekkers.
     """
+    if not region_boundary_service.is_point_in_uttarakhand(payload.latitude, payload.longitude):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Report location ({payload.latitude:.4f}, {payload.longitude:.4f}) is outside Uttarakhand. Community trail reports can only be submitted for locations within Uttarakhand.",
+        )
     service = TrailReportService(db)
     report, meta = await service.create_report(payload)
     now = datetime.now(timezone.utc)

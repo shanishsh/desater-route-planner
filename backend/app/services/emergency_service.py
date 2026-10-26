@@ -11,6 +11,7 @@ from app.core.exceptions import NotFoundException
 from app.clients.osm_amenities import osm_amenities_client
 from app.data.regional_facilities import UTTARAKHAND_REGIONAL_FACILITIES
 from app.services.spatial.route_corridor_service import route_corridor_service
+from app.services.spatial.region_boundary_service import UTTARAKHAND_BBOX, region_boundary_service
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,17 @@ class EmergencyService:
             "provenance": "OpenStreetMap Contributors (ODbL) & Official Emergency Registry",
             "diagnostics": osm_amenities_client.get_diagnostics(),
         }
+
+        # Clamp queries strictly to Uttarakhand administrative boundary
+        uk_min_lat, uk_min_lon, uk_max_lat, uk_max_lon = UTTARAKHAND_BBOX
+        if min_lat is not None:
+            min_lat = max(min_lat, uk_min_lat)
+        if max_lat is not None:
+            max_lat = min(max_lat, uk_max_lat)
+        if min_lon is not None:
+            min_lon = max(min_lon, uk_min_lon)
+        if max_lon is not None:
+            max_lon = min(max_lon, uk_max_lon)
 
         # 1. Route-Corridor Filtered Query (if route_id is specified)
         if route_id:

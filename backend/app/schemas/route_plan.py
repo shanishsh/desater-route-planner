@@ -113,12 +113,12 @@ class RouteWildfireInfo(BaseModel):
 
 
 class RouteDisasterAlertInfo(BaseModel):
-    alert_id: str
-    title: str
-    hazard_category: str
-    severity: str
-    distance_to_alert_km: float
-    required_protective_instructions: str
+    alert_id: str = "alert"
+    title: str = "Disaster Alert"
+    hazard_category: str = "general"
+    severity: str = "WARNING"
+    distance_to_alert_km: float = 0.0
+    required_protective_instructions: str = ""
     is_simulated: bool = False
     center_latitude: Optional[float] = None
     center_longitude: Optional[float] = None
@@ -130,6 +130,16 @@ class RouteDisasterAlertInfo(BaseModel):
     effective_at: Optional[str] = None
     expires_at: Optional[str] = None
     source_url: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_alert_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "alert_id" not in data and "id" in data:
+                data["alert_id"] = str(data["id"])
+            if "title" not in data and "name" in data:
+                data["title"] = str(data["name"])
+        return data
 
     @field_validator("polygon_geojson", mode="before")
     @classmethod
@@ -183,21 +193,22 @@ class TrailGuardRiskBreakdown(BaseModel):
 
 
 class RouteWaypointCondition(BaseModel):
-    index: int
-    name: str
+    index: int = 0
+    name: str = "Waypoint"
     latitude: float
     longitude: float
-    distance_from_start_km: float
-    estimated_arrival_at: str
-    hazard_level: str  # LOW, MEDIUM, HIGH, CRITICAL
+    distance_from_start_km: float = 0.0
+    estimated_arrival_at: str = ""
+    hazard_level: str = "LOW"  # LOW, MEDIUM, HIGH, CRITICAL
     elevation_m: float = 0.0
     slope_degrees: float = 0.0
-    weather: RouteWeatherCondition
+    weather: Optional[RouteWeatherCondition] = None
     forest: Optional[RouteForestInfo] = None
     wildfire: Optional[RouteWildfireInfo] = None
     alerts: List[RouteDisasterAlertInfo] = Field(default_factory=list)
     risk_breakdown: Optional[Dict[str, float]] = None
     contributing_factors: List[str] = Field(default_factory=list)
+
 
 
 class RouteAlternativeSchema(BaseModel):
@@ -422,3 +433,31 @@ class TripStatusResponse(BaseModel):
     current_segment_index: int = 0
     overall_safety_status: str = "SAFE"
     completed_at: Optional[str] = None
+
+
+class TrackPointBatchItem(BaseModel):
+    latitude: float
+    longitude: float
+    altitude_m: Optional[float] = 0.0
+    accuracy_m: Optional[float] = 10.0
+    speed_kmh: Optional[float] = 0.0
+    recorded_at: Optional[str] = None
+
+
+class TrackPointsSyncRequest(BaseModel):
+    points: List[TrackPointBatchItem]
+
+
+class TrackPointsSyncResponse(BaseModel):
+    trip_id: str
+    status: str
+    synced_count: int
+    traveled_distance_km: float
+    progress_pct: float
+    distance_remaining_km: float
+    distance_to_nearest_hazard_km: Optional[float] = None
+    nearest_hazard_title: Optional[str] = None
+    hazard_warning_level: str = "LOW"
+    is_off_route: bool = False
+    message: str
+

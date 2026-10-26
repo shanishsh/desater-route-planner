@@ -16,6 +16,9 @@ data class ActiveTripEntity(
     val isOffRoute: Boolean = false,
     val nearestHazardDistKm: Double? = null,
     val nearestHazardTitle: String? = null,
-    val lastSyncedAt: Long = System.currentTimeMillis()
+    val lastSyncedAt: Long = System.currentTimeMillis(),
+    val traveledDistanceMeters: Double = 0.0,
+    val elapsedDurationSeconds: Long = 0L,
+    val isPaused: Boolean = false,
+    val pausedAtEpochMs: Long? = null
 )
-

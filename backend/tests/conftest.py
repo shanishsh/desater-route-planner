@@ -58,6 +58,11 @@ async def client(test_db):
 
     # Clean in-memory and Redis cache between tests
     cache_service._in_memory_cache.clear()
+    try:
+        from app.services.routing.osrm_provider import osrm_routing_provider
+        osrm_routing_provider.circuit_breaker.record_success()
+    except Exception:
+        pass
     redis_cli = await cache_service.get_client()
     if redis_cli:
         try:
@@ -73,6 +78,11 @@ async def client(test_db):
         yield ac
 
     app.dependency_overrides.clear()
+    try:
+        from app.services.routing.osrm_provider import osrm_routing_provider
+        osrm_routing_provider.circuit_breaker.record_success()
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture(scope="function")

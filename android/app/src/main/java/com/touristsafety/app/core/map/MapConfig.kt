@@ -28,10 +28,20 @@ object MapConfig {
     const val MAX_OFFLINE_SIZE_MB = 50
     const val MAX_CONCURRENT_DOWNLOADS = 4
 
-    // Default Uttarakhand pilot corridor initial camera coordinates (Gaurikund Trailhead)
-    const val DEFAULT_LATITUDE = 30.6534
-    const val DEFAULT_LONGITUDE = 79.0268
-    const val DEFAULT_ZOOM = 13.0
+    // Default Uttarakhand initial camera coordinates (Centroid of Uttarakhand)
+    const val DEFAULT_LATITUDE = 30.1500
+    const val DEFAULT_LONGITUDE = 79.2500
+    const val DEFAULT_ZOOM = 7.5
+
+    // Geographic Camera Target Bounds for Uttarakhand
+    const val UTTARAKHAND_MIN_LAT = 28.70
+    const val UTTARAKHAND_MIN_LON = 77.55
+    const val UTTARAKHAND_MAX_LAT = 31.48
+    const val UTTARAKHAND_MAX_LON = 81.08
+
+    // Zoom Constraints: strictly prevents zooming out to continental/world scale
+    const val MIN_ZOOM_LEVEL = 6.5
+    const val MAX_ZOOM_LEVEL = 18.0
 
     // High-visibility, rich topographic basemap using OpenStreetMap standard raster tiles
     val OSM_RASTER_STYLE_JSON = """

@@ -86,35 +86,69 @@ async def test_route_plan_rejects_invalid_wgs84_coordinates(client):
 
 
 @pytest.mark.asyncio
-async def test_route_plan_dynamic_any_location(client, monkeypatch):
-    """Verifies that routes outside Uttarakhand (e.g. Himachal or Delhi) calculate dynamically."""
+async def test_route_plan_rejects_out_of_state_origin_or_destination(client):
+    """Verifies that routes originating outside Uttarakhand (e.g. Delhi) are strictly rejected with HTTP 422."""
+    payload = {
+        "origin_lat": 28.6139,
+        "origin_lon": 77.2090,
+        "origin_name": "New Delhi, Delhi",
+        "destination_lat": 30.3347,
+        "destination_lon": 77.9658,
+        "destination_name": "Premnagar, Dehradun",
+        "travel_mode": "driving",
+    }
+    resp = await client.post("/api/v1/routes/plan", json=payload)
+    assert resp.status_code == 422
+    assert "outside the state of Uttarakhand" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_route_plan_rejects_out_of_state_destination(client):
+    """Verifies that routes with destination outside Uttarakhand (e.g. Chandigarh) are rejected with HTTP 422."""
+    payload = {
+        "origin_lat": 30.3165,
+        "origin_lon": 78.0322,
+        "origin_name": "Dehradun, Uttarakhand",
+        "destination_lat": 30.7333,
+        "destination_lon": 76.7794,
+        "destination_name": "Chandigarh",
+        "travel_mode": "driving",
+    }
+    resp = await client.post("/api/v1/routes/plan", json=payload)
+    assert resp.status_code == 422
+    assert "outside the state of Uttarakhand" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_route_plan_accepts_valid_in_state_route(client, monkeypatch):
+    """Verifies that genuine in-state Uttarakhand routes plan successfully."""
     from app.services.routing.osrm_provider import osrm_routing_provider
     from app.services.routing.base import RouteResult, Waypoint
 
     async def mock_calculate(*args, **kwargs):
         return RouteResult(
-            route_id="test-dynamic-any-loc-1",
-            title="Delhi to Premnagar",
-            origin_name="New Delhi",
-            origin_lat=28.6139,
-            origin_lon=77.2090,
-            destination_name="Premnagar",
-            destination_lat=30.3347,
-            destination_lon=77.9658,
+            route_id="test-uk-in-state-1",
+            title="Rishikesh to Gaurikund",
+            origin_name="Rishikesh",
+            origin_lat=30.0869,
+            origin_lon=78.2676,
+            destination_name="Gaurikund",
+            destination_lat=30.6534,
+            destination_lon=79.0268,
             travel_mode="driving",
-            distance_km=240.5,
-            duration_minutes=270.0,
+            distance_km=210.0,
+            duration_minutes=360.0,
             geometry_geojson={
                 "type": "LineString",
                 "coordinates": [
-                    [77.2090, 28.6139],
-                    [77.5000, 29.5000],
-                    [77.9658, 30.3347],
+                    [78.2676, 30.0869],
+                    [78.6000, 30.3000],
+                    [79.0268, 30.6534],
                 ],
             },
             waypoints=[
-                Waypoint(0, "Start: New Delhi", 28.6139, 77.2090, 0.0, 0.0),
-                Waypoint(1, "Destination: Premnagar", 30.3347, 77.9658, 240.5, 270.0),
+                Waypoint(0, "Start: Rishikesh", 30.0869, 78.2676, 0.0, 0.0),
+                Waypoint(1, "Destination: Gaurikund", 30.6534, 79.0268, 210.0, 360.0),
             ],
             alternatives=[],
         )
@@ -122,19 +156,19 @@ async def test_route_plan_dynamic_any_location(client, monkeypatch):
     monkeypatch.setattr(osrm_routing_provider, "calculate_route", mock_calculate)
 
     payload = {
-        "origin_lat": 28.6139,
-        "origin_lon": 77.2090,
-        "origin_name": "New Delhi, Delhi",
-        "destination_lat": 30.3347,
-        "destination_lon": 77.9658,
-        "destination_name": "Premnagar",
+        "origin_lat": 30.0869,
+        "origin_lon": 78.2676,
+        "origin_name": "Rishikesh, Uttarakhand",
+        "destination_lat": 30.6534,
+        "destination_lon": 79.0268,
+        "destination_name": "Gaurikund, Uttarakhand",
         "travel_mode": "driving",
     }
     resp = await client.post("/api/v1/routes/plan", json=payload)
     assert resp.status_code == 201
     data = resp.json()
-    assert data["route_id"] == "test-dynamic-any-loc-1"
-    assert data["distance_km"] == 240.5
+    assert data["route_id"] == "test-uk-in-state-1"
+    assert data["distance_km"] == 210.0
 
 
 @pytest.mark.asyncio
@@ -172,4 +206,53 @@ async def test_region_info_api_endpoint(client):
     data = resp.json()
     assert data["region_name"] == "Uttarakhand"
     assert data["boundary_verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_region_boundary_and_mask_endpoints(client):
+    """Verifies that the boundary GeoJSON and mask GeoJSON endpoints return valid geometry."""
+    resp_b = await client.get("/api/v1/routes/region-boundary")
+    assert resp_b.status_code == 200
+    boundary = resp_b.json()
+    assert boundary["type"] in ("Polygon", "Feature", "FeatureCollection")
+
+    resp_m = await client.get("/api/v1/routes/region-mask")
+    assert resp_m.status_code == 200
+    mask = resp_m.json()
+    assert mask["type"] in ("Polygon", "Feature", "FeatureCollection")
+
+
+@pytest.mark.asyncio
+async def test_trail_report_rejects_out_of_state_location(client):
+    """Verifies that trail reports submitted outside Uttarakhand are rejected with HTTP 422."""
+    payload = {
+        "category": "landslide",
+        "severity": "HIGH",
+        "passability": "IMPASSABLE",
+        "latitude": 28.6139,  # Delhi
+        "longitude": 77.2090,
+        "description": "Landslide blocking road in Delhi",
+    }
+    resp = await client.post("/api/v1/trail-reports", json=payload)
+    assert resp.status_code == 422
+    assert "outside Uttarakhand" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_places_search_filters_out_of_state(client, monkeypatch):
+    """Verifies that place search filters out locations not in Uttarakhand."""
+    from app.clients.open_meteo import open_meteo_client
+
+    async def mock_search(query, count):
+        return [
+            {"name": "Dehradun", "latitude": 30.3165, "longitude": 78.0322, "country": "India", "admin1": "Uttarakhand", "display_name": "Dehradun, Uttarakhand"},
+            {"name": "Delhi", "latitude": 28.6139, "longitude": 77.2090, "country": "India", "admin1": "Delhi", "display_name": "New Delhi, Delhi"},
+        ]
+
+    monkeypatch.setattr(open_meteo_client, "search_settlements", mock_search)
+    resp = await client.get("/api/v1/places/search?q=Deh")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["name"] == "Dehradun"
 

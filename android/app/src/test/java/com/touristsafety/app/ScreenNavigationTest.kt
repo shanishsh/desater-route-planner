@@ -11,7 +11,7 @@ class ScreenNavigationTest {
     fun `bottom nav screens are non-null and have non-empty routes and titles`() {
         val bottomNavScreens = Screen.bottomNavScreens
         assertNotNull("bottomNavScreens list must not be null", bottomNavScreens)
-        assertEquals("Expected 5 bottom nav items", 5, bottomNavScreens.size)
+        assertEquals("Expected 4 bottom nav items for 4-pillar architecture", 4, bottomNavScreens.size)
 
         for (screen in bottomNavScreens) {
             assertNotNull("Individual bottom nav screen must not be null", screen)

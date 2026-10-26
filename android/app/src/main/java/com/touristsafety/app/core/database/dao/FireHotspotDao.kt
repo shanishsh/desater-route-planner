@@ -13,6 +13,9 @@ interface FireHotspotDao {
     @Query("SELECT * FROM fire_hotspots ORDER BY acquisitionDate DESC, acquisitionTime DESC")
     fun getAllHotspots(): Flow<List<FireHotspotEntity>>
 
+    @Query("SELECT * FROM fire_hotspots ORDER BY acquisitionDate DESC, acquisitionTime DESC")
+    suspend fun getAllHotspotsList(): List<FireHotspotEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(hotspots: List<FireHotspotEntity>)
 

@@ -60,7 +60,7 @@ class ProviderRegistry:
             osrm_diag = osrm_routing_provider.last_error
         elif osrm_routing_provider.last_status_code == 200:
             osrm_status = "HEALTHY"
-            osrm_diag = "OSRM routing operational for driving, hiking, and walking."
+            osrm_diag = "OSRM routing operational for road networks. (Himalayan foot trails require dedicated hiking routing engine deployment)."
         else:
             osrm_status = "STANDBY"
             osrm_diag = "OSRM routing client initialized and ready."

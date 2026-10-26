@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 fun OfflineTrekPackDialog(
     route: PlannedRouteEntity,
     offlineManager: OfflineTrekPackManager,
+    routeRepository: com.touristsafety.app.core.repository.RouteRepository? = null,
     onDismiss: () -> Unit,
     onDownloadComplete: () -> Unit
 ) {
@@ -178,9 +179,11 @@ fun OfflineTrekPackDialog(
                     onClick = {
                         isDownloading = true
                         downloadState = "DOWNLOADING"
-                        statusText = "Downloading vector tiles & style resources..."
+                        statusText = "Downloading route pack JSON, hazards & facilities..."
                         coroutineScope.launch {
                             try {
+                                routeRepository?.downloadRouteOfflinePack(route.routeId)
+                                statusText = "Downloading vector tiles & style resources..."
                                 offlineManager.downloadTrekPack(route, selectedCorridorKm).collect { progress ->
                                     progressPct = progress.progressPct
                                     downloadState = progress.state

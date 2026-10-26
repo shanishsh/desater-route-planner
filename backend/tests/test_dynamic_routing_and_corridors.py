@@ -41,18 +41,26 @@ def test_provider_registry_coverage_engine():
 
 @pytest.mark.asyncio
 async def test_places_search_and_reverse_geocoding(client, monkeypatch):
-    """Verifies that places search operates globally and reverse geocoding returns structured pin data."""
+    """Verifies that places search filters to Uttarakhand settlements and reverse geocoding returns structured pin data."""
     from app.clients.open_meteo import open_meteo_client
 
     async def mock_search(query: str, count: int = 8):
         return [
             {
-                "name": "Manali",
-                "latitude": 32.2396,
-                "longitude": 77.1887,
+                "name": "Rishikesh",
+                "latitude": 30.0869,
+                "longitude": 78.2676,
                 "country": "India",
-                "admin1": "Himachal Pradesh",
-                "display_name": "Manali, Himachal Pradesh (India)",
+                "admin1": "Uttarakhand",
+                "display_name": "Rishikesh, Uttarakhand (India)",
+            },
+            {
+                "name": "Kedarnath",
+                "latitude": 30.7346,
+                "longitude": 79.0669,
+                "country": "India",
+                "admin1": "Uttarakhand",
+                "display_name": "Kedarnath, Uttarakhand (India)",
             },
             {
                 "name": "Zermatt",
@@ -66,67 +74,77 @@ async def test_places_search_and_reverse_geocoding(client, monkeypatch):
 
     monkeypatch.setattr(open_meteo_client, "search_settlements", mock_search)
 
-    # 1. Forward search
-    resp = await client.get("/api/v1/places/search?q=manali")
+    # 1. Forward search filters out Zermatt (outside Uttarakhand) and keeps Rishikesh & Kedarnath
+    resp = await client.get("/api/v1/places/search?q=rishikesh")
     assert resp.status_code == 200
     results = resp.json()
     assert len(results) == 2
-    assert results[0]["name"] == "Manali"
-    assert results[1]["name"] == "Zermatt"
+    names = [r["name"] for r in results]
+    assert "Rishikesh" in names
+    assert "Kedarnath" in names
+    assert "Zermatt" not in names
 
-    # 2. Reverse geocode pin
-    rev_resp = await client.get("/api/v1/places/reverse?lat=32.2396&lon=77.1887")
+    # 2. Reverse geocode pin inside Uttarakhand
+    rev_resp = await client.get("/api/v1/places/reverse?lat=30.0869&lon=78.2676")
     assert rev_resp.status_code == 200
     rev_data = rev_resp.json()
     assert "Map Pin" in rev_data["name"]
-    assert rev_data["latitude"] == 32.2396
-    assert rev_data["longitude"] == 77.1887
+    assert rev_data["latitude"] == 30.0869
+    assert rev_data["longitude"] == 78.2676
+    assert rev_data["admin1"] == "Uttarakhand"
+
+    # 3. Reverse geocode pin outside Uttarakhand
+    out_resp = await client.get("/api/v1/places/reverse?lat=45.9765&lon=7.7491")
+    assert out_resp.status_code == 200
+    out_data = out_resp.json()
+    assert "Outside Uttarakhand" in out_data["display_name"]
+    assert out_data["admin1"] == "Unsupported"
 
 
 @pytest.mark.asyncio
-async def test_dynamic_plan_and_coverage_reporting_international(client, monkeypatch):
+async def test_dynamic_plan_and_coverage_reporting_in_uttarakhand(client, monkeypatch):
     """
-    Verifies that an international route (e.g. Alps trek) plans dynamically,
-    and NDMA SACHET reports UNSUPPORTED_REGION without breaking global analysis.
+    Verifies that route planning within Uttarakhand succeeds,
+    and out-of-boundary international routes are strictly rejected with 422.
     """
     async def mock_calculate(*args, **kwargs):
         return RouteResult(
-            route_id="intl-route-alps-1",
-            title="Chamonix to Zermatt Alpine Route",
-            origin_name="Chamonix",
-            origin_lat=45.9237,
-            origin_lon=6.8694,
-            destination_name="Zermatt",
-            destination_lat=45.9765,
-            destination_lon=7.7491,
+            route_id="uk-route-kedarnath-1",
+            title="Gaurikund to Kedarnath Trek",
+            origin_name="Gaurikund",
+            origin_lat=30.6534,
+            origin_lon=79.0268,
+            destination_name="Kedarnath",
+            destination_lat=30.7339,
+            destination_lon=79.0669,
             travel_mode="hiking",
-            distance_km=72.0,
-            duration_minutes=1440.0,
+            distance_km=16.0,
+            duration_minutes=360.0,
             geometry_geojson={
                 "type": "LineString",
                 "coordinates": [
-                    [6.8694, 45.9237],
-                    [7.3000, 45.9500],
-                    [7.7491, 45.9765],
+                    [79.0268, 30.6534],
+                    [79.0450, 30.6900],
+                    [79.0669, 30.7339],
                 ],
             },
             waypoints=[
-                Waypoint(0, "Start: Chamonix", 45.9237, 6.8694, 0.0, 0.0),
-                Waypoint(1, "Destination: Zermatt", 45.9765, 7.7491, 72.0, 1440.0),
+                Waypoint(0, "Start: Gaurikund", 30.6534, 79.0268, 0.0, 0.0),
+                Waypoint(1, "Destination: Kedarnath", 30.7339, 79.0669, 16.0, 360.0),
             ],
             alternatives=[
                 RouteAlternative(
-                    id="alt-intl-1",
-                    title="High Route Glacier Variant",
-                    description="Glacial alternative path.",
-                    distance_km=78.5,
-                    duration_minutes=1600.0,
+                    id="alt-uk-1",
+                    title="Jungle Chatti Alternative",
+                    description="Secondary trail.",
+                    distance_km=17.5,
+                    duration_minutes=390.0,
                     geometry_geojson={
                         "type": "LineString",
                         "coordinates": [
-                            [6.8694, 45.9237],
-                            [7.2500, 45.9800],
-                            [7.7491, 45.9765],
+                            [79.0268, 30.6534],
+                            [79.0500, 30.6800],
+                            [79.0669, 30.7339],
                         ],
                     },
                 )
@@ -135,13 +153,14 @@ async def test_dynamic_plan_and_coverage_reporting_international(client, monkeyp
 
     monkeypatch.setattr(osrm_routing_provider, "calculate_route", mock_calculate)
 
+    # 1. Valid route within Uttarakhand
     payload = {
-        "origin_lat": 45.9237,
-        "origin_lon": 6.8694,
-        "origin_name": "Chamonix",
-        "destination_lat": 45.9765,
-        "destination_lon": 7.7491,
-        "destination_name": "Zermatt",
+        "origin_lat": 30.6534,
+        "origin_lon": 79.0268,
+        "origin_name": "Gaurikund",
+        "destination_lat": 30.7339,
+        "destination_lon": 79.0669,
+        "destination_name": "Kedarnath",
         "travel_mode": "hiking",
         "corridor_distance_km": 5.0,
     }
@@ -150,26 +169,35 @@ async def test_dynamic_plan_and_coverage_reporting_international(client, monkeyp
     assert resp.status_code == 201
     data = resp.json()
 
-    assert data["route_id"] == "intl-route-alps-1"
+    assert data["route_id"] == "uk-route-kedarnath-1"
     assert data["travel_mode"] == "hiking"
-    assert data["distance_km"] == 72.0
+    assert data["distance_km"] == 16.0
     assert len(data["alternatives"]) == 1
 
-    # Verify provider statuses: SACHET should report UNSUPPORTED_REGION
+    # Verify provider statuses include active providers
     prov_statuses = data.get("provider_statuses", {})
     assert "ndma_sachet" in prov_statuses
-    assert prov_statuses["ndma_sachet"]["status"] == "UNSUPPORTED_REGION"
 
-    # Verify analysis limitations note SACHET India-only constraint
-    limitations = data.get("analysis_limitations", [])
-    assert any("NDMA SACHET" in lim for lim in limitations)
+    # 2. International / out-of-state route must be rejected with 422
+    intl_payload = {
+        "origin_lat": 45.9237,
+        "origin_lon": 6.8694,
+        "origin_name": "Chamonix",
+        "destination_lat": 45.9765,
+        "destination_lon": 7.7491,
+        "destination_name": "Zermatt",
+        "travel_mode": "hiking",
+    }
+    intl_resp = await client.post("/api/v1/routes/plan", json=intl_payload)
+    assert intl_resp.status_code == 422
+    assert "outside the state of Uttarakhand" in intl_resp.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_dynamic_plan_unroutable_coordinates_returns_404(client, monkeypatch):
     """
-    Verifies that when OSRM reports no route between disconnected coordinates
-    (e.g. island or across impassable water), an informative 404 is returned.
+    Verifies that when OSRM reports no route between disconnected coordinates in Uttarakhand,
+    an informative 404 is returned.
     """
     import httpx
     from fastapi import HTTPException
@@ -177,18 +205,18 @@ async def test_dynamic_plan_unroutable_coordinates_returns_404(client, monkeypat
     async def mock_calculate_noroute(*args, **kwargs):
         raise HTTPException(
             status_code=404,
-            detail="No viable route found between coordinates (0.0000, 0.0000) and (10.0000, 10.0000) for travel mode 'walking'. (NoRoute: Impossible path)",
+            detail="No viable route found between coordinates (30.6534, 79.0268) and (30.7339, 79.0669) for travel mode 'walking'. (NoRoute: Impossible path)",
         )
 
     monkeypatch.setattr(osrm_routing_provider, "calculate_route", mock_calculate_noroute)
 
     payload = {
-        "origin_lat": 0.0,
-        "origin_lon": 0.0,
-        "origin_name": "Ocean Point A",
-        "destination_lat": 10.0,
-        "destination_lon": 10.0,
-        "destination_name": "Ocean Point B",
+        "origin_lat": 30.6534,
+        "origin_lon": 79.0268,
+        "origin_name": "Gaurikund",
+        "destination_lat": 30.7339,
+        "destination_lon": 79.0669,
+        "destination_name": "Kedarnath",
         "travel_mode": "walking",
     }
 

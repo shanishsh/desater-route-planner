@@ -58,7 +58,7 @@ async def test_route_summary_assistant_deterministic_fallback():
     async_res = await route_summary_assistant.generate_grounded_summary_async(dummy_route)
     assert async_res.route_id == "route_dehradun_mussoorie_test"
     assert len(async_res.direct_intersections) == 1
-    assert "100% safe" not in async_res.summary_text
+    assert "trail is completely safe" not in async_res.summary_text.lower()
 
 
 @pytest.mark.asyncio

@@ -36,6 +36,7 @@ class DisasterNotificationManager @Inject constructor(
         const val CHANNEL_ID = "disaster_alerts_siren_alarm_v3"
         const val CHANNEL_NAME = "🚨 Disaster Emergency Sirens & Warnings"
         const val CHANNEL_DESC = "Maximum priority emergency sirens, alarm tones, and flash flood/landslide warnings."
+        const val TREK_HAZARD_CHANNEL_ID = "active_trek_critical_hazards_v1"
         const val TEST_ALARM_NOTIFICATION_ID = 99991
         @Deprecated("Use TEST_ALARM_NOTIFICATION_ID")
         const val DUMMY_NOTIFICATION_ID = TEST_ALARM_NOTIFICATION_ID
@@ -54,9 +55,12 @@ class DisasterNotificationManager @Inject constructor(
     }
 
     private fun getEmergencySoundUri(): Uri {
-        return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        return try {
+            Uri.parse("android.resource://${context.packageName}/${R.raw.safety_alert}")
+        } catch (t: Throwable) {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -79,8 +83,21 @@ class DisasterNotificationManager @Inject constructor(
                 setBypassDnd(true)
             }
 
+            val trekChannel = NotificationChannel(
+                TREK_HAZARD_CHANNEL_ID,
+                "⚠️ Active Trek Hazard Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Real-time hazard proximity warnings during active mountain treks."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 1000)
+                setSound(soundUri, audioAttributes)
+                setBypassDnd(true)
+            }
+
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             notificationManager?.createNotificationChannel(channel)
+            notificationManager?.createNotificationChannel(trekChannel)
         }
     }
 

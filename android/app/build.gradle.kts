@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 layout.buildDirectory.set(file("C:/Users/shani/AppData/Local/Temp/touristsafety_app_build"))
@@ -110,10 +111,11 @@ dependencies {
     // Location
     implementation(libs.play.services.location)
 
-    // Firebase (BOM, Analytics, Cloud Messaging, App Check)
+    // Firebase (BOM, Analytics, Cloud Messaging, Crashlytics, App Check)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.appcheck.debug)
 

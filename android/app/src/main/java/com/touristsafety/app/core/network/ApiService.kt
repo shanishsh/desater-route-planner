@@ -154,6 +154,12 @@ interface ApiService {
         @Body body: TripProgressRequestDto
     ): Response<TripProgressResponseDto>
 
+    @POST("trips/{id}/sync-points")
+    suspend fun syncTrackPoints(
+        @Path("id") id: String,
+        @Body body: TrackPointsSyncRequestDto
+    ): Response<TrackPointsSyncResponseDto>
+
     @GET("trips/{id}/status")
     suspend fun getTripStatus(
         @Path("id") id: String

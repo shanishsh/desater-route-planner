@@ -405,3 +405,39 @@ data class RouteOfflinePackDto(
     val data_provenance: Map<String, String> = emptyMap(),
     val offline_usage_disclaimer: String = ""
 )
+
+
+@Serializable
+data class TrackPointBatchItemDto(
+    val latitude: Double,
+    val longitude: Double,
+    val altitude_m: Double? = null,
+    val accuracy_m: Double? = null,
+    val speed_kmh: Double? = null,
+    val recorded_at: String? = null
+)
+
+@Serializable
+data class TrackPointsSyncRequestDto(
+    val points: List<TrackPointBatchItemDto>
+)
+
+@Serializable
+data class TrackPointsSyncResponseDto(
+    val trip_id: String,
+    val points_received: Int = 0,
+    val points_stored: Int = 0,
+    val latest_latitude: Double,
+    val latest_longitude: Double,
+    val current_segment_index: Int = 0,
+    val total_distance_km: Double = 0.0,
+    val progress_pct: Double = 0.0,
+    val is_off_route: Boolean = false,
+    val distance_to_nearest_hazard_km: Double? = null,
+    val nearest_hazard_title: String? = null,
+    val hazard_warning_level: String = "LOW",
+    val reroute_suggested: Boolean = false,
+    val suggested_alternative_id: String? = null,
+    val status: String = "ACTIVE",
+    val message: String = ""
+)

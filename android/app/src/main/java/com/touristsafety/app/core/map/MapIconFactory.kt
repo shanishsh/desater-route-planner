@@ -33,6 +33,15 @@ object MapIconFactory {
     const val ICON_WILDFIRE = "icon-wildfire"
     const val ICON_DISASTER = "icon-disaster"
 
+    // Animated Hazard Icon Keys
+    const val ICON_ANIM_THUNDERSTORM = "icon-anim-thunderstorm"
+    const val ICON_ANIM_HEAVY_RAIN = "icon-anim-heavy-rain"
+    const val ICON_ANIM_FLOODING = "icon-anim-flooding"
+    const val ICON_ANIM_LANDSLIDE = "icon-anim-landslide"
+    const val ICON_ANIM_WILDFIRE = "icon-anim-wildfire"
+    const val ICON_ANIM_EARTHQUAKE = "icon-anim-earthquake"
+    const val ICON_ANIM_CLOSURE = "icon-anim-closure"
+
     // Legacy aliases
     const val LEGACY_ICON_HOSPITAL = "icon-hospital"
     const val LEGACY_ICON_CLINIC = "icon-clinic"
@@ -139,6 +148,15 @@ object MapIconFactory {
         if (style.getImage(ICON_DISASTER) == null) {
             style.addImage(ICON_DISASTER, createDisasterBitmap())
         }
+
+        // Register Animated Category Icons (Initial Static Frame 0)
+        if (style.getImage(ICON_ANIM_THUNDERSTORM) == null) style.addImage(ICON_ANIM_THUNDERSTORM, thunderstormFrames[0])
+        if (style.getImage(ICON_ANIM_HEAVY_RAIN) == null) style.addImage(ICON_ANIM_HEAVY_RAIN, heavyRainFrames[0])
+        if (style.getImage(ICON_ANIM_FLOODING) == null) style.addImage(ICON_ANIM_FLOODING, floodingFrames[0])
+        if (style.getImage(ICON_ANIM_LANDSLIDE) == null) style.addImage(ICON_ANIM_LANDSLIDE, landslideFrames[0])
+        if (style.getImage(ICON_ANIM_WILDFIRE) == null) style.addImage(ICON_ANIM_WILDFIRE, wildfireFrames[0])
+        if (style.getImage(ICON_ANIM_EARTHQUAKE) == null) style.addImage(ICON_ANIM_EARTHQUAKE, earthquakeFrames[0])
+        if (style.getImage(ICON_ANIM_CLOSURE) == null) style.addImage(ICON_ANIM_CLOSURE, closureFrames[0])
     }
 
     /**
@@ -568,5 +586,391 @@ object MapIconFactory {
 
         return bitmap
     }
-}
 
+    // --- Pre-rendered Frame Arrays (Zero Allocation During Animation Ticker) ---
+    val thunderstormFrames: Array<Bitmap> by lazy { Array(6) { createThunderstormFrame(it) } }
+    val heavyRainFrames: Array<Bitmap> by lazy { Array(4) { createHeavyRainFrame(it) } }
+    val floodingFrames: Array<Bitmap> by lazy { Array(4) { createFloodingFrame(it) } }
+    val landslideFrames: Array<Bitmap> by lazy { Array(4) { createLandslideFrame(it) } }
+    val wildfireFrames: Array<Bitmap> by lazy { Array(5) { createWildfireFrame(it) } }
+    val earthquakeFrames: Array<Bitmap> by lazy { Array(4) { createEarthquakeFrame(it) } }
+    val closureFrames: Array<Bitmap> by lazy { Array(4) { createClosureFrame(it) } }
+
+    /**
+     * Thunderstorm Icon Frame: Dark storm cloud with rain and intermittent lightning flash on frames 3 & 4.
+     */
+    fun createThunderstormFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        // Dark storm background
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(30, 41, 59) // Slate-900 #1E293B
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        // Amber warning border
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(245, 158, 11) // Amber-500 #F59E0B
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Cloud shape in upper half
+        val cloudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(148, 163, 184) // Slate-400
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center - 8f, center - 6f, 8f, cloudPaint)
+        canvas.drawCircle(center + 6f, center - 8f, 10f, cloudPaint)
+        canvas.drawRoundRect(RectF(center - 14f, center - 5f, center + 14f, center + 4f), 5f, 5f, cloudPaint)
+
+        // Raindrops
+        val rainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(56, 189, 248) // Sky blue
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            strokeCap = Paint.Cap.ROUND
+        }
+        val rainShift = (frame * 2.5f) % 7f
+        canvas.drawLine(center - 8f, center + 7f + rainShift, center - 10f, center + 12f + rainShift, rainPaint)
+        canvas.drawLine(center, center + 7f + ((rainShift + 3f) % 7f), center - 2f, center + 12f + ((rainShift + 3f) % 7f), rainPaint)
+        canvas.drawLine(center + 8f, center + 7f + ((rainShift + 5f) % 7f), center + 6f, center + 12f + ((rainShift + 5f) % 7f), rainPaint)
+
+        // Intermittent lightning flash (Frames 3 & 4)
+        if (frame == 3 || frame == 4) {
+            val boltPath = Path().apply {
+                moveTo(center + 2f, center - 4f)
+                lineTo(center - 4f, center + 5f)
+                lineTo(center + 1f, center + 5f)
+                lineTo(center - 3f, center + 16f)
+                lineTo(center + 6f, center + 4f)
+                lineTo(center + 1f, center + 4f)
+                close()
+            }
+            val boltPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(250, 204, 21) // Vivid Yellow #FACC15
+                style = Paint.Style.FILL
+            }
+            canvas.drawPath(boltPath, boltPaint)
+
+            // Inner white lightning core
+            val boltCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+            }
+            canvas.drawPath(boltPath, boltCorePaint)
+        }
+
+        return bitmap
+    }
+
+    /**
+     * Heavy Rain Frame: Rain cloud with animated cascading raindrops.
+     */
+    fun createHeavyRainFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(2, 132, 199) // Sky-600 #0284C7
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Cloud
+        val cloudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center - 8f, center - 6f, 8f, cloudPaint)
+        canvas.drawCircle(center + 6f, center - 8f, 10f, cloudPaint)
+        canvas.drawRoundRect(RectF(center - 14f, center - 5f, center + 14f, center + 4f), 5f, 5f, cloudPaint)
+
+        // 3 cascading raindrop streaks
+        val dropPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(224, 242, 254) // Light Blue
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+            strokeCap = Paint.Cap.ROUND
+        }
+        val yShift = (frame * 3f) % 9f
+        canvas.drawLine(center - 9f, center + 6f + yShift, center - 12f, center + 12f + yShift, dropPaint)
+        canvas.drawLine(center - 1f, center + 6f + ((yShift + 3f) % 9f), center - 4f, center + 12f + ((yShift + 3f) % 9f), dropPaint)
+        canvas.drawLine(center + 7f, center + 6f + ((yShift + 6f) % 9f), center + 4f, center + 12f + ((yShift + 6f) % 9f), dropPaint)
+
+        return bitmap
+    }
+
+    /**
+     * Flooding Frame: Water waves and ripple expanding outward.
+     */
+    fun createFloodingFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(13, 148, 136) // Teal-600 #0D9488
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Expanding ripple rings
+        val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+        }
+        val rippleR1 = 6f + (frame * 3f)
+        val rippleR2 = 12f + (frame * 2.5f)
+        ripplePaint.alpha = (255 - frame * 40).coerceIn(80, 255)
+        canvas.drawCircle(center, center - 2f, rippleR1, ripplePaint)
+
+        // Water wave base
+        val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        val wavePath = Path().apply {
+            moveTo(center - 15f, center + 7f)
+            quadTo(center - 7f, center + 3f + (frame % 2) * 2f, center, center + 7f)
+            quadTo(center + 7f, center + 11f - (frame % 2) * 2f, center + 15f, center + 7f)
+            lineTo(center + 15f, center + 14f)
+            lineTo(center - 15f, center + 14f)
+            close()
+        }
+        canvas.drawPath(wavePath, wavePaint)
+
+        return bitmap
+    }
+
+    /**
+     * Landslide Frame: Mountain slope with tumbling rock and attention beacon.
+     */
+    fun createLandslideFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(180, 83, 9) // Amber-700 #B45309
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Mountain slope silhouette
+        val slopePath = Path().apply {
+            moveTo(center - 15f, center + 13f)
+            lineTo(center - 7f, center - 8f)
+            lineTo(center + 14f, center + 13f)
+            close()
+        }
+        val slopePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(69, 26, 3) // Deep Earth
+            style = Paint.Style.FILL
+        }
+        canvas.drawPath(slopePath, slopePaint)
+
+        // Tumbling rock along slope
+        val rockX = center - 2f + (frame * 3.5f)
+        val rockY = center + (frame * 2.8f)
+        val rockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(254, 240, 138) // Light stone yellow
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(rockX, rockY, 3.5f, rockPaint)
+
+        // Warning triangle at top peak
+        val beaconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (frame % 2 == 0) Color.YELLOW else Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center - 7f, center - 11f, 3f, beaconPaint)
+
+        return bitmap
+    }
+
+    /**
+     * Wildfire Frame: Flickering flame licking upward with oscillating height and color.
+     */
+    fun createWildfireFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(185, 28, 28) // Deep Alert Red #B91C1C
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(253, 224, 71) // Yellow border #FDE047
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Outer Flame (Flickering height)
+        val tipY = center - 14f - ((frame % 3) * 2f)
+        val flamePath = Path().apply {
+            moveTo(center, tipY)
+            cubicTo(center + 10f, center - 4f, center + 12f, center + 6f, center + 9f, center + 12f)
+            cubicTo(center + 6f, center + 16f, center - 6f, center + 16f, center - 9f, center + 12f)
+            cubicTo(center - 12f, center + 6f, center - 8f, center - 4f, center, tipY)
+            close()
+        }
+        val flamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(249, 115, 22) // Orange-500 #F97316
+            style = Paint.Style.FILL
+        }
+        canvas.drawPath(flamePath, flamePaint)
+
+        // Inner Bright Core Flame
+        val innerTipY = tipY + 6f
+        val innerPath = Path().apply {
+            moveTo(center, innerTipY)
+            cubicTo(center + 5f, center + 2f, center + 6f, center + 9f, center + 4f, center + 13f)
+            cubicTo(center + 2f, center + 15f, center - 2f, center + 15f, center - 4f, center + 13f)
+            cubicTo(center - 6f, center + 9f, center - 4f, center + 2f, center, innerTipY)
+            close()
+        }
+        val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(254, 240, 138) // Light Yellow #FEF08A
+            style = Paint.Style.FILL
+        }
+        canvas.drawPath(innerPath, innerPaint)
+
+        return bitmap
+    }
+
+    /**
+     * Earthquake Frame: Seismic epicenter with radiating shockwave rings.
+     */
+    fun createEarthquakeFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(124, 58, 237) // Purple-600 #7C3AED
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Concentric shockwave circles
+        val shockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(233, 213, 255) // Light purple
+            style = Paint.Style.STROKE
+            strokeWidth = 2.2f
+        }
+        val r1 = 5f + (frame * 3.5f)
+        shockPaint.alpha = (255 - frame * 45).coerceIn(60, 255)
+        canvas.drawCircle(center, center, r1, shockPaint)
+
+        val r2 = 12f + (frame * 2.5f)
+        shockPaint.alpha = (220 - frame * 45).coerceIn(40, 220)
+        canvas.drawCircle(center, center, r2, shockPaint)
+
+        // Epicenter core dot
+        val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, 4.5f, corePaint)
+
+        return bitmap
+    }
+
+    /**
+     * Trail Closure / Obstruction Frame: Construction barrier with alternating warning lights.
+     */
+    fun createClosureFrame(frame: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(225, 29, 72) // Crimson-600 #E11D48
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, borderPaint)
+
+        // Barrier bar (Yellow with black hazard stripes)
+        val barRect = RectF(center - 13f, center - 4f, center + 13f, center + 6f)
+        val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(250, 204, 21) // Yellow #FACC15
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(barRect, 2f, 2f, barPaint)
+
+        // Black stripes
+        val stripePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(RectF(center - 9f, center - 4f, center - 5f, center + 6f), stripePaint)
+        canvas.drawRect(RectF(center - 1f, center - 4f, center + 3f, center + 6f), stripePaint)
+        canvas.drawRect(RectF(center + 7f, center - 4f, center + 11f, center + 6f), stripePaint)
+
+        // Alternating flashing beacons on barrier legs
+        val leftLightOn = frame % 2 == 0
+        val lightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+        lightPaint.color = if (leftLightOn) Color.YELLOW else Color.rgb(156, 163, 175)
+        canvas.drawCircle(center - 9f, center - 8f, 3.2f, lightPaint)
+
+        lightPaint.color = if (!leftLightOn) Color.YELLOW else Color.rgb(156, 163, 175)
+        canvas.drawCircle(center + 9f, center - 8f, 3.2f, lightPaint)
+
+        return bitmap
+    }
+}

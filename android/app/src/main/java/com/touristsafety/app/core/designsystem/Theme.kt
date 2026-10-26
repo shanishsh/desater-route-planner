@@ -6,24 +6,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val LightColorScheme = lightColorScheme(
-    primary = PrimaryBlue,
+    primary = ForestGreenPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD1E4FF),
-    onPrimaryContainer = Color(0xFF001D36),
-    secondary = SecondaryTeal,
+    primaryContainer = SageContainer,
+    onPrimaryContainer = OnSageContainer,
+    secondary = ForestGreenLight,
     onSecondary = Color.White,
+    secondaryContainer = Sage,
+    onSecondaryContainer = ForestGreenDark,
+    tertiary = MountainSlate,
+    onTertiary = Color.White,
+    tertiaryContainer = MountainMist,
+    onTertiaryContainer = MountainSlate,
     background = BackgroundLight,
     surface = SurfaceLight,
-    onSurface = Color(0xFF1A1C1E)
+    onSurface = TextPrimaryLight,
+    surfaceVariant = SurfaceVariantLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = OutlineLight,
+    outlineVariant = OutlineVariantLight,
+    error = EmergencyRed,
+    onError = OnEmergencyRed,
+    errorContainer = EmergencyRedContainer,
+    onErrorContainer = EmergencyRed
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryBlue,
+    primary = ForestGreenLight,
     onPrimary = Color.White,
-    secondary = SecondaryTeal,
-    background = Color(0xFF121212),
+    primaryContainer = ForestGreenDark,
+    onPrimaryContainer = Sage,
+    secondary = Sage,
+    onSecondary = ForestGreenDark,
+    secondaryContainer = ForestGreenPrimary,
+    onSecondaryContainer = Color.White,
+    tertiary = MountainMist,
+    onTertiary = MountainSlate,
+    background = BackgroundDark,
     surface = SurfaceDark,
-    onSurface = Color(0xFFE2E2E6)
+    onSurface = TextPrimaryDark,
+    surfaceVariant = SurfaceVariantDark,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = OutlineDark,
+    error = EmergencyRed,
+    onError = OnEmergencyRed,
+    errorContainer = EmergencyRed.copy(alpha = 0.25f),
+    onErrorContainer = Color(0xFFFFB4AB)
 )
 
 @Composable
@@ -34,8 +62,7 @@ fun TouristSafetyTheme(
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography(),
+        typography = TouristSafetyTypography,
         content = content
     )
 }
-

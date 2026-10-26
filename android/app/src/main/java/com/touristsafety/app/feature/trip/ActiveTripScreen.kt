@@ -1,24 +1,43 @@
 package com.touristsafety.app.feature.trip
 
-import androidx.compose.animation.core.animateFloatAsState
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.touristsafety.app.feature.report.ReportTrailConditionBottomSheet
+import com.touristsafety.app.core.designsystem.*
+import com.touristsafety.app.core.designsystem.components.*
+import com.touristsafety.app.core.map.MapConfig
+import com.touristsafety.app.core.map.MapLibreLayerManager
+import com.touristsafety.app.core.model.MapFeatureCategory
+import com.touristsafety.app.core.model.UnifiedMapFeature
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,433 +47,560 @@ fun ActiveTripScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val animatedProgress by animateFloatAsState(targetValue = (state.progressPct / 100f).toFloat())
-    var showSosConfirmation by remember { mutableStateOf(false) }
-    var showReportConditionSheet by remember { mutableStateOf(false) }
-    var showCompletionSummary by remember { mutableStateOf(false) }
+
+    var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    var isMapStyleReady by remember { mutableStateOf(false) }
+
+    var showEndTrekDialog by remember { mutableStateOf(false) }
+    var showLayersSheet by remember { mutableStateOf(false) }
+
+    // MapView instance lifecycle
+    val mapView = remember {
+        MapView(context).apply {
+            onCreate(null)
+            getMapAsync { map ->
+                maplibreMapInstance = map
+                try {
+                    // Restrict camera to Uttarakhand territory
+                    val bounds = LatLngBounds.Builder()
+                        .include(LatLng(MapConfig.UTTARAKHAND_MIN_LAT, MapConfig.UTTARAKHAND_MIN_LON))
+                        .include(LatLng(MapConfig.UTTARAKHAND_MAX_LAT, MapConfig.UTTARAKHAND_MAX_LON))
+                        .build()
+                    map.setLatLngBoundsForCameraTarget(bounds)
+                    map.setMinZoomPreference(MapConfig.MIN_ZOOM_LEVEL)
+                    map.setMaxZoomPreference(MapConfig.MAX_ZOOM_LEVEL)
+
+                    map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
+                        MapLibreLayerManager.setupSourcesAndLayers(style, context)
+                        isMapStyleReady = true
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("ActiveTripScreen", "Error initializing map style: ${t.message}", t)
+                }
+
+                // Handle map feature tap inspection
+                map.addOnMapClickListener { latLng ->
+                    try {
+                        val screenPoint = map.projection.toScreenLocation(latLng)
+                        val renderedFeatures = map.queryRenderedFeatures(
+                            screenPoint,
+                            MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
+                            MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
+                            MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
+                            MapLibreLayerManager.LAYER_CLINICS_SYMBOL,
+                            MapLibreLayerManager.LAYER_POLICE_SYMBOL,
+                            MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL
+                        )
+                        if (renderedFeatures.isNotEmpty()) {
+                            val top = renderedFeatures.first()
+                            val title = top.getStringProperty("title") ?: top.getStringProperty("name") ?: "Trail Feature"
+                            val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
+                            val category = try {
+                                MapFeatureCategory.valueOf(catStr)
+                            } catch (e: Exception) {
+                                MapFeatureCategory.HAZARD_ZONE
+                            }
+                            val feature = UnifiedMapFeature(
+                                id = top.getStringProperty("id") ?: top.id() ?: "feature",
+                                title = title,
+                                subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
+                                category = category,
+                                latitude = latLng.latitude,
+                                longitude = latLng.longitude
+                            )
+                            viewModel.selectFeatureDetail(feature)
+                            return@addOnMapClickListener true
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.d("ActiveTripScreen", "Map tap query: ${t.message}")
+                    }
+                    false
+                }
+            }
+        }
+    }
+
+    // Reactively update traveled track, user puck, and layer visibility
+    LaunchedEffect(
+        state.traveledTrackCoordinates,
+        state.currentLatitude,
+        state.currentLongitude,
+        state.gpsAccuracyMeters,
+        state.layerVisibility,
+        isMapStyleReady
+    ) {
+        if (isMapStyleReady) {
+            maplibreMapInstance?.let { map ->
+                val style = map.style
+                if (style?.isFullyLoaded == true) {
+                    // 1. Update Traveled Track Line
+                    MapLibreLayerManager.updateTraveledTrack(style, state.traveledTrackCoordinates)
+
+                    // 2. Update Current Trekker Puck & Accuracy Halo
+                    val lat = state.currentLatitude
+                    val lon = state.currentLongitude
+                    val acc = state.gpsAccuracyMeters ?: 15.0f
+                    if (lat != null && lon != null) {
+                        MapLibreLayerManager.updateTrekCurrentPosition(style, lat, lon, acc)
+                    }
+
+                    // 3. Update Category Layer Visibilities
+                    state.layerVisibility.forEach { (category, visible) ->
+                        MapLibreLayerManager.setLayerCategoryVisibility(style, category, visible)
+                    }
+                }
+            }
+        }
+    }
+
+    // Recenter camera when first location arrives or on request
+    LaunchedEffect(state.currentLatitude, state.currentLongitude) {
+        val lat = state.currentLatitude
+        val lon = state.currentLongitude
+        if (lat != null && lon != null && isMapStyleReady) {
+            maplibreMapInstance?.let { map ->
+                if (map.style?.isFullyLoaded == true) {
+                    val target = LatLng(lat, lon)
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 14.5), 1000)
+                }
+            }
+        }
+    }
+
+    // Confirmation dialog for ending the trek
+    if (showEndTrekDialog) {
+        AlertDialog(
+            onDismissRequest = { showEndTrekDialog = false },
+            icon = { Icon(AppIcons.StopTrek, contentDescription = null, tint = EmergencyRed, modifier = Modifier.size(32.dp)) },
+            title = { Text("End Active Trek?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "This will finalize your monitored trek session, stop background GPS tracking, and archive your route stats to Room storage.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEndTrekDialog = false
+                        viewModel.endTrip(context)
+                        onNavigateBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
+                ) {
+                    Text("End & Archive Trek", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndTrekDialog = false }) {
+                    Text("Continue Trekking")
+                }
+            }
+        )
+    }
+
+    // Layers Visibility Bottom Sheet
+    if (showLayersSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showLayersSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    "Active Map Layers",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val categories = listOf(
+                    Triple("hazards", "Severe Hazard Zones", AppIcons.HazardGeneric),
+                    Triple("fires", "Active Wildfire Hotspots", AppIcons.Wildfire),
+                    Triple("hospitals", "Hospitals & Medical Clinics", AppIcons.Hospital),
+                    Triple("police", "Police & Security Posts", AppIcons.Police),
+                    Triple("shelters", "Emergency Safe Havens", AppIcons.Shelter)
+                )
+
+                categories.forEach { (catKey, label, icon) ->
+                    val isChecked = state.layerVisibility[catKey] ?: true
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.toggleLayer(catKey) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(icon, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = isChecked,
+                            onCheckedChange = { viewModel.toggleLayer(catKey) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("TrailGuard Active Tracking", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text(
+                            text = if (state.destinationName.isNotBlank()) "En Route to ${state.destinationName}" else "Active Trek Tracking",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        val accStr = state.gpsAccuracyMeters?.let { "±${it.toInt()}m" } ?: "Searching"
+                        val gpsLabel = when (state.gpsStatus) {
+                            "GPS_ACCURATE" -> "GPS Lock ($accStr)"
+                            "GPS_MEDIUM" -> "GPS Fair ($accStr)"
+                            else -> "Acquiring GPS ($accStr)"
+                        }
+                        Text(
+                            text = if (state.isPaused) "PAUSED • $gpsLabel" else "MONITORED • $gpsLabel",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (state.isPaused) WarningAmber else ForestGreenPrimary
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // Sound Alert Toggle
+                    IconButton(onClick = { viewModel.toggleSoundAlerts() }) {
+                        Icon(
+                            imageVector = if (state.soundAlertsEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                            contentDescription = "Toggle Audio Alert",
+                            tint = if (state.soundAlertsEnabled) ForestGreenPrimary else Color.Gray
+                        )
+                    }
+                    // Vibration Toggle
+                    IconButton(onClick = { viewModel.toggleVibrationAlerts() }) {
+                        Icon(
+                            imageVector = Icons.Default.Vibration,
+                            contentDescription = "Toggle Vibration Alert",
+                            tint = if (state.vibrationAlertsEnabled) ForestGreenPrimary else Color.Gray
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         }
-    ) { padding ->
-        Column(
+    ) { innerPadding ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(innerPadding)
         ) {
-            // Check-in Message / SOS Feedback Banner
-            if (state.checkInMessage != null) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (state.isSosTriggered) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
-                    ),
-                    shape = RoundedCornerShape(10.dp)
+            // 1. Embedded MapLibre Map
+            AndroidView(
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // 2. Live Metrics HUD Overlay (Top-Center)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                shadowElevation = 6.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    AppMetricDisplay(
+                        value = String.format(java.util.Locale.US, "%.2f km", state.traveledDistanceKm),
+                        label = "Distance",
+                        valueColor = ForestGreenPrimary
+                    )
+                    VerticalDivider(modifier = Modifier.height(32.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    AppMetricDisplay(
+                        value = state.elapsedDurationFormatted,
+                        label = "Elapsed",
+                        valueColor = MaterialTheme.colorScheme.onSurface
+                    )
+                    VerticalDivider(modifier = Modifier.height(32.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    AppMetricDisplay(
+                        value = "${state.progressPct.toInt()}%",
+                        label = "Route Done",
+                        valueColor = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // 3. Floating Loud Hazard Alert Banner (Appears when hazard engine triggers)
+            AnimatedVisibility(
+                visible = state.activeAlertBanner != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+            ) {
+                state.activeAlertBanner?.let { alert ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = EmergencyRed,
+                        shadowElevation = 8.dp
                     ) {
-                        Icon(
-                            if (state.isSosTriggered) Icons.Default.Emergency else Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = if (state.isSosTriggered) Color(0xFFD32F2F) else Color(0xFF2E7D32)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            state.checkInMessage ?: "",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (state.isSosTriggered) Color(0xFFC62828) else Color(0xFF1B5E20),
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { viewModel.clearMessage() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                AppIcons.Siren,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "HAZARD AHEAD: ${alert.title}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${alert.distanceKm} km away • ${alert.instructions}",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 11.sp,
+                                    maxLines = 2
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { viewModel.dismissActiveAlert() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("MUTE", color = EmergencyRed, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
                         }
                     }
                 }
             }
 
-            // Live Status Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            // 4. Floating Action Controls (Right-Side FABs)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("En Route To", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            Text(state.destinationName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        }
-                        Surface(
-                            color = if (state.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
-                                if (state.isCompleted) "COMPLETED" else "LIVE GPS TRACKING",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                // Recenter Camera FAB
+                FloatingActionButton(
+                    onClick = {
+                        val lat = state.currentLatitude
+                        val lon = state.currentLongitude
+                        if (lat != null && lon != null) {
+                            maplibreMapInstance?.animateCamera(
+                                CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0),
+                                800
                             )
                         }
-                    }
+                    },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = ForestGreenPrimary,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(AppIcons.MyLocation, contentDescription = "Recenter Map")
+                }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text("Route Progress: ${state.progressPct.toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                    )
+                // Layers Toggle FAB
+                FloatingActionButton(
+                    onClick = { showLayersSheet = true },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = ForestGreenPrimary,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(AppIcons.Layers, contentDescription = "Toggle Layers")
                 }
             }
 
-            // TrailGuard Safety Check-In Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
+            // 5. Bottom Trek Controls Bar
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 12.dp
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Timer, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("TrailGuard Check-In", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1B5E20))
+                        // Pause / Resume Button
+                        if (state.isPaused) {
+                            Button(
+                                onClick = { viewModel.resumeTrek(context) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Resume Trek", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { viewModel.pauseTrek(context) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(AppIcons.PauseTrek, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pause Trek", fontWeight = FontWeight.SemiBold)
+                            }
                         }
-                        Text("Due in ${state.nextCheckInCountdown}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Periodic check-ins update Search & Rescue contacts. If missed by > 60m, rescue escalation triggers automatically.",
-                        fontSize = 11.sp,
-                        color = Color(0xFF2E7D32).copy(alpha = 0.85f),
-                        lineHeight = 16.sp
-                    )
+                        // End Trek Button
+                        Button(
+                            onClick = { showEndTrekDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
+                        ) {
+                            Icon(AppIcons.StopTrek, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("End Trek", fontWeight = FontWeight.Bold)
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Button(
-                        onClick = { viewModel.submitCheckIn() },
+                    // Secondary Emergency Actions Row
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = !state.isCheckingIn
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (state.isCheckingIn) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
-                        } else {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Confirm Check-In (I'm OK)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        // Check-in Button
+                        FilledTonalButton(
+                            onClick = { viewModel.submitCheckIn() },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            enabled = !state.isCheckingIn
+                        ) {
+                            if (state.isCheckingIn) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Safety Check-In", fontSize = 12.sp)
+                            }
                         }
-                    }
-                }
-            }
 
-            // Elevation Profile Canvas (Progress Position Tracking)
-            if (state.elevationProfile.isNotEmpty()) {
-                ElevationProfileCard(
-                    profilePoints = state.elevationProfile,
-                    totalAscentM = state.totalAscentM,
-                    maxElevationM = state.maxElevationM,
-                    progressPct = state.progressPct.toFloat()
-                )
-            }
-
-            // Route Deviation or Hazard Radar Alert
-            if (state.isOffRoute) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFFD32F2F))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Off planned route corridor by > 75m. TrailGuard offline deviation alert.",
-                            color = Color(0xFFB71C1C),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-
-            if (state.nearestHazardDistKm != null && state.nearestHazardDistKm!! <= 5.0) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
+                        // SOS Emergency Beacon Button
+                        Button(
+                            onClick = { viewModel.triggerEmergencySos() },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (state.isSosTriggered) Color.White else EmergencyRedContainer,
+                                contentColor = EmergencyRed
+                            )
+                        ) {
+                            Icon(AppIcons.SosBeacon, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                "Hazard Ahead (${state.nearestHazardDistKm} km)",
-                                color = Color(0xFFE65100),
-                                fontSize = 13.sp,
+                                if (state.isSosTriggered) "SOS ACTIVE" else "SOS Beacon",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                state.nearestHazardTitle ?: "Hazard detected along upcoming segment",
-                                color = Color(0xFFEF6C00),
-                                fontSize = 12.sp
-                            )
                         }
                     }
                 }
             }
 
-            // Next Waypoint Arrival Forecast
-            val next = state.nextWaypoint
-            if (next != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            // 6. Selected Feature Detail Bottom Sheet
+            state.selectedFeatureDetail?.let { feature ->
+                ModalBottomSheet(
+                    onDismissRequest = { viewModel.selectFeatureDetail(null) }
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Next Route Waypoint", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(next.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                when (feature.category) {
+                                    MapFeatureCategory.HOSPITAL -> AppIcons.Hospital
+                                    MapFeatureCategory.POLICE_STATION -> AppIcons.Police
+                                    MapFeatureCategory.SHELTER -> AppIcons.Shelter
+                                    MapFeatureCategory.ACTIVE_FIRE_DETECTION -> AppIcons.Wildfire
+                                    else -> AppIcons.HazardGeneric
+                                },
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = feature.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (!feature.subtitle.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = feature.subtitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            AssistChip(
-                                onClick = {},
-                                label = { Text("${next.weather.temperature_c.toInt()}°C", fontSize = 12.sp) },
-                                leadingIcon = { Icon(Icons.Default.Thermostat, contentDescription = null) }
-                            )
-                            AssistChip(
-                                onClick = {},
-                                label = { Text("${next.weather.precipitation_probability_pct.toInt()}% Rain", fontSize = 12.sp) },
-                                leadingIcon = { Icon(Icons.Default.WaterDrop, contentDescription = null) }
-                            )
-                            if (next.elevation_m > 0) {
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text("${next.elevation_m.toInt()}m", fontSize = 12.sp) },
-                                    leadingIcon = { Icon(Icons.Default.Landscape, contentDescription = null) }
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "Expected: ${next.weather.weather_description}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Category: ${feature.category.name.replace('_', ' ')}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        AppSecondaryButton(
+                            text = "Dismiss",
+                            onClick = { viewModel.selectFeatureDetail(null) }
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Panic / EMERGENCY SOS Button
-            Button(
-                onClick = { showSosConfirmation = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(Icons.Default.Emergency, contentDescription = null, tint = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("TRIGGER EMERGENCY SOS", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
-
-            // Report Trail Condition Action
-            OutlinedButton(
-                onClick = { showReportConditionSheet = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(Icons.Default.Report, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Report a Trail Condition", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // End Trip Action
-            OutlinedButton(
-                onClick = {
-                    viewModel.endTrip(context)
-                    showCompletionSummary = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(Icons.Default.Stop, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("End Trip Monitoring", fontSize = 14.sp)
-            }
-        }
-
-        // Trail Condition Report Sheet
-        if (showReportConditionSheet && viewModel.trailReportRepository != null) {
-            val locState by viewModel.locationState.collectAsState()
-            ReportTrailConditionBottomSheet(
-                initialLat = locState.latitude,
-                initialLon = locState.longitude,
-                initialAccuracyM = locState.location?.accuracy?.toDouble() ?: 10.0,
-                routeId = state.routeId,
-                trailReportRepository = viewModel.trailReportRepository!!,
-                onDismiss = { showReportConditionSheet = false },
-                onReportSubmitted = { showReportConditionSheet = false }
-            )
-        }
-
-        // SOS Confirmation Dialog
-        if (showSosConfirmation) {
-            AlertDialog(
-                onDismissRequest = { showSosConfirmation = false },
-                title = { Text("Confirm Emergency SOS", fontWeight = FontWeight.Bold) },
-                text = {
-                    Text("This will immediately broadcast an active Search & Rescue incident containing your coordinates, elevation, and planned trail. Proceed?")
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSosConfirmation = false
-                            viewModel.triggerEmergencySos()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C))
-                    ) {
-                        Text("Broadcast SOS", color = Color.White)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showSosConfirmation = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-
-        // Journey Completion Summary Dialog
-        if (showCompletionSummary) {
-            AlertDialog(
-                onDismissRequest = {
-                    showCompletionSummary = false
-                    onNavigateBack()
-                },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF2E7D32),
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Journey Completed!", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "Trek route safely navigated to ${state.destinationName}.",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Total Route Distance:", fontSize = 12.sp)
-                                    Text("${state.totalDistanceKm} km", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                                if (state.maxElevationM > 0) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Max Elevation Reached:", fontSize = 12.sp)
-                                        Text("${state.maxElevationM.toInt()} m", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-                                }
-                                if (state.totalAscentM > 0) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Total Elevation Gain:", fontSize = 12.sp)
-                                        Text("${state.totalAscentM.toInt()} m", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Corridor Safety Status:", fontSize = 12.sp)
-                                    Text("SAFE / COMPLETED", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showCompletionSummary = false
-                            onNavigateBack()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                    ) {
-                        Text("Done & Return", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
         }
     }
 }

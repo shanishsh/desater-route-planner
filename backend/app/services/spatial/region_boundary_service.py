@@ -28,16 +28,22 @@ class RegionBoundaryService:
             "resources",
             "uttarakhand_boundary.geojson",
         )
+        self._mask_path = os.path.join(
+            os.path.dirname(self._geojson_path),
+            "uttarakhand_mask.geojson",
+        )
         self._polygon = None
         self._prepped = None
+        self._boundary_data = None
+        self._mask_data = None
         self._load_boundary()
 
     def _load_boundary(self) -> None:
         try:
             if os.path.exists(self._geojson_path):
                 with open(self._geojson_path, "r", encoding="utf-8") as f:
-                    geom_data = json.load(f)
-                self._polygon = shape(geom_data)
+                    self._boundary_data = json.load(f)
+                self._polygon = shape(self._boundary_data)
                 self._prepped = prep(self._polygon)
                 logger.info(
                     f"Loaded Uttarakhand boundary from {self._geojson_path} with geometry type {self._polygon.geom_type}"
@@ -48,6 +54,14 @@ class RegionBoundaryService:
                 )
         except Exception as e:
             logger.error(f"Error loading Uttarakhand boundary GeoJSON: {e}")
+
+        try:
+            if os.path.exists(self._mask_path):
+                with open(self._mask_path, "r", encoding="utf-8") as f:
+                    self._mask_data = json.load(f)
+                logger.info(f"Loaded Uttarakhand mask from {self._mask_path}")
+        except Exception as e:
+            logger.warning(f"Error loading Uttarakhand mask GeoJSON: {e}")
 
     def is_point_in_uttarakhand(self, lat: float, lon: float) -> bool:
         """
@@ -62,7 +76,7 @@ class RegionBoundaryService:
         if self._prepped is not None:
             # GeoJSON coordinates are (longitude, latitude)
             pt = Point(lon, lat)
-            return bool(self._prepped.contains(pt))
+            return bool(self._prepped.covers(pt))
 
         # Fallback to bounding box if polygon not loaded
         return True
@@ -81,7 +95,7 @@ class RegionBoundaryService:
     ) -> Tuple[bool, Optional[str]]:
         """
         Validates that a complete route polyline remains within the supported Uttarakhand boundary.
-        Samples route points to ensure no significant section leaves the state.
+        Uses exact Shapely geometric coverage and vertex sampling for tolerance.
         """
         if not route_coords_lat_lon:
             return False, "Route geometry is empty."
@@ -91,25 +105,55 @@ class RegionBoundaryService:
         end_lat, end_lon = route_coords_lat_lon[-1]
 
         if not self.is_point_in_uttarakhand(start_lat, start_lon):
-            return False, f"Route origin ({start_lat:.4f}, {start_lon:.4f}) is outside Uttarakhand."
+            return False, f"Route origin ({start_lat:.4f}, {start_lon:.4f}) is outside the state of Uttarakhand."
 
         if not self.is_point_in_uttarakhand(end_lat, end_lon):
-            return False, f"Route destination ({end_lat:.4f}, {end_lon:.4f}) is outside Uttarakhand."
+            return False, f"Route destination ({end_lat:.4f}, {end_lon:.4f}) is outside the state of Uttarakhand."
+
+        # Fast geometric coverage check using Shapely prepared polygon
+        if self._prepped is not None and len(route_coords_lat_lon) >= 2:
+            try:
+                line = LineString([(lon, lat) for lat, lon in route_coords_lat_lon])
+                if self._prepped.covers(line):
+                    return True, None
+            except Exception as e:
+                logger.debug(f"Shapely LineString covers check error: {e}")
 
         # Sample intermediate coordinates along the route
         step = max(1, len(route_coords_lat_lon) // 50)
         outside_count = 0
+        total_samples = 0
         for i in range(0, len(route_coords_lat_lon), step):
             lat, lon = route_coords_lat_lon[i]
+            total_samples += 1
             if not self.is_point_in_uttarakhand(lat, lon):
                 outside_count += 1
 
-        # Allow small border discrepancies (< 4% of sampled vertices for border crossing tolerance)
-        total_samples = max(1, len(range(0, len(route_coords_lat_lon), step)))
-        if outside_count / total_samples > 0.05:
-            return False, "Calculated route exits the supported Uttarakhand boundary."
+        # Allow small border discrepancies (< 4% of sampled vertices for border highway tolerance)
+        if total_samples > 0 and (outside_count / total_samples) > 0.04:
+            return False, "Calculated route path exits the supported Uttarakhand administrative boundary."
 
         return True, None
+
+    def get_boundary_geojson(self) -> Dict[str, Any]:
+        """Returns the authoritative GeoJSON geometry/feature for Uttarakhand."""
+        if self._boundary_data is not None:
+            return self._boundary_data
+        if os.path.exists(self._geojson_path):
+            with open(self._geojson_path, "r", encoding="utf-8") as f:
+                self._boundary_data = json.load(f)
+            return self._boundary_data
+        return {"type": "FeatureCollection", "features": []}
+
+    def get_mask_geojson(self) -> Dict[str, Any]:
+        """Returns the outside-state inverted polygon mask GeoJSON."""
+        if self._mask_data is not None:
+            return self._mask_data
+        if os.path.exists(self._mask_path):
+            with open(self._mask_path, "r", encoding="utf-8") as f:
+                self._mask_data = json.load(f)
+            return self._mask_data
+        return {"type": "FeatureCollection", "features": []}
 
     def get_region_metadata(self) -> Dict[str, Any]:
         """Returns metadata about the active regional deployment."""

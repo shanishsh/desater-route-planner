@@ -25,6 +25,8 @@ object MapLibreLayerManager {
     private const val TAG = "MapLibreLayerManager"
 
     // Sources
+    const val SOURCE_UTTARAKHAND_MASK = "source-uttarakhand-mask"
+    const val SOURCE_UTTARAKHAND_BOUNDARY = "source-uttarakhand-boundary"
     const val SOURCE_CORRIDOR = "source-route-corridor"
     const val SOURCE_ROUTE_PRIMARY = "source-route-primary"
     const val SOURCE_ROUTE_SECONDARY = "source-route-secondary"
@@ -35,6 +37,8 @@ object MapLibreLayerManager {
     const val SOURCE_WEATHER_POINTS = "source-weather-points"
 
     // Layers
+    const val LAYER_UTTARAKHAND_MASK_FILL = "layer-uttarakhand-mask-fill"
+    const val LAYER_UTTARAKHAND_BOUNDARY_LINE = "layer-uttarakhand-boundary-line"
     const val LAYER_CORRIDOR_FILL = "layer-corridor-fill"
     const val LAYER_CORRIDOR_LINE = "layer-corridor-line"
     const val LAYER_FOREST_FILL = "layer-forest-fill"
@@ -63,6 +67,17 @@ object MapLibreLayerManager {
     const val LAYER_SAFE_HAVENS_SYMBOL = "layer-safe-havens-symbol"
     const val LAYER_WEATHER_POINTS_CIRCLE = "layer-weather-points-circle"
 
+    // Ordered Route Hazard Sequence (Animated Icons & Sequence Badges)
+    const val SOURCE_ROUTE_HAZARD_SEQUENCE = "source-route-hazard-sequence"
+    const val LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL = "layer-route-hazard-sequence-symbol"
+
+    // Active Trek Layers
+    const val SOURCE_TRAVELED_TRACK = "source-traveled-track"
+    const val LAYER_TRAVELED_TRACK_LINE = "layer-traveled-track-line"
+    const val SOURCE_TREK_CURRENT_POS = "source-trek-current-pos"
+    const val LAYER_TREK_CURRENT_POS_ACCURACY = "layer-trek-current-pos-accuracy"
+    const val LAYER_TREK_CURRENT_POS_CIRCLE = "layer-trek-current-pos-circle"
+
     private const val EMPTY_GEOJSON = "{\"type\":\"FeatureCollection\",\"features\":[]}"
 
     /**
@@ -80,6 +95,46 @@ object MapLibreLayerManager {
             MapIconFactory.registerMarkerImages(style, context)
             val iconStatus = MapIconFactory.verifyAllIconsRegistered(style)
             Log.d(TAG, "Registered MapLibre icons status: $iconStatus")
+
+            // 0b. Uttarakhand State Boundary & Outside Mask (Base Overlays)
+            // The outside mask occludes all base-map tiles and labels outside Uttarakhand.
+            // The boundary line renders the state's authoritative perimeter.
+            if (context != null) {
+                if (style.getSource(SOURCE_UTTARAKHAND_MASK) == null) {
+                    val maskJson = getOrLoadMaskGeoJson(context)
+                    if (maskJson != null) {
+                        style.addSource(GeoJsonSource(SOURCE_UTTARAKHAND_MASK, maskJson))
+                    }
+                }
+                if (style.getLayer(LAYER_UTTARAKHAND_MASK_FILL) == null && style.getSource(SOURCE_UTTARAKHAND_MASK) != null) {
+                    val maskFill = FillLayer(LAYER_UTTARAKHAND_MASK_FILL, SOURCE_UTTARAKHAND_MASK).apply {
+                        setProperties(
+                            fillColor(Color.parseColor("#EAE8E3")), // Neutral tone matching base map
+                            fillOpacity(1.0f) // 100% opacity hides all out-of-state tiles
+                        )
+                    }
+                    style.addLayer(maskFill)
+                }
+
+                if (style.getSource(SOURCE_UTTARAKHAND_BOUNDARY) == null) {
+                    val boundaryJson = getOrLoadBoundaryGeoJson(context)
+                    if (boundaryJson != null) {
+                        style.addSource(GeoJsonSource(SOURCE_UTTARAKHAND_BOUNDARY, boundaryJson))
+                    }
+                }
+                if (style.getLayer(LAYER_UTTARAKHAND_BOUNDARY_LINE) == null && style.getSource(SOURCE_UTTARAKHAND_BOUNDARY) != null) {
+                    val boundaryLine = LineLayer(LAYER_UTTARAKHAND_BOUNDARY_LINE, SOURCE_UTTARAKHAND_BOUNDARY).apply {
+                        setProperties(
+                            lineColor(Color.parseColor("#1E3A8A")), // Crisp dark navy border
+                            lineWidth(2.5f),
+                            lineOpacity(0.9f),
+                            lineJoin(Property.LINE_JOIN_ROUND),
+                            lineCap(Property.LINE_CAP_ROUND)
+                        )
+                    }
+                    style.addLayer(boundaryLine)
+                }
+            }
 
             // 1. Corridor Source & Layers (Bottom-most)
             if (style.getSource(SOURCE_CORRIDOR) == null) {
@@ -526,6 +581,31 @@ object MapLibreLayerManager {
                 style.addLayer(fireSymbol)
             }
 
+            // 8. Ordered Route Hazard Sequence Layer (Animated Category Glyphs + Numbered Badges)
+            if (style.getSource(SOURCE_ROUTE_HAZARD_SEQUENCE) == null) {
+                style.addSource(GeoJsonSource(SOURCE_ROUTE_HAZARD_SEQUENCE, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL) == null) {
+                val seqSymbol = SymbolLayer(LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL, SOURCE_ROUTE_HAZARD_SEQUENCE).apply {
+                    setProperties(
+                        iconImage(get("icon_id")),
+                        iconSize(interpolate(linear(), zoom(), stop(8.0f, 0.75f), stop(11.0f, 0.95f), stop(14.0f, 1.20f))),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER),
+                        textField(get("sequence_label")),
+                        textSize(11.5f),
+                        textColor(Color.WHITE),
+                        textHaloColor(Color.BLACK),
+                        textHaloWidth(1.8f),
+                        textOffset(arrayOf(0f, 1.45f)),
+                        textAnchor(Property.TEXT_ANCHOR_TOP),
+                        textAllowOverlap(true)
+                    )
+                }
+                style.addLayer(seqSymbol)
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing MapLibre sources and layers: ${e.message}", e)
         }
@@ -685,6 +765,7 @@ object MapLibreLayerManager {
             style.getSourceAs<GeoJsonSource>(SOURCE_CORRIDOR)?.setGeoJson(EMPTY_GEOJSON)
             style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)?.setGeoJson(EMPTY_GEOJSON)
             style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)?.setGeoJson(EMPTY_GEOJSON)
+            style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_HAZARD_SEQUENCE)?.setGeoJson(EMPTY_GEOJSON)
             Log.d(TAG, "Cleared route and corridor layers from MapLibre style.")
         } catch (e: Throwable) {
             Log.w(TAG, "Failed clearing route layers: ${e.message}")
@@ -979,5 +1060,122 @@ object MapLibreLayerManager {
         }
         // Bare Geometry (LineString, Polygon, MultiPolygon)
         return "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":$trimmed}]}"
+    }
+
+    private var cachedMaskGeoJson: String? = null
+    private var cachedBoundaryGeoJson: String? = null
+
+    private fun getOrLoadMaskGeoJson(context: android.content.Context): String? {
+        if (cachedMaskGeoJson != null) return cachedMaskGeoJson
+        return try {
+            context.assets.open("uttarakhand_mask.geojson").use { stream ->
+                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedMaskGeoJson = ensureFeatureCollection(text)
+                cachedMaskGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_mask.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun getOrLoadBoundaryGeoJson(context: android.content.Context): String? {
+        if (cachedBoundaryGeoJson != null) return cachedBoundaryGeoJson
+        return try {
+            context.assets.open("uttarakhand_boundary.geojson").use { stream ->
+                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedBoundaryGeoJson = ensureFeatureCollection(text)
+                cachedBoundaryGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_boundary.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Serializes ordered route hazard items into MapLibre GeoJSON FeatureCollection.
+     * Attaches category icon keys, sequence numbering labels, and selection states.
+     */
+    fun buildHazardSequenceGeoJson(
+        items: List<com.touristsafety.app.core.model.RouteOrderedHazardItem>,
+        selectedId: String? = null
+    ): String {
+        if (items.isEmpty()) return EMPTY_GEOJSON
+        val sb = StringBuilder()
+        sb.append("\"type\":\"FeatureCollection\",\"features\":[")
+        items.forEachIndexed { idx, item ->
+            if (idx > 0) sb.append(",")
+            val isSelected = item.feature.id == selectedId || item.sequenceLabel == selectedId
+            sb.append("\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+            sb.append(item.feature.longitude).append(",").append(item.feature.latitude)
+            sb.append("],\"properties\":{")
+            sb.append("\"id\":\"").append(escapeJson(item.feature.id)).append("\",")
+            sb.append("\"sequence_label\":\"").append(item.sequenceLabel).append("\",")
+            sb.append("\"title\":\"").append(escapeJson(item.feature.title)).append("\",")
+            sb.append("\"category\":\"").append(item.categoryType.name).append("\",")
+            sb.append("\"icon_id\":\"").append(item.categoryType.iconKey).append("\",")
+            sb.append("\"is_selected\":").append(isSelected).append(",")
+            sb.append("\"is_direct_intersection\":").append(item.intersectionType == com.touristsafety.app.core.model.RouteIntersectionType.DIRECT_INTERSECTION).append(",")
+            sb.append("\"trek_status\":\"").append(item.trekStatus.name).append("\"")
+            sb.append("}}")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    fun updateTraveledTrack(style: Style, coordinates: List<Pair<Double, Double>>) {
+        if (!style.isFullyLoaded) return
+        val source = style.getSourceAs<GeoJsonSource>(SOURCE_TRAVELED_TRACK) ?: return
+        if (coordinates.size < 2) {
+            source.setGeoJson(EMPTY_GEOJSON)
+            return
+        }
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+        coordinates.forEachIndexed { idx, (lat, lon) ->
+            if (idx > 0) sb.append(",")
+            sb.append("[").append(lon).append(",").append(lat).append("]")
+        }
+        sb.append("]}}]}")
+        source.setGeoJson(sb.toString())
+    }
+
+    fun updateTrekCurrentPosition(style: Style, lat: Double, lon: Double, accuracyMeters: Float) {
+        if (!style.isFullyLoaded) return
+        val source = style.getSourceAs<GeoJsonSource>(SOURCE_TREK_CURRENT_POS) ?: return
+        val radiusDisplay = maxOf(10.0f, minOf(50.0f, accuracyMeters))
+        val geoJson = "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[$lon,$lat]},\"properties\":{\"radius\":$radiusDisplay}}]}"
+        source.setGeoJson(geoJson)
+    }
+
+    fun setLayerCategoryVisibility(style: Style, category: String, visible: Boolean) {
+        if (!style.isFullyLoaded) return
+        val visibility = if (visible) Property.VISIBLE else Property.NONE
+        when (category.lowercase()) {
+            "hazards" -> {
+                style.getLayer(LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_DISASTER_FILL)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_DISASTER_LINE)?.setProperties(visibility(visibility))
+            }
+            "fires" -> {
+                style.getLayer(LAYER_ACTIVE_FIRES_CIRCLE)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_ACTIVE_FIRES_SYMBOL)?.setProperties(visibility(visibility))
+            }
+            "hospitals" -> {
+                style.getLayer(LAYER_HOSPITALS_CIRCLE)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_HOSPITALS_SYMBOL)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_CLINICS_CIRCLE)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_CLINICS_SYMBOL)?.setProperties(visibility(visibility))
+            }
+            "police" -> {
+                style.getLayer(LAYER_POLICE_CIRCLE)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_POLICE_SYMBOL)?.setProperties(visibility(visibility))
+            }
+            "shelters" -> {
+                style.getLayer(LAYER_SAFE_HAVENS_CIRCLE)?.setProperties(visibility(visibility))
+                style.getLayer(LAYER_SAFE_HAVENS_SYMBOL)?.setProperties(visibility(visibility))
+            }
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.touristsafety.app.feature.emergency
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -17,10 +18,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.touristsafety.app.core.designsystem.*
+import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.model.MapPoint
 import com.touristsafety.app.core.model.PointCategory
 
@@ -37,7 +42,10 @@ fun EmergencyScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Emergency & Assistance") }
+                title = { Text("Assistance & Emergency", fontWeight = FontWeight.Bold) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         },
         modifier = modifier
@@ -46,12 +54,12 @@ fun EmergencyScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. National Emergency 112 Main Action Card
+            // 1. National Emergency 112 Hero Card
             item {
-                Card(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -60,237 +68,7 @@ fun EmergencyScreen(
                             }
                             context.startActivity(intent)
                         },
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F)),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.PhoneInTalk,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    "Dial National Emergency (112)",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "India ERSS: Police, Fire & Medical 24x7",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 1b. Uttarakhand Verified Emergency Directory
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color(0xFF2E7D32))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Uttarakhand Emergency Directory",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Verified state disaster response helplines (Government of Uttarakhand)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        val officialContacts = listOf(
-                            Triple("SDRF Mountain Rescue", "1077", "State Disaster Response Force 24x7"),
-                            Triple("State Disaster Op Centre (SEOC)", "1070", "USDMA Emergency Operations"),
-                            Triple("Forest Fire Helpline (Van Agni)", "18001804141", "Forest Department MoEFCC"),
-                            Triple("Trekker & Pilgrim Helpline", "1364", "Uttarakhand Tourism & Char Dham"),
-                            Triple("Ambulance & Medical", "108", "State Health Emergency Service")
-                        )
-
-                        officialContacts.forEach { (title, phone, desc) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp)
-                                    .clickable {
-                                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                                            data = Uri.parse("tel:$phone")
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                    Text(desc, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                }
-                                FilledTonalButton(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                                            data = Uri.parse("tel:$phone")
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(phone, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        }
-                    }
-                }
-            }
-
-            // 1c. Handset GPS Location Card for Emergency Dispatch
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.MyLocation, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Your Current GPS Location",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        if (state.userLatitude != null && state.userLongitude != null) {
-                            Text(
-                                "Latitude: " + String.format("%.5f", state.userLatitude) + "° N\nLongitude: " + String.format("%.5f", state.userLongitude) + "° E",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "Read these coordinates aloud when contacting 112 / 1077 / 1070 dispatchers.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
-                            )
-                        } else {
-                            Text(
-                                "Acquiring satellite GPS fix... Ensure device has clear view of sky.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 1a. Search & Rescue (SAR) SOS Field Beacon
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (state.isSosTriggered) Color(0xFFB71C1C) else MaterialTheme.colorScheme.errorContainer
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Emergency,
-                                contentDescription = null,
-                                tint = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    if (state.isSosTriggered) "SOS BEACON ACTIVE" else "Transmit SAR Emergency Beacon",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Text(
-                                    "Broadcasts your live GPS coordinates, altitude, and SAR distress package to emergency responders.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (state.isSosTriggered) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.triggerFieldSos() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.error,
-                                contentColor = if (state.isSosTriggered) Color(0xFFB71C1C) else MaterialTheme.colorScheme.onError
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.CrisisAlert, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                if (state.isSosTriggered) "RE-TRANSMIT BEACON" else "SEND DISTRESS BEACON",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            // SOS Alert Message Feedback
-            state.sosMessage?.let { msg ->
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = msg,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { viewModel.dismissSosMessage() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 1b. Disaster Safety & Offline Geofence Shortcut
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigateToDisasterSafety() },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    color = EmergencyRed,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -298,57 +76,207 @@ fun EmergencyScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.Shield,
+                            AppIcons.DialEmergency,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(32.dp)
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Disaster Alert & Offline Safety Center",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                "Dial National Emergency (112)",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "SMS registration, offline route hazard geofencing & siren test.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                "India ERSS: Police, Fire & Medical 24x7",
+                                color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        Button(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = Uri.parse("tel:112")
+                                }
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text("CALL", color = EmergencyRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
                     }
                 }
             }
 
-            // 2. Privacy & On-Device GPS Notice
+            // 2. Handset GPS Location for Emergency Dispatch
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(8.dp)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = SageContainer,
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Privacy Guarantee: Your GPS location is computed strictly on-device and is never tracked or stored on backend servers.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(AppIcons.MyLocation, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Your Current GPS Coordinates",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ForestGreenPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (state.userLatitude != null && state.userLongitude != null) {
+                            Text(
+                                text = String.format(java.util.Locale.US, "%.5f° N,  %.5f° E", state.userLatitude, state.userLongitude),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryLight
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Read these exact coordinates to 112 / SDRF dispatchers.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryLight
+                            )
+                        } else {
+                            Text(
+                                "Acquiring satellite GPS fix... Clear sky view required.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryLight
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Search & Rescue (SAR) Distress Field Beacon
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = if (state.isSosTriggered) EmergencyRed else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                AppIcons.SosBeacon,
+                                contentDescription = null,
+                                tint = if (state.isSosTriggered) Color.White else EmergencyRed,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (state.isSosTriggered) "SOS BEACON TRANSMITTED" else "SAR Distress Beacon",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "Broadcasts emergency GPS coordinates & telemetry",
+                                    fontSize = 12.sp,
+                                    color = if (state.isSosTriggered) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        AppPrimaryButton(
+                            text = if (state.isSosTriggered) "RE-TRANSMIT BEACON" else "TRANSMIT DISTRESS BEACON",
+                            containerColor = if (state.isSosTriggered) Color.White else EmergencyRed,
+                            contentColor = if (state.isSosTriggered) EmergencyRed else Color.White,
+                            onClick = { viewModel.triggerFieldSos() }
                         )
                     }
                 }
             }
 
-            // 3. Category Filter Chips
+            // SOS Feedback message
+            state.sosMessage?.let { msg ->
+                item {
+                    AppErrorBanner(
+                        message = msg,
+                        isCritical = false,
+                        icon = AppIcons.Safe,
+                        onDismiss = { viewModel.dismissSosMessage() }
+                    )
+                }
+            }
+
+            // 4. Uttarakhand Verified Emergency Helplines
             item {
+                AppSectionHeader(
+                    title = "Uttarakhand Rescue Directory",
+                    subtitle = "Verified Government of Uttarakhand helplines"
+                )
+            }
+
+            val officialContacts = listOf(
+                Triple("SDRF Mountain Rescue", "1077", "State Disaster Response Force 24x7"),
+                Triple("State Disaster Op Centre (SEOC)", "1070", "USDMA Emergency Operations"),
+                Triple("Forest Fire Helpline (Van Agni)", "18001804141", "Forest Department MoEFCC"),
+                Triple("Trekker & Pilgrim Helpline", "1364", "Uttarakhand Tourism & Char Dham"),
+                Triple("Ambulance & Medical Emergency", "108", "State Health Emergency Service")
+            )
+
+            items(officialContacts) { (title, phone, desc) ->
+                AppListItem(
+                    title = title,
+                    subtitle = desc,
+                    leadingIcon = AppIcons.Phone,
+                    leadingIconTint = ForestGreenPrimary,
+                    leadingIconBg = SageContainer,
+                    trailingContent = {
+                        Button(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = Uri.parse("tel:$phone")
+                                }
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SageContainer),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(phone, color = ForestGreenPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                            data = Uri.parse("tel:$phone")
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+            }
+
+            // 5. Offline Safety Center & SMS Geofence Link
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+                AppListItem(
+                    title = "Disaster Safety & Offline SMS Registration",
+                    subtitle = "Manage emergency SMS contacts and offline corridor geofences",
+                    leadingIcon = AppIcons.DisasterSafety,
+                    leadingIconTint = ForestGreenPrimary,
+                    leadingIconBg = SageContainer,
+                    showChevron = true,
+                    showDivider = true,
+                    onClick = onNavigateToDisasterSafety
+                )
+            }
+
+            // 6. Nearby Facilities Header & Category Filter
+            item {
+                AppSectionHeader(
+                    title = "Nearby Assistance Facilities",
+                    subtitle = "Verified hospitals, police stations, shelters, and medical posts along trail corridors"
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -358,91 +286,76 @@ fun EmergencyScreen(
                     FilterChip(
                         selected = state.selectedCategory == null,
                         onClick = { viewModel.selectCategory(null) },
-                        label = { Text("All") }
+                        label = { Text("All") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = SageContainer,
+                            selectedLabelColor = ForestGreenPrimary
+                        )
                     )
                     PointCategory.values().forEach { cat ->
                         FilterChip(
                             selected = state.selectedCategory == cat,
                             onClick = { viewModel.selectCategory(cat) },
-                            label = { Text(cat.name.replace('_', ' ')) }
+                            label = { Text(cat.name.replace('_', ' ')) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SageContainer,
+                                selectedLabelColor = ForestGreenPrimary
+                            )
                         )
                     }
                 }
             }
 
-            // 4. Assistance Points Directory
-            items(state.filteredPoints, key = { it.id }) { pt ->
-                AssistancePointCard(
-                    point = pt,
-                    onCall = { phone ->
-                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:$phone")
-                        }
-                        context.startActivity(intent)
+            // 7. Facilities List
+            if (state.filteredPoints.isEmpty()) {
+                item {
+                    AppEmptyState(
+                        title = "No Facilities in Cached Corridor",
+                        description = "Expand your corridor search buffer in Plan Route or download an offline trek pack.",
+                        icon = AppIcons.Hospital
+                    )
+                }
+            } else {
+                items(state.filteredPoints, key = { it.id }) { pt ->
+                    val facilityIcon = when (pt.category) {
+                        PointCategory.POLICE -> AppIcons.Police
+                        PointCategory.MEDICAL, PointCategory.CLINIC -> AppIcons.Hospital
+                        PointCategory.SHELTER -> AppIcons.Shelter
+                        else -> AppIcons.Pharmacy
                     }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun AssistancePointCard(point: MapPoint, onCall: (String) -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = point.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Default.Verified, contentDescription = "Verified", tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = point.category.name.replace('_', ' '),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            point.description?.let { desc ->
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(desc, style = MaterialTheme.typography.bodyMedium)
-            }
-
-            point.address?.let { addr ->
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Address: $addr", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Provenance: ${point.provenance}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-
-            point.phone?.let { phoneNum ->
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = { onCall(phoneNum) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Phone, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Call $phoneNum")
+                    AppListItem(
+                        title = pt.name,
+                        subtitle = "${pt.category.name.replace('_', ' ')}${if (pt.address != null) " • ${pt.address}" else ""}",
+                        caption = "Source: ${pt.provenance}",
+                        leadingIcon = facilityIcon,
+                        leadingIconTint = ForestGreenPrimary,
+                        leadingIconBg = SageContainer,
+                        trailingContent = pt.phone?.let { phoneNum ->
+                            {
+                                Button(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            data = Uri.parse("tel:$phoneNum")
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SageContainer),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(AppIcons.Phone, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Call", color = ForestGreenPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    )
                 }
             }
+
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
     }
 }
-

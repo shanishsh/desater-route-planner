@@ -3,6 +3,9 @@ package com.touristsafety.app.feature.map
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
+import com.touristsafety.app.core.spatial.RouteHazardSequenceCalculator
+import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapClusterHelper
 import com.touristsafety.app.core.model.*
@@ -64,8 +67,8 @@ data class MapUiState(
     val isLocationFresh: Boolean = false,
     val isLocating: Boolean = false,
     val locationErrorMessage: String? = null,
-    val cameraTarget: Pair<Double, Double> = 30.15 to 78.78,
-    val zoomLevel: Double = 9.0,
+    val cameraTarget: Pair<Double, Double> = MapConfig.DEFAULT_LATITUDE to MapConfig.DEFAULT_LONGITUDE,
+    val zoomLevel: Double = MapConfig.DEFAULT_ZOOM,
     val isOfflineMode: Boolean = false,
     val selectedFilter: MapFilterChip = MapFilterChip.ALL,
     val layerVisibilities: Map<MapFeatureCategory, Boolean> = MapFeatureCategory.entries.associateWith { true },
@@ -111,7 +114,11 @@ data class MapUiState(
     val firesGeoJson: String? = null,
     val facilitiesGeoJson: String? = null,
     val weatherGeoJson: String? = null,
-    val geometryDiagnostics: Map<String, JsonElement> = emptyMap()
+    val geometryDiagnostics: Map<String, JsonElement> = emptyMap(),
+    val routeHazardSequence: List<com.touristsafety.app.core.model.RouteOrderedHazardItem> = emptyList(),
+    val selectedHazardSequenceItem: com.touristsafety.app.core.model.RouteOrderedHazardItem? = null,
+    val isAnimationEnabled: Boolean = true,
+    val isHazardTimelineExpanded: Boolean = false
 )
 
 @HiltViewModel
@@ -126,7 +133,8 @@ class MapViewModel @Inject constructor(
     private val providerStatusRepository: ProviderStatusRepository,
     private val connectivityMonitor: NetworkConnectivityMonitor,
     private val deviceLocationRepository: DeviceLocationRepository,
-    val trailReportRepository: TrailReportRepository? = null
+    val trailReportRepository: TrailReportRepository? = null,
+    private val boundaryValidator: UttarakhandBoundaryValidator? = null
 ) : ViewModel() {
 
     val locationState = deviceLocationRepository.locationState
@@ -156,15 +164,25 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch {
             deviceLocationRepository.locationState.collect { locState ->
                 if (locState.latitude != null && locState.longitude != null) {
+                    val inState = boundaryValidator?.isPointInUttarakhand(locState.latitude, locState.longitude) ?: true
                     _uiState.update { current ->
-                        current.copy(
-                            userLocation = locState.latitude to locState.longitude,
-                            userLocationAccuracyMeters = locState.accuracyMeters,
-                            isUserLocationAcquired = true,
-                            isLocationFresh = locState.isFresh,
-                            isLocating = locState.isLocating,
-                            locationErrorMessage = locState.errorMessage
-                        )
+                        if (inState) {
+                            current.copy(
+                                userLocation = locState.latitude to locState.longitude,
+                                userLocationAccuracyMeters = locState.accuracyMeters,
+                                isUserLocationAcquired = true,
+                                isLocationFresh = locState.isFresh,
+                                isLocating = locState.isLocating,
+                                locationErrorMessage = locState.errorMessage
+                            )
+                        } else {
+                            current.copy(
+                                isUserLocationAcquired = false,
+                                isLocationFresh = false,
+                                isLocating = locState.isLocating,
+                                locationErrorMessage = "GPS position is outside Uttarakhand. Please select a trailhead within the state."
+                            )
+                        }
                     }
                 } else {
                     _uiState.update { current ->
@@ -940,6 +958,65 @@ class MapViewModel @Inject constructor(
                 nearbyAssistanceList = assistance
             )
         }
+        updateRouteHazardSequence()
+    }
+
+    /**
+     * Recomputes the ordered route hazard sequence based on current route geometry,
+     * live trekker GPS progress, and monitored corridor hazards.
+     */
+    fun updateRouteHazardSequence() {
+        val state = _uiState.value
+        val routeCoords = state.routeCoordinates.ifEmpty { state.primaryRouteCoordinates }
+        if (routeCoords.size < 2) {
+            _uiState.update { it.copy(routeHazardSequence = emptyList(), selectedHazardSequenceItem = null) }
+            return
+        }
+
+        val userLoc = if (state.isUserLocationAcquired) state.userLocation else null
+        val corrMeters = state.corridorDistanceKm * 1000.0
+
+        val hazardList: List<RouteOrderedHazardItem> = RouteHazardSequenceCalculator.calculateSequence(
+            routePoints = routeCoords,
+            features = state.allFeatures,
+            userLocation = userLoc,
+            corridorDistanceMeters = corrMeters
+        )
+
+        _uiState.update { cur ->
+            val updatedSelected = hazardList.find { it.feature.id == cur.selectedFeature?.id }
+                ?: cur.selectedHazardSequenceItem?.let { sel -> hazardList.find { it.sequenceNumber == sel.sequenceNumber } }
+
+            cur.copy(
+                routeHazardSequence = hazardList,
+                selectedHazardSequenceItem = updatedSelected
+            )
+        }
+    }
+
+    fun selectHazardSequenceItem(item: RouteOrderedHazardItem?) {
+        _uiState.update {
+            it.copy(
+                selectedHazardSequenceItem = item,
+                selectedFeature = item?.feature,
+                cameraTarget = item?.let { it.feature.latitude to it.feature.longitude } ?: it.cameraTarget,
+                zoomLevel = if (item != null) 14.5 else it.zoomLevel
+            )
+        }
+    }
+
+    fun toggleAnimation(enabled: Boolean? = null) {
+        _uiState.update {
+            val newVal = enabled ?: !it.isAnimationEnabled
+            it.copy(isAnimationEnabled = newVal)
+        }
+    }
+
+    fun toggleHazardTimelineExpanded(expanded: Boolean? = null) {
+        _uiState.update {
+            val newVal = expanded ?: !it.isHazardTimelineExpanded
+            it.copy(isHazardTimelineExpanded = newVal)
+        }
     }
 
     private fun filterFeatures(
@@ -1153,6 +1230,14 @@ class MapViewModel @Inject constructor(
     }
 
     fun selectDestination(place: PlaceSearchResultDto) {
+        if (boundaryValidator != null && !boundaryValidator.isPointInUttarakhand(place.latitude, place.longitude)) {
+            _uiState.update {
+                it.copy(
+                    locationErrorMessage = "${place.name} is outside Uttarakhand. Route planning is restricted to Uttarakhand."
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(

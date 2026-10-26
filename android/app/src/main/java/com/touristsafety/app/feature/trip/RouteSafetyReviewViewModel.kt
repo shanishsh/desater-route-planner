@@ -56,7 +56,7 @@ sealed interface RouteReviewEvent {
 @HiltViewModel
 class RouteSafetyReviewViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val routeRepository: RouteRepository,
+    val routeRepository: RouteRepository,
     val offlineTrekPackManager: OfflineTrekPackManager
 ) : ViewModel() {
 

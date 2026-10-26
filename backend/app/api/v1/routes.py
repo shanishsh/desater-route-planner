@@ -60,6 +60,18 @@ async def plan_route(
             detail=f"Destination coordinates ({request.destination_lat}, {request.destination_lon}) are outside valid WGS84 bounds.",
         )
 
+    # 1b. Authoritative Uttarakhand State Boundary Check
+    if not region_boundary_service.is_point_in_uttarakhand(request.origin_lat, request.origin_lon):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Origin coordinates ({request.origin_lat:.4f}, {request.origin_lon:.4f}) are outside the state of Uttarakhand. Route planning and hazard scanning are strictly scoped to Uttarakhand, India.",
+        )
+    if not region_boundary_service.is_point_in_uttarakhand(request.destination_lat, request.destination_lon):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Destination coordinates ({request.destination_lat:.4f}, {request.destination_lon:.4f}) are outside the state of Uttarakhand. Route planning and hazard scanning are strictly scoped to Uttarakhand, India.",
+        )
+
     # 2. Travel Mode Verification for Known Pedestrian-Only Alpine Trek Tracks (e.g. Kedarnath trail)
     is_ped_only, ped_reason = is_pedestrian_only_corridor(
         request.origin_lat, request.origin_lon,
@@ -81,6 +93,16 @@ async def plan_route(
         dest_name=request.destination_name,
         travel_mode=request.travel_mode or "driving",
     )
+
+    # 3b. Verify calculated route polyline remains within Uttarakhand state boundary
+    raw_coords = (route_result.geometry_geojson or {}).get("coordinates", [])
+    coords_lat_lon = [(pt[1], pt[0]) for pt in raw_coords if len(pt) >= 2]
+    is_in_state, out_reason = region_boundary_service.is_route_in_uttarakhand(coords_lat_lon)
+    if not is_in_state:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=out_reason or "Calculated route path exits the state boundary of Uttarakhand.",
+        )
 
     # 4. Analyze corridor conditions (weather at arrival times, fires, forests, disaster alerts)
     corr_m = request.corridor_distance_meters or (
@@ -181,6 +203,18 @@ async def list_verified_corridors():
 async def get_region_scoping_info():
     """Returns active regional scoping metadata for Uttarakhand."""
     return region_boundary_service.get_region_metadata()
+
+
+@router.get("/region-boundary")
+async def get_region_boundary():
+    """Returns the authoritative administrative GeoJSON boundary for Uttarakhand."""
+    return region_boundary_service.get_boundary_geojson()
+
+
+@router.get("/region-mask")
+async def get_region_mask():
+    """Returns the inverted outside-state polygon mask GeoJSON for MapLibre rendering."""
+    return region_boundary_service.get_mask_geojson()
 
 
 @router.get("/{route_id}", response_model=PlannedRouteResponse)
