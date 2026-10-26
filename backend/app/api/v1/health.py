@@ -23,6 +23,8 @@ from app.services.routing.osrm_provider import osrm_routing_provider
 router = APIRouter(prefix="/health", tags=["Health"])
 
 
+@router.get("", response_model=dict)
+@router.get("/", response_model=dict)
 @router.get("/live", response_model=dict)
 async def liveness():
     """Liveness probe: verifies process is alive and accepting connections."""

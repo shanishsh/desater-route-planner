@@ -547,8 +547,11 @@ fun PlanTripScreen(
         val isOrigin = state.mapPickerTarget == MapPickerTarget.ORIGIN
         MapLocationPickerDialog(
             title = if (isOrigin) "Select Starting Point on Map" else "Select Destination on Map",
-            initialLat = if (isOrigin) state.originLat else state.destinationLat,
-            initialLon = if (isOrigin) state.originLon else state.destinationLon,
+            initialLat = if (isOrigin) (state.originLat ?: state.deviceGpsLat) else state.destinationLat,
+            initialLon = if (isOrigin) (state.originLon ?: state.deviceGpsLon) else state.destinationLon,
+            currentGpsLat = state.deviceGpsLat,
+            currentGpsLon = state.deviceGpsLon,
+            onRefreshGpsLocation = { viewModel.useCurrentLocation() },
             boundaryValidator = viewModel.boundaryValidator,
             onConfirmLocation = { lat, lon, name ->
                 viewModel.onLocationConfirmedFromMap(lat, lon, name)

@@ -45,6 +45,9 @@ fun MapLocationPickerDialog(
     title: String,
     initialLat: Double?,
     initialLon: Double?,
+    currentGpsLat: Double? = null,
+    currentGpsLon: Double? = null,
+    onRefreshGpsLocation: (() -> Unit)? = null,
     boundaryValidator: UttarakhandBoundaryValidator? = null,
     onConfirmLocation: (lat: Double, lon: Double, displayName: String) -> Unit,
     onDismiss: () -> Unit,
@@ -53,8 +56,14 @@ fun MapLocationPickerDialog(
     val coroutineScope = rememberCoroutineScope()
     var reverseGeocodeJob by remember { mutableStateOf<Job?>(null) }
 
-    val defaultLat = initialLat?.takeIf { it != 0.0 && it in -90.0..90.0 } ?: 30.1500
-    val defaultLon = initialLon?.takeIf { it != 0.0 && it in -180.0..180.0 } ?: 79.2500
+    val defaultLat = initialLat?.takeIf { it != 0.0 && it in -90.0..90.0 }
+        ?: currentGpsLat?.takeIf { it != 0.0 && it in -90.0..90.0 }
+        ?: 30.1500
+    val defaultLon = initialLon?.takeIf { it != 0.0 && it in -180.0..180.0 }
+        ?: currentGpsLon?.takeIf { it != 0.0 && it in -180.0..180.0 }
+        ?: 79.2500
+
+    val initialZoom = if (initialLat != null || currentGpsLat != null) 14.5 else 9.5
 
     var currentLat by remember { mutableDoubleStateOf(defaultLat) }
     var currentLon by remember { mutableDoubleStateOf(defaultLon) }
@@ -68,25 +77,32 @@ fun MapLocationPickerDialog(
         boundaryValidator?.isPointInUttarakhand(currentLat, currentLon) ?: true
     }
 
-    val quickTowns = remember {
-        listOf(
-            "Almora" to (29.5971 to 79.6591),
-            "Nainital" to (29.3919 to 79.4542),
-            "Kedarnath" to (30.7346 to 79.0669),
-            "Badrinath" to (30.7433 to 79.4938),
-            "Rishikesh" to (30.0869 to 78.2676),
-            "Dehradun" to (30.3165 to 78.0322),
-            "Mussoorie" to (30.4598 to 78.0700),
-            "Haridwar" to (29.9457 to 78.1642),
-            "Ranikhet" to (29.6434 to 79.4322),
-            "Haldwani" to (29.2183 to 79.5130),
-            "Joshimath / Auli" to (30.5564 to 79.5662),
-            "Uttarkashi" to (30.7268 to 78.4354),
-            "Pithoragarh" to (29.5829 to 80.2182),
-            "Munsyari" to (30.0673 to 80.2372),
-            "Chopta" to (30.4853 to 79.1764),
-            "Kausani" to (29.8542 to 79.5967)
+    val quickTowns = remember(currentGpsLat, currentGpsLon) {
+        val list = mutableListOf<Pair<String, Pair<Double, Double>>>()
+        if (currentGpsLat != null && currentGpsLon != null) {
+            list.add("📍 My Current Location" to (currentGpsLat to currentGpsLon))
+        }
+        list.addAll(
+            listOf(
+                "Almora" to (29.5971 to 79.6591),
+                "Nainital" to (29.3919 to 79.4542),
+                "Kedarnath" to (30.7346 to 79.0669),
+                "Badrinath" to (30.7433 to 79.4938),
+                "Rishikesh" to (30.0869 to 78.2676),
+                "Dehradun" to (30.3165 to 78.0322),
+                "Mussoorie" to (30.4598 to 78.0700),
+                "Haridwar" to (29.9457 to 78.1642),
+                "Ranikhet" to (29.6434 to 79.4322),
+                "Haldwani" to (29.2183 to 79.5130),
+                "Joshimath / Auli" to (30.5564 to 79.5662),
+                "Uttarkashi" to (30.7268 to 78.4354),
+                "Pithoragarh" to (29.5829 to 80.2182),
+                "Munsyari" to (30.0673 to 80.2372),
+                "Chopta" to (30.4853 to 79.1764),
+                "Kausani" to (29.8542 to 79.5967)
+            )
         )
+        list
     }
 
     fun triggerReverseGeocode(lat: Double, lon: Double) {
@@ -248,7 +264,7 @@ fun MapLocationPickerDialog(
                                         val target = LatLng(defaultLat, defaultLon)
                                         val pos = CameraPosition.Builder()
                                             .target(target)
-                                            .zoom(10.5)
+                                            .zoom(initialZoom)
                                             .build()
                                         map.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
                                     } catch (_: Throwable) {}
@@ -506,6 +522,33 @@ fun MapLocationPickerDialog(
                         }
                     }
                 }
+            }
+
+            // 5. My Location FAB (Floating above bottom sheet on the right)
+            FloatingActionButton(
+                onClick = {
+                    if (currentGpsLat != null && currentGpsLon != null) {
+                        val pt = LatLng(currentGpsLat, currentGpsLon)
+                        maplibreMap?.animateCamera(
+                            CameraUpdateFactory.newLatLngZoom(pt, 15.0),
+                            400
+                        )
+                        currentLat = currentGpsLat
+                        currentLon = currentGpsLon
+                        triggerReverseGeocode(currentGpsLat, currentGpsLon)
+                    } else {
+                        onRefreshGpsLocation?.invoke()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(bottom = 240.dp, end = 20.dp),
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Icon(Icons.Default.MyLocation, contentDescription = "Snap to Current Location")
             }
         }
     }

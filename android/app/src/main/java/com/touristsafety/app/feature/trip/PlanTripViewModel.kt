@@ -34,6 +34,8 @@ data class PlanTripUiState(
     val destinationName: String = "",
     val destinationLat: Double? = null,
     val destinationLon: Double? = null,
+    val deviceGpsLat: Double? = null,
+    val deviceGpsLon: Double? = null,
     val travelMode: String = "hiking",
     val corridorDistanceKm: Double = 5.0,
     val isPedestrianOnlySelected: Boolean = false,
@@ -90,10 +92,13 @@ class PlanTripViewModel @Inject constructor(
             when (fixResult) {
                 is LocationFixResult.Success -> {
                     val loc = fixResult.location
-                    if (!boundaryValidator.isPointInUttarakhand(loc.latitude, loc.longitude)) {
+                    val isInsideState = boundaryValidator.isPointInUttarakhand(loc.latitude, loc.longitude)
+                    if (!isInsideState) {
                         _uiState.update {
                             it.copy(
                                 isLocating = false,
+                                deviceGpsLat = loc.latitude,
+                                deviceGpsLon = loc.longitude,
                                 originName = "",
                                 originLat = null,
                                 originLon = null,
@@ -112,6 +117,8 @@ class PlanTripViewModel @Inject constructor(
                                 originName = fallbackName,
                                 originLat = loc.latitude,
                                 originLon = loc.longitude,
+                                deviceGpsLat = loc.latitude,
+                                deviceGpsLon = loc.longitude,
                                 isLocating = false,
                                 errorMessage = null
                             )
@@ -164,6 +171,9 @@ class PlanTripViewModel @Inject constructor(
     }
 
     fun openMapPicker(target: MapPickerTarget) {
+        if (target == MapPickerTarget.ORIGIN && _uiState.value.deviceGpsLat == null) {
+            useCurrentLocation()
+        }
         _uiState.update {
             it.copy(
                 isMapPickerOpen = true,

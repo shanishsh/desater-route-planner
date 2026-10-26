@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, Query, status
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -49,6 +49,7 @@ async def require_admin(
 
 
 @router.get("", response_model=List[DisasterAlertResponse])
+@router.get("/active", response_model=List[DisasterAlertResponse])
 async def list_disaster_alerts(
     hazard_category: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),

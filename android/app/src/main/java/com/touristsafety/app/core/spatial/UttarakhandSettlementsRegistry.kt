@@ -132,3 +132,4 @@ object UttarakhandSettlementsRegistry {
         return closest
     }
 }
+

@@ -83,6 +83,7 @@ async def create_trail_report(
 
 @router.get("", response_model=TrailReportListResponse)
 @router.get("/", response_model=TrailReportListResponse)
+@router.get("/active", response_model=TrailReportListResponse)
 async def list_trail_reports(
     bbox: Optional[str] = Query(None, description="min_lat,min_lon,max_lat,max_lon"),
     category: Optional[str] = Query(None),

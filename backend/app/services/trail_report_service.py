@@ -205,7 +205,7 @@ class TrailReportService:
         filters = []
 
         if not include_expired:
-            filters.append(TrailConditionReport.expires_at > now)
+            filters.append(or_(TrailConditionReport.expires_at.is_(None), TrailConditionReport.expires_at > now))
 
         if category:
             filters.append(TrailConditionReport.category == category)
@@ -244,8 +244,16 @@ class TrailReportService:
         result = await self.session.execute(query)
         reports = list(result.scalars().all())
 
-        # Count active vs corroborated
-        active_cnt = sum(1 for r in reports if r.expires_at > now and r.verification_status != "RESOLVED")
+        # Count active vs corroborated safely handling timezones and None
+        def _is_active(r):
+            if r.verification_status == "RESOLVED":
+                return False
+            if r.expires_at is None:
+                return True
+            exp = r.expires_at.replace(tzinfo=timezone.utc) if r.expires_at.tzinfo is None else r.expires_at
+            return exp > now
+
+        active_cnt = sum(1 for r in reports if _is_active(r))
         corroborated_cnt = sum(1 for r in reports if r.verification_status == "CORROBORATED")
 
         return reports, total, active_cnt, corroborated_cnt
