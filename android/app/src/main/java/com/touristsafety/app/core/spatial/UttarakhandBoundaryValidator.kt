@@ -3,7 +3,11 @@ package com.touristsafety.app.core.spatial
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.InputStreamReader
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,26 +49,26 @@ class UttarakhandBoundaryValidator @Inject constructor(
             context.assets.open("uttarakhand_boundary.geojson").use { stream ->
                 val reader = InputStreamReader(stream, Charsets.UTF_8)
                 val jsonString = reader.readText()
-                val json = JSONObject(jsonString)
+                val jsonElement = Json.parseToJsonElement(jsonString).jsonObject
 
                 val coordsArray = when {
-                    json.has("coordinates") -> json.getJSONArray("coordinates")
-                    json.has("geometry") -> json.getJSONObject("geometry").getJSONArray("coordinates")
-                    json.has("features") -> {
-                        val features = json.getJSONArray("features")
-                        if (features.length() > 0) {
-                            features.getJSONObject(0).getJSONObject("geometry").getJSONArray("coordinates")
+                    jsonElement.containsKey("coordinates") -> jsonElement["coordinates"]?.jsonArray
+                    jsonElement.containsKey("geometry") -> jsonElement["geometry"]?.jsonObject?.get("coordinates")?.jsonArray
+                    jsonElement.containsKey("features") -> {
+                        val features = jsonElement["features"]?.jsonArray
+                        if (features != null && features.isNotEmpty()) {
+                            features[0].jsonObject["geometry"]?.jsonObject?.get("coordinates")?.jsonArray
                         } else null
                     }
                     else -> null
                 }
 
-                if (coordsArray != null && coordsArray.length() > 0) {
-                    val ring = coordsArray.getJSONArray(0)
-                    val count = ring.length()
+                if (coordsArray != null && coordsArray.isNotEmpty()) {
+                    val ring = coordsArray[0].jsonArray
+                    val count = ring.size
                     val vertices = Array(count) { i ->
-                        val pt = ring.getJSONArray(i)
-                        doubleArrayOf(pt.getDouble(0), pt.getDouble(1)) // [lon, lat]
+                        val pt = ring[i].jsonArray
+                        doubleArrayOf(pt[0].jsonPrimitive.double, pt[1].jsonPrimitive.double) // [lon, lat]
                     }
                     polygonVertices = vertices
                     isLoaded = true
@@ -113,10 +117,13 @@ class UttarakhandBoundaryValidator @Inject constructor(
     }
 
     /**
-     * Validates that all critical coordinates of a route remain within Uttarakhand.
-     * Checks endpoints and samples intermediate vertices.
+     * Validates that all critical coordinates of a route remain within Uttarakhand,
+     * or within the regional transit corridor for in-state driving routes (e.g. Dehradun <-> Nainital).
      */
-    fun isRouteInUttarakhand(points: List<Pair<Double, Double>>): Pair<Boolean, String?> {
+    fun isRouteInUttarakhand(
+        points: List<Pair<Double, Double>>,
+        travelMode: String = "driving"
+    ): Pair<Boolean, String?> {
         if (points.isEmpty()) {
             return Pair(false, "Route polyline contains no coordinates.")
         }
@@ -147,7 +154,19 @@ class UttarakhandBoundaryValidator @Inject constructor(
             )
         }
 
-        // Sample intermediate vertices along the route polyline
+        // For driving: both origin and destination are verified in Uttarakhand.
+        // Inter-district routes (e.g., Dehradun to Nainital) naturally transit connecting
+        // northern plains highway corridors (e.g. NH 74 / NH 734).
+        if (travelMode.equals("driving", ignoreCase = true)) {
+            for (pt in points) {
+                if (pt.first < 28.0 || pt.first > 32.0 || pt.second < 77.0 || pt.second > 81.5) {
+                    return Pair(false, "The calculated route path deviates excessively outside the regional transit corridor.")
+                }
+            }
+            return Pair(true, null)
+        }
+
+        // Sample intermediate vertices along the route polyline for pedestrian / hiking routes
         val step = maxOf(1, points.size / 50)
         var outsideCount = 0
         var totalChecked = 0
@@ -161,7 +180,7 @@ class UttarakhandBoundaryValidator @Inject constructor(
         }
 
         if (outsideCount > 0 && (outsideCount.toDouble() / totalChecked) > 0.05) {
-            return Pair(false, "The calculated route path exits the state of Uttarakhand.")
+            return Pair(false, "Calculated trekking path exits the supported Uttarakhand administrative boundary.")
         }
 
         return Pair(true, null)

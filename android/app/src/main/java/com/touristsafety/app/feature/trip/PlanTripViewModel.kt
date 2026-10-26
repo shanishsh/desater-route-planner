@@ -460,6 +460,10 @@ class PlanTripViewModel @Inject constructor(
                             errorMessage = if (err.message?.contains("10.0.2.2") == true) {
                                 serverConfigManager.resetToRender()
                                 "Connected to emulator host on a physical phone. Reset to Live Cloud (Render). Please tap 'Scan Route' again."
+                            } else if (err.message?.contains("boundary") == true ||
+                                err.message?.contains("outside") == true ||
+                                err.message?.contains("prohibited") == true) {
+                                "Route scan failed: ${err.message}"
                             } else {
                                 "Route scan failed: ${err.message}. Please check connection or retry."
                             }

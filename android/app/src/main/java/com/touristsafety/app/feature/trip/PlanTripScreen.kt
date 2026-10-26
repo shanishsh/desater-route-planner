@@ -142,7 +142,10 @@ fun PlanTripScreen(
                             message = state.errorMessage ?: "",
                             onDismiss = { viewModel.clearError() }
                         )
-                        if (state.errorMessage?.contains("10.0.2.2") == true || state.errorMessage?.contains("connect") == true) {
+                        if (state.errorMessage?.contains("10.0.2.2") == true ||
+                            state.errorMessage?.contains("failed to connect") == true ||
+                            state.errorMessage?.contains("Failed to connect") == true ||
+                            state.errorMessage?.contains("Connection refused") == true) {
                             Button(
                                 onClick = { viewModel.switchToRenderAndRetry() },
                                 modifier = Modifier.fillMaxWidth(),

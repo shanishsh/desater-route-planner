@@ -89,5 +89,32 @@ class UttarakhandBoundaryValidatorTest {
         assertFalse(isValid)
         assertTrue(reason?.contains("outside Uttarakhand") == true)
     }
+
+    @Test
+    fun testInterDistrictDrivingRouteTransitingPlainsPasses() {
+        // Dehradun to Nainital route transiting plains highway (e.g. Najibabad/Kashipur)
+        val dehradunToNainital = listOf(
+            30.3165 to 78.0322, // Dehradun (UK)
+            29.6100 to 78.3400, // Najibabad area (UP plains transit corridor)
+            29.2100 to 78.9600, // Kashipur area
+            29.3919 to 79.4542  // Nainital (UK)
+        )
+        val (isValid, reason) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "driving")
+        assertTrue(isValid)
+        assertTrue(reason == null)
+    }
+
+    @Test
+    fun testInterDistrictHikingRouteTransitingPlainsFails() {
+        val dehradunToNainital = listOf(
+            30.3165 to 78.0322,
+            29.6100 to 78.3400,
+            29.2100 to 78.9600,
+            29.3919 to 79.4542
+        )
+        val (isValid, reason) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "hiking")
+        assertFalse(isValid)
+        assertTrue(reason?.contains("exits the supported Uttarakhand administrative boundary") == true)
+    }
 }
 

@@ -97,7 +97,10 @@ async def plan_route(
     # 3b. Verify calculated route polyline remains within Uttarakhand state boundary
     raw_coords = (route_result.geometry_geojson or {}).get("coordinates", [])
     coords_lat_lon = [(pt[1], pt[0]) for pt in raw_coords if len(pt) >= 2]
-    is_in_state, out_reason = region_boundary_service.is_route_in_uttarakhand(coords_lat_lon)
+    is_in_state, out_reason = region_boundary_service.is_route_in_uttarakhand(
+        coords_lat_lon,
+        travel_mode=request.travel_mode or "driving",
+    )
     if not is_in_state:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

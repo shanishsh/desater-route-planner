@@ -256,3 +256,34 @@ async def test_places_search_filters_out_of_state(client, monkeypatch):
     assert len(items) == 1
     assert items[0]["name"] == "Dehradun"
 
+
+def test_inter_district_driving_transit_corridor():
+    """Validates that in-state driving routes transiting border highway plains (e.g. Dehradun to Nainital) pass."""
+    coords = [
+        (30.3165, 78.0322),  # Dehradun (in UK)
+        (29.6100, 78.3400),  # Najibabad transit plain (outside UK polygon, in transit envelope)
+        (29.2100, 78.9600),  # Kashipur transit plain
+        (29.3919, 79.4542),  # Nainital (in UK)
+    ]
+    # Driving mode: allowed for in-state endpoints
+    valid_driving, reason_driving = region_boundary_service.is_route_in_uttarakhand(coords, travel_mode="driving")
+    assert valid_driving is True
+    assert reason_driving is None
+
+    # Hiking mode: prohibited from long-distance transit exiting boundary
+    valid_hiking, reason_hiking = region_boundary_service.is_route_in_uttarakhand(coords, travel_mode="hiking")
+    assert valid_hiking is False
+    assert "Calculated trekking path exits" in reason_hiking
+
+
+def test_route_transit_envelope_rejection():
+    """Verifies that routes with points deviating far outside regional transit bounds are rejected."""
+    coords = [
+        (30.3165, 78.0322),  # Dehradun
+        (26.8467, 80.9462),  # Lucknow (far outside regional transit bbox lat < 28.0)
+        (29.3919, 79.4542),  # Nainital
+    ]
+    valid, reason = region_boundary_service.is_route_in_uttarakhand(coords, travel_mode="driving")
+    assert valid is False
+    assert "deviate excessively outside the regional transit corridor" in reason
+
