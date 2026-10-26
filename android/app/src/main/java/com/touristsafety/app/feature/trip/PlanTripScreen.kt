@@ -549,6 +549,7 @@ fun PlanTripScreen(
             title = if (isOrigin) "Select Starting Point on Map" else "Select Destination on Map",
             initialLat = if (isOrigin) state.originLat else state.destinationLat,
             initialLon = if (isOrigin) state.originLon else state.destinationLon,
+            boundaryValidator = viewModel.boundaryValidator,
             onConfirmLocation = { lat, lon, name ->
                 viewModel.onLocationConfirmedFromMap(lat, lon, name)
             },

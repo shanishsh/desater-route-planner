@@ -58,7 +58,7 @@ sealed interface PlanTripEvent {
 class PlanTripViewModel @Inject constructor(
     private val routeRepository: RouteRepository,
     private val locationHelper: LocationHelper,
-    private val boundaryValidator: UttarakhandBoundaryValidator,
+    val boundaryValidator: UttarakhandBoundaryValidator,
     private val serverConfigManager: ServerConfigManager
 ) : ViewModel() {
 

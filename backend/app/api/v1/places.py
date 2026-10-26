@@ -4,6 +4,10 @@ from fastapi import APIRouter, Query
 from app.clients.open_meteo import open_meteo_client
 from app.schemas.route_plan import PlaceSearchResult
 from app.services.spatial.region_boundary_service import region_boundary_service
+from app.services.spatial.uttarakhand_settlements_registry import (
+    search_uttarakhand_settlements,
+    find_nearest_settlement,
+)
 
 router = APIRouter(prefix="/places", tags=["Places & Geocoding"])
 
@@ -15,29 +19,57 @@ async def search_places(
 ):
     """
     Searches settlements, trailheads, and tourist destinations within the supported Uttarakhand region.
+    Integrates the authoritative Uttarakhand settlements registry with phonetic/typo tolerance
+    (e.g. 'almore' -> 'Almora', 'kedar' -> 'Kedarnath') alongside Open-Meteo geocoding.
     Filters out any results outside the Uttarakhand state boundary.
-    Never fabricates placeholder settlements.
     """
-    raw_results = await open_meteo_client.search_settlements(query=q, count=max(count, 10))
+    results: List[PlaceSearchResult] = []
+    seen_coords = set()
 
-    results = []
-    for r in raw_results:
-        lat = r["latitude"]
-        lon = r["longitude"]
-        # Filter strictly to the verified Uttarakhand administrative boundary
-        if not region_boundary_service.is_point_in_uttarakhand(lat, lon):
-            continue
-
+    # 1. Authoritative Uttarakhand settlements registry search (handles typos, aliases, local names)
+    local_matches = search_uttarakhand_settlements(query=q, limit=count)
+    for m in local_matches:
+        coord_key = (round(m["latitude"], 2), round(m["longitude"], 2))
+        seen_coords.add(coord_key)
         results.append(
             PlaceSearchResult(
-                name=r["name"],
-                latitude=lat,
-                longitude=lon,
-                country=r.get("country", "India"),
-                admin1=r.get("admin1", "Uttarakhand"),
-                display_name=r.get("display_name", f"{r['name']}, Uttarakhand"),
+                name=m["name"],
+                latitude=m["latitude"],
+                longitude=m["longitude"],
+                country="India",
+                admin1="Uttarakhand",
+                display_name=m["display_name"],
             )
         )
+
+    # 2. Open-Meteo upstream geocoding search for broader settlements/peaks
+    try:
+        raw_results = await open_meteo_client.search_settlements(query=q, count=max(count, 10))
+        for r in raw_results:
+            lat = r["latitude"]
+            lon = r["longitude"]
+            coord_key = (round(lat, 2), round(lon, 2))
+            if coord_key in seen_coords:
+                continue
+
+            # Filter strictly to the verified Uttarakhand administrative boundary
+            if not region_boundary_service.is_point_in_uttarakhand(lat, lon):
+                continue
+
+            seen_coords.add(coord_key)
+            results.append(
+                PlaceSearchResult(
+                    name=r["name"],
+                    latitude=lat,
+                    longitude=lon,
+                    country=r.get("country", "India"),
+                    admin1=r.get("admin1", "Uttarakhand"),
+                    display_name=r.get("display_name", f"{r['name']}, Uttarakhand"),
+                )
+            )
+    except Exception:
+        pass
+
     return results[:count]
 
 
@@ -48,14 +80,22 @@ async def reverse_geocode(
 ):
     """
     Returns place information or structured coordinate label for a user-selected map pin.
-    Preserves exact selected coordinates without substitution and flags coordinates outside Uttarakhand.
+    Preserves exact selected coordinates without substitution and matches nearest known
+    settlement within Uttarakhand when available.
     """
     is_in_uk = region_boundary_service.is_point_in_uttarakhand(lat, lon)
     if is_in_uk:
-        coord_label = f"Map Pin ({lat:.4f}, {lon:.4f})"
-        country = "India"
-        admin1 = "Uttarakhand"
-        disp_name = coord_label
+        nearest = find_nearest_settlement(lat, lon, max_dist_km=25.0)
+        if nearest:
+            coord_label = f"Map Pin: {nearest['name']} ({lat:.4f}, {lon:.4f})"
+            country = "India"
+            admin1 = "Uttarakhand"
+            disp_name = f"{nearest['name']} Area ({nearest['district']}), Uttarakhand"
+        else:
+            coord_label = f"Map Pin ({lat:.4f}, {lon:.4f})"
+            country = "India"
+            admin1 = "Uttarakhand"
+            disp_name = f"Map Pin ({lat:.4f}, {lon:.4f}), Uttarakhand"
     else:
         coord_label = f"Map Pin ({lat:.4f}, {lon:.4f})"
         country = "Outside Supported Region"
