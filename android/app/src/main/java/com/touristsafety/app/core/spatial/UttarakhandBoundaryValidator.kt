@@ -27,11 +27,12 @@ class UttarakhandBoundaryValidator @Inject constructor(
     companion object {
         private const val TAG = "UttarakhandValidator"
 
-        // Authoritative Bounding Box of Uttarakhand, India
-        const val MIN_LAT = 28.71
-        const val MAX_LAT = 31.48
-        const val MIN_LON = 77.55
-        const val MAX_LON = 81.08
+        // Authoritative Bounding Box of Uttarakhand, India (with 0.05 deg margin for border shrines/passes)
+        const val MIN_LAT = 28.65
+        const val MAX_LAT = 31.55
+        const val MIN_LON = 77.50
+        const val MAX_LON = 81.15
+        private const val BORDER_BUFFER_DEG = 0.03 // ~3.3 km border tolerance for peripheral shrines/passes
     }
 
     // Cached polygon vertices: array of [lon, lat] pairs
@@ -113,7 +114,40 @@ class UttarakhandBoundaryValidator @Inject constructor(
             j = i
         }
 
-        return inside
+        if (inside) return true
+
+        // 3. Peripheral border tolerance check (0.03 deg ~ 3.3 km)
+        // Accommodates peripheral shrines, river confluences, and frontier passes (e.g. Jhoolaghat, Jauljibi, Lipulekh, Purnagiri)
+        val maxDistSq = BORDER_BUFFER_DEG * BORDER_BUFFER_DEG
+        for (i in 0 until n) {
+            val prev = if (i == 0) n - 1 else i - 1
+            val x1 = vertices[prev][0]
+            val y1 = vertices[prev][1]
+            val x2 = vertices[i][0]
+            val y2 = vertices[i][1]
+            if (distSqToSegment(longitude, latitude, x1, y1, x2, y2) <= maxDistSq) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private fun distSqToSegment(px: Double, py: Double, x1: Double, y1: Double, x2: Double, y2: Double): Double {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        if (dx == 0.0 && dy == 0.0) {
+            val dpx = px - x1
+            val dpy = py - y1
+            return dpx * dpx + dpy * dpy
+        }
+        val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        val clampedT = if (t < 0.0) 0.0 else if (t > 1.0) 1.0 else t
+        val cx = x1 + clampedT * dx
+        val cy = y1 + clampedT * dy
+        val dpx = px - cx
+        val dpy = py - cy
+        return dpx * dpx + dpy * dpy
     }
 
     /**

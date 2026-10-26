@@ -603,3 +603,4 @@ def find_nearest_settlement(lat: float, lon: float, max_dist_km: float = 25.0) -
             "display_name": f"{best['name']} Area ({best['district']}), Uttarakhand",
         }
     return None
+

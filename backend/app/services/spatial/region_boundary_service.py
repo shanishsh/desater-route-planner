@@ -18,7 +18,8 @@ from shapely.prepared import prep
 logger = logging.getLogger(__name__)
 
 # Bounding box of Uttarakhand: [min_lat, min_lon, max_lat, max_lon]
-UTTARAKHAND_BBOX = (28.71, 77.57, 31.46, 81.04)
+# Slightly expanded to 0.05 deg margin to prevent edge clipping of border passes/shrines
+UTTARAKHAND_BBOX = (28.65, 77.50, 31.55, 81.15)
 
 
 class RegionBoundaryService:
@@ -44,9 +45,11 @@ class RegionBoundaryService:
                 with open(self._geojson_path, "r", encoding="utf-8") as f:
                     self._boundary_data = json.load(f)
                 self._polygon = shape(self._boundary_data)
-                self._prepped = prep(self._polygon)
+                # Apply 0.03 deg (~3.3 km) buffer to reliably include border mountain passes, shrines, and confluences
+                self._buffered_polygon = self._polygon.buffer(0.03)
+                self._prepped = prep(self._buffered_polygon)
                 logger.info(
-                    f"Loaded Uttarakhand boundary from {self._geojson_path} with geometry type {self._polygon.geom_type}"
+                    f"Loaded Uttarakhand boundary from {self._geojson_path} with geometry type {self._polygon.geom_type} and 0.03 deg border buffer"
                 )
             else:
                 logger.warning(

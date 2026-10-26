@@ -35,6 +35,10 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
 
 @Composable
 fun MapLocationPickerDialog(
@@ -68,15 +72,20 @@ fun MapLocationPickerDialog(
         listOf(
             "Almora" to (29.5971 to 79.6591),
             "Nainital" to (29.3919 to 79.4542),
-            "Rishikesh" to (30.0869 to 78.2676),
             "Kedarnath" to (30.7346 to 79.0669),
-            "Dehradun" to (30.3165 to 78.0322),
             "Badrinath" to (30.7433 to 79.4938),
+            "Rishikesh" to (30.0869 to 78.2676),
+            "Dehradun" to (30.3165 to 78.0322),
             "Mussoorie" to (30.4598 to 78.0700),
-            "Pithoragarh" to (29.5829 to 80.2182),
+            "Haridwar" to (29.9457 to 78.1642),
             "Ranikhet" to (29.6434 to 79.4322),
             "Haldwani" to (29.2183 to 79.5130),
-            "Joshimath" to (30.5564 to 79.5662)
+            "Joshimath / Auli" to (30.5564 to 79.5662),
+            "Uttarkashi" to (30.7268 to 78.4354),
+            "Pithoragarh" to (29.5829 to 80.2182),
+            "Munsyari" to (30.0673 to 80.2372),
+            "Chopta" to (30.4853 to 79.1764),
+            "Kausani" to (29.8542 to 79.5967)
         )
     }
 
@@ -183,9 +192,50 @@ fun MapLocationPickerDialog(
                             try {
                                 map.setStyle(
                                     Style.Builder().fromJson(MapConfig.OSM_RASTER_STYLE_JSON)
-                                ) {
+                                ) { loadedStyle ->
                                     try {
                                         maplibreMap = map
+
+                                        // 1. Outside State Mask (dimming outside regions so Uttarakhand is crystal clear)
+                                        try {
+                                            ctx.assets.open("uttarakhand_mask.geojson").use { stream ->
+                                                val maskText = stream.reader().readText()
+                                                if (loadedStyle.getSource("picker-mask-src") == null) {
+                                                    loadedStyle.addSource(GeoJsonSource("picker-mask-src", maskText))
+                                                    val maskFill = FillLayer("picker-mask-layer", "picker-mask-src").apply {
+                                                        setProperties(
+                                                            PropertyFactory.fillColor("#0D1117"),
+                                                            PropertyFactory.fillOpacity(0.40f),
+                                                            PropertyFactory.fillAntialias(true)
+                                                        )
+                                                    }
+                                                    loadedStyle.addLayer(maskFill)
+                                                }
+                                            }
+                                        } catch (e: Throwable) {
+                                            android.util.Log.w("MapLocationPicker", "Could not add boundary mask: ${e.message}")
+                                        }
+
+                                        // 2. Authoritative Boundary Perimeter Line (Vivid Emerald Green)
+                                        try {
+                                            ctx.assets.open("uttarakhand_boundary.geojson").use { stream ->
+                                                val bndText = stream.reader().readText()
+                                                if (loadedStyle.getSource("picker-bnd-src") == null) {
+                                                    loadedStyle.addSource(GeoJsonSource("picker-bnd-src", bndText))
+                                                    val bndLine = LineLayer("picker-bnd-layer", "picker-bnd-src").apply {
+                                                        setProperties(
+                                                            PropertyFactory.lineColor("#2E7D32"),
+                                                            PropertyFactory.lineWidth(3.5f),
+                                                            PropertyFactory.lineOpacity(0.95f)
+                                                        )
+                                                    }
+                                                    loadedStyle.addLayer(bndLine)
+                                                }
+                                            }
+                                        } catch (e: Throwable) {
+                                            android.util.Log.w("MapLocationPicker", "Could not add boundary perimeter: ${e.message}")
+                                        }
+
                                         val bounds = LatLngBounds.from(
                                             MapConfig.UTTARAKHAND_MAX_LAT + 0.35,
                                             MapConfig.UTTARAKHAND_MAX_LON + 0.35,

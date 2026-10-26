@@ -3,6 +3,7 @@ package com.touristsafety.app.feature.trip
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
+import com.touristsafety.app.core.spatial.UttarakhandSettlementsRegistry
 import com.touristsafety.app.core.location.LocationFixResult
 import com.touristsafety.app.core.location.LocationHelper
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
@@ -256,6 +257,20 @@ class PlanTripViewModel @Inject constructor(
         _uiState.update { it.copy(originName = query) }
         searchOriginJob?.cancel()
         if (query.trim().length >= 2 && !query.startsWith("Current GPS")) {
+            val localMatches = UttarakhandSettlementsRegistry.searchSettlements(query, limit = 5).map { s ->
+                PlaceSearchResultDto(
+                    name = s.name,
+                    latitude = s.latitude,
+                    longitude = s.longitude,
+                    country = "India",
+                    admin1 = "Uttarakhand",
+                    display_name = s.displayName
+                )
+            }
+            if (localMatches.isNotEmpty()) {
+                _uiState.update { it.copy(originSuggestions = localMatches) }
+            }
+
             searchOriginJob = viewModelScope.launch {
                 delay(350)
                 _uiState.update { it.copy(isSearchingOrigin = true) }
@@ -263,7 +278,7 @@ class PlanTripViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isSearchingOrigin = false,
-                        originSuggestions = res.getOrDefault(emptyList())
+                        originSuggestions = res.getOrDefault(localMatches)
                     )
                 }
             }
@@ -296,6 +311,20 @@ class PlanTripViewModel @Inject constructor(
         _uiState.update { it.copy(destinationName = query) }
         searchDestJob?.cancel()
         if (query.trim().length >= 2) {
+            val localMatches = UttarakhandSettlementsRegistry.searchSettlements(query, limit = 5).map { s ->
+                PlaceSearchResultDto(
+                    name = s.name,
+                    latitude = s.latitude,
+                    longitude = s.longitude,
+                    country = "India",
+                    admin1 = "Uttarakhand",
+                    display_name = s.displayName
+                )
+            }
+            if (localMatches.isNotEmpty()) {
+                _uiState.update { it.copy(destSuggestions = localMatches) }
+            }
+
             searchDestJob = viewModelScope.launch {
                 delay(350)
                 _uiState.update { it.copy(isSearchingDest = true) }
@@ -303,7 +332,7 @@ class PlanTripViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isSearchingDest = false,
-                        destSuggestions = res.getOrDefault(emptyList())
+                        destSuggestions = res.getOrDefault(localMatches)
                     )
                 }
             }
@@ -392,16 +421,42 @@ class PlanTripViewModel @Inject constructor(
 
     fun planRoute() {
         val state = _uiState.value
-        val originLat = state.originLat
-        val originLon = state.originLon
-        if (originLat == null || originLon == null || state.originName.isBlank()) {
+        var originLat = state.originLat
+        var originLon = state.originLon
+        var originName = state.originName
+
+        // Auto-resolve origin coordinates if not explicitly set by picker
+        if ((originLat == null || originLon == null) && originName.isNotBlank()) {
+            val resolvedOrigin = UttarakhandSettlementsRegistry.findSettlement(originName)
+            if (resolvedOrigin != null) {
+                originLat = resolvedOrigin.latitude
+                originLon = resolvedOrigin.longitude
+                originName = resolvedOrigin.displayName
+                _uiState.update { it.copy(originLat = originLat, originLon = originLon, originName = originName) }
+            }
+        }
+
+        if (originLat == null || originLon == null || originName.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Please specify a start location via GPS, map picker, or place search.") }
             return
         }
 
-        val destLat = state.destinationLat
-        val destLon = state.destinationLon
-        if (destLat == null || destLon == null || state.destinationName.isBlank()) {
+        var destLat = state.destinationLat
+        var destLon = state.destinationLon
+        var destName = state.destinationName
+
+        // Auto-resolve destination coordinates if not explicitly set by picker
+        if ((destLat == null || destLon == null) && destName.isNotBlank()) {
+            val resolvedDest = UttarakhandSettlementsRegistry.findSettlement(destName)
+            if (resolvedDest != null) {
+                destLat = resolvedDest.latitude
+                destLon = resolvedDest.longitude
+                destName = resolvedDest.displayName
+                _uiState.update { it.copy(destinationLat = destLat, destinationLon = destLon, destinationName = destName) }
+            }
+        }
+
+        if (destLat == null || destLon == null || destName.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Please choose a destination via map picker or search.") }
             return
         }
@@ -409,7 +464,7 @@ class PlanTripViewModel @Inject constructor(
         if (!boundaryValidator.isPointInUttarakhand(originLat, originLon)) {
             _uiState.update {
                 it.copy(
-                    errorMessage = "Route origin is outside Uttarakhand. Please select a trailhead within Uttarakhand."
+                    errorMessage = "Route origin ($originName) is outside Uttarakhand. Please select a trailhead within Uttarakhand."
                 )
             }
             return
@@ -418,7 +473,7 @@ class PlanTripViewModel @Inject constructor(
         if (!boundaryValidator.isPointInUttarakhand(destLat, destLon)) {
             _uiState.update {
                 it.copy(
-                    errorMessage = "Route destination is outside Uttarakhand. Please select a destination within Uttarakhand."
+                    errorMessage = "Route destination ($destName) is outside Uttarakhand. Please select a destination within Uttarakhand."
                 )
             }
             return

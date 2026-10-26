@@ -40,6 +40,10 @@ class UttarakhandBoundaryValidatorTest {
     fun testLocationsInsideUttarakhandAreAccepted() {
         // Dehradun
         assertTrue(validator.isPointInUttarakhand(30.3165, 78.0322))
+        // Almora
+        assertTrue(validator.isPointInUttarakhand(29.5971, 79.6591))
+        // Nainital
+        assertTrue(validator.isPointInUttarakhand(29.3919, 79.4542))
         // Gaurikund
         assertTrue(validator.isPointInUttarakhand(30.6534, 79.0268))
         // Kedarnath Temple
@@ -50,6 +54,9 @@ class UttarakhandBoundaryValidatorTest {
         assertTrue(validator.isPointInUttarakhand(30.4598, 78.0700))
         // Joshimath
         assertTrue(validator.isPointInUttarakhand(30.5564, 79.5662))
+        // Border locations (within 3km border tolerance)
+        assertTrue(validator.isPointInUttarakhand(29.5700, 80.3800)) // Jhoolaghat
+        assertTrue(validator.isPointInUttarakhand(29.1200, 80.2000)) // Purnagiri
     }
 
     @Test
