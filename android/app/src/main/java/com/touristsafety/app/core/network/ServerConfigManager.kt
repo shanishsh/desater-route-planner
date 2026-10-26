@@ -2,6 +2,7 @@ package com.touristsafety.app.core.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import com.touristsafety.app.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,15 +24,51 @@ open class ServerConfigManager @Inject constructor(
         const val PRESET_WIFI_LAN = "http://172.168.10.238:8000/api/v1/"
         const val PRESET_EMULATOR = "http://10.0.2.2:8000/api/v1/"
         const val PRESET_USB_REVERSE = "http://127.0.0.1:8000/api/v1/"
+
+        fun isRunningOnEmulator(): Boolean {
+            val fingerprint = Build.FINGERPRINT ?: ""
+            val model = Build.MODEL ?: ""
+            val manufacturer = Build.MANUFACTURER ?: ""
+            val hardware = Build.HARDWARE ?: ""
+            val product = Build.PRODUCT ?: ""
+            return (fingerprint.startsWith("generic")
+                    || fingerprint.startsWith("unknown")
+                    || model.contains("google_sdk", ignoreCase = true)
+                    || model.contains("Emulator", ignoreCase = true)
+                    || model.contains("Android SDK built for x86", ignoreCase = true)
+                    || manufacturer.contains("Genymotion", ignoreCase = true)
+                    || hardware.contains("goldfish", ignoreCase = true)
+                    || hardware.contains("ranchu", ignoreCase = true)
+                    || product.contains("sdk_google", ignoreCase = true)
+                    || product.contains("google_sdk", ignoreCase = true)
+                    || product.contains("sdk", ignoreCase = true)
+                    || product.contains("sdk_x86", ignoreCase = true)
+                    || product.contains("vbox86p", ignoreCase = true)
+                    || product.contains("emulator", ignoreCase = true)
+                    || product.contains("simulator", ignoreCase = true))
+        }
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val _baseUrl = MutableStateFlow(
-        prefs.getString(KEY_BASE_URL, PRESET_RENDER) ?: PRESET_RENDER
-    )
+    private val _baseUrl = MutableStateFlow(resolveInitialUrl())
     open val baseUrl: StateFlow<String> get() = _baseUrl.asStateFlow()
+
+    private fun resolveInitialUrl(): String {
+        val saved = prefs.getString(KEY_BASE_URL, null)
+        val isEmulator = isRunningOnEmulator()
+
+        // If on physical device:
+        if (!isEmulator) {
+            // If never set, or set to an emulator/LAN loopback, force Render production
+            if (saved.isNullOrBlank() || saved.contains("10.0.2.2") || saved.contains("127.0.0.1")) {
+                prefs.edit().putString(KEY_BASE_URL, PRESET_RENDER).apply()
+                return PRESET_RENDER
+            }
+        }
+        return saved ?: if (isEmulator) PRESET_EMULATOR else PRESET_RENDER
+    }
 
     open fun getCurrentUrl(): String {
         return _baseUrl.value
@@ -41,5 +78,9 @@ open class ServerConfigManager @Inject constructor(
         val sanitized = if (newUrl.endsWith("/")) newUrl else "$newUrl/"
         prefs.edit().putString(KEY_BASE_URL, sanitized).apply()
         _baseUrl.value = sanitized
+    }
+
+    open fun resetToRender() {
+        setBaseUrl(PRESET_RENDER)
     }
 }

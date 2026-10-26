@@ -137,10 +137,21 @@ fun PlanTripScreen(
             // Dismissible error banner
             if (state.errorMessage != null) {
                 item {
-                    AppErrorBanner(
-                        message = state.errorMessage ?: "",
-                        onDismiss = { viewModel.clearError() }
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppErrorBanner(
+                            message = state.errorMessage ?: "",
+                            onDismiss = { viewModel.clearError() }
+                        )
+                        if (state.errorMessage?.contains("10.0.2.2") == true || state.errorMessage?.contains("connect") == true) {
+                            Button(
+                                onClick = { viewModel.switchToRenderAndRetry() },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("☁️ Switch to Live Cloud (Render) & Retry", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 

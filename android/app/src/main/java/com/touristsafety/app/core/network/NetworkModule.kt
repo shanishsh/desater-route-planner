@@ -35,9 +35,9 @@ object NetworkModule {
         val builder = OkHttpClient.Builder()
             .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
 
         if (BuildConfig.DEBUG) {
             val logging = HttpLoggingInterceptor().apply {

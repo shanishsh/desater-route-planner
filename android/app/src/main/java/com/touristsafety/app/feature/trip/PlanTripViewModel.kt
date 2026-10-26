@@ -7,6 +7,7 @@ import com.touristsafety.app.core.location.LocationFixResult
 import com.touristsafety.app.core.location.LocationHelper
 import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 import com.touristsafety.app.core.repository.RouteRepository
+import com.touristsafety.app.core.network.ServerConfigManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -57,7 +58,8 @@ sealed interface PlanTripEvent {
 class PlanTripViewModel @Inject constructor(
     private val routeRepository: RouteRepository,
     private val locationHelper: LocationHelper,
-    private val boundaryValidator: UttarakhandBoundaryValidator
+    private val boundaryValidator: UttarakhandBoundaryValidator,
+    private val serverConfigManager: ServerConfigManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlanTripUiState())
@@ -455,12 +457,23 @@ class PlanTripViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isPlanning = false,
-                            errorMessage = "Route scan failed: ${err.message}. Please check connection or retry."
+                            errorMessage = if (err.message?.contains("10.0.2.2") == true) {
+                                serverConfigManager.resetToRender()
+                                "Connected to emulator host on a physical phone. Reset to Live Cloud (Render). Please tap 'Scan Route' again."
+                            } else {
+                                "Route scan failed: ${err.message}. Please check connection or retry."
+                            }
                         )
                     }
                 }
             )
         }
+    }
+
+    fun switchToRenderAndRetry() {
+        serverConfigManager.resetToRender()
+        _uiState.update { it.copy(errorMessage = null) }
+        planRoute()
     }
 
     fun clearError() {

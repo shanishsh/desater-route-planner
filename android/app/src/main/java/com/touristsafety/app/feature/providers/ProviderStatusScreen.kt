@@ -158,26 +158,36 @@ fun ProviderStatusScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
                         Text("One-Tap Presets:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = { viewModel.setServerUrl(ServerConfigManager.PRESET_RENDER) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (uiState.currentBaseUrl.contains("onrender.com")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text("☁️ Live Render Cloud (Production)", fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Button(
+                            OutlinedButton(
                                 onClick = { viewModel.setServerUrl(ServerConfigManager.PRESET_WIFI_LAN) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
                                 Text("Wi-Fi LAN", fontSize = 11.sp)
                             }
-                            Button(
+                            OutlinedButton(
                                 onClick = { viewModel.setServerUrl(ServerConfigManager.PRESET_USB_REVERSE) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
                                 Text("USB Reverse", fontSize = 11.sp)
                             }
-                            Button(
+                            OutlinedButton(
                                 onClick = { viewModel.setServerUrl(ServerConfigManager.PRESET_EMULATOR) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
