@@ -23,7 +23,7 @@ async def test_imd_unconfigured_behavior():
 async def test_imd_multi_endpoint_calls():
     client = IMDClient()
     with patch("app.clients.imd.settings.IMD_API_KEY", "test_key"), \
-         patch("app.clients.imd.settings.IMD_API_SECRET", "test_secret"):
+         patch("app.clients.imd.settings.IMD_PASSWORD", "test_pass"):
 
         assert client.is_configured() is True
 

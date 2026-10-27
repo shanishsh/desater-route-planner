@@ -114,6 +114,11 @@ data class MapUiState(
     val firesGeoJson: String? = null,
     val facilitiesGeoJson: String? = null,
     val weatherGeoJson: String? = null,
+    val terrainSlopeGeoJson: String? = null,
+    val cellularSitesGeoJson: String? = null,
+    val cellularCoverageGeoJson: String? = null,
+    val waterwaysGeoJson: String? = null,
+    val historicalLandslidesGeoJson: String? = null,
     val geometryDiagnostics: Map<String, JsonElement> = emptyMap(),
     val routeHazardSequence: List<com.touristsafety.app.core.model.RouteOrderedHazardItem> = emptyList(),
     val selectedHazardSequenceItem: com.touristsafety.app.core.model.RouteOrderedHazardItem? = null,
@@ -746,6 +751,11 @@ class MapViewModel @Inject constructor(
                 firesGeoJson = analysis.fires_geojson?.toString(),
                 facilitiesGeoJson = analysis.facilities_geojson?.toString(),
                 weatherGeoJson = analysis.weather_geojson?.toString(),
+                terrainSlopeGeoJson = analysis.terrain_slope_geojson?.toString(),
+                cellularSitesGeoJson = analysis.cellular_sites_geojson?.toString(),
+                cellularCoverageGeoJson = analysis.cellular_coverage_geojson?.toString(),
+                waterwaysGeoJson = analysis.waterways_geojson?.toString(),
+                historicalLandslidesGeoJson = analysis.historical_landslides_geojson?.toString(),
                 geometryDiagnostics = analysis.geometry_diagnostics,
                 plannedRouteAlternatives = if (analysis.alternatives.isNotEmpty()) analysis.alternatives else it.plannedRouteAlternatives,
                 analysisLimitations = analysis.analysis_limitations,
@@ -824,7 +834,12 @@ class MapViewModel @Inject constructor(
                 facilitiesGeoJson = fallbackRoute.facilities_geojson?.toString(),
                 forestsGeoJson = fallbackRoute.forests_geojson?.toString(),
                 weatherGeoJson = fallbackRoute.weather_geojson?.toString(),
-                routePrimaryGeoJson = fallbackRoute.geometry_geojson?.toString()
+                routePrimaryGeoJson = fallbackRoute.geometry_geojson?.toString(),
+                terrainSlopeGeoJson = fallbackRoute.terrain_slope_geojson?.toString(),
+                cellularSitesGeoJson = fallbackRoute.cellular_sites_geojson?.toString(),
+                cellularCoverageGeoJson = fallbackRoute.cellular_coverage_geojson?.toString(),
+                waterwaysGeoJson = fallbackRoute.waterways_geojson?.toString(),
+                historicalLandslidesGeoJson = fallbackRoute.historical_landslides_geojson?.toString()
             )
         }
         rebuildUnifiedFeatures()

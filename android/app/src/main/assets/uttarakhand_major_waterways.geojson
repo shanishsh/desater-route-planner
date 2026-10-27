@@ -1,0 +1,154 @@
+{
+  "type": "FeatureCollection",
+  "name": "Uttarakhand Major Himalayan River Channels",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "river_mandakini",
+      "properties": {
+        "name": "Mandakini River",
+        "basin": "Alaknanda / Ganga",
+        "flood_risk": "HIGH_GLACIAL_DEBRIS",
+        "description": "Glacial river fed by Chorabari glacier flowing past Kedarnath, Gaurikund, and confluencing at Rudraprayag."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [79.0669, 30.7346],
+          [79.0480, 30.6950],
+          [79.0268, 30.6534],
+          [78.9950, 30.6100],
+          [79.0769, 30.5228],
+          [79.0200, 30.4100],
+          [78.9800, 30.2850]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_alaknanda",
+      "properties": {
+        "name": "Alaknanda River",
+        "basin": "Ganga Primary Trunk",
+        "flood_risk": "VERY_HIGH_ALPINE_GORGE",
+        "description": "Originating from Satopanth glacier, flowing through Badrinath, Joshimath, Karnaprayag, and confluencing at Devprayag."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [79.4938, 30.7433],
+          [79.5400, 30.6500],
+          [79.5662, 30.5564],
+          [79.3500, 30.4200],
+          [79.2200, 30.2600],
+          [78.9800, 30.2850],
+          [78.7800, 30.2200],
+          [78.6000, 30.1500]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_bhagirathi",
+      "properties": {
+        "name": "Bhagirathi River",
+        "basin": "Ganga Primary Trunk",
+        "flood_risk": "HIGH_CANYON_DAM_REGULATED",
+        "description": "Originating from Gaumukh glacier, flowing past Gangotri, Uttarkashi, Tehri reservoir, to Devprayag."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [79.0800, 30.9200],
+          [78.9398, 30.9947],
+          [78.7370, 31.0360],
+          [78.4354, 30.7268],
+          [78.4800, 30.3800],
+          [78.6000, 30.1500]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_ganga_main",
+      "properties": {
+        "name": "Ganga River (Main Trunk)",
+        "basin": "Ganga Plains Gateway",
+        "flood_risk": "MEDIUM_PLAINS_MONSOON",
+        "description": "Formed at Devprayag confluence of Bhagirathi and Alaknanda, exiting Himalayan foothills at Rishikesh and Haridwar."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [78.6000, 30.1500],
+          [78.4500, 30.1200],
+          [78.3500, 30.1000],
+          [78.2676, 30.0869],
+          [78.2000, 30.0200],
+          [78.1642, 29.9457],
+          [78.1200, 29.8500]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_yamuna_trunk",
+      "properties": {
+        "name": "Yamuna River",
+        "basin": "Yamuna Valley",
+        "flood_risk": "HIGH_GORGE_RAPIDS",
+        "description": "Originating at Yamunotri glacier, carving deep western Himalayan gorges toward Naugaon and Herbertpur."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [78.4600, 31.0140],
+          [78.3000, 30.8500],
+          [78.1500, 30.6500],
+          [77.8500, 30.5000],
+          [77.7000, 30.4000]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_kosi_kumaon",
+      "properties": {
+        "name": "Kosi River (Kumaon)",
+        "basin": "Ramganga / Ganga",
+        "flood_risk": "MEDIUM_FLASH_FLOOD",
+        "description": "Originating in Kausani hills, flowing past Almora town basin and Corbett National Park (Ramnagar)."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [79.5967, 29.8542],
+          [79.6200, 29.7000],
+          [79.6591, 29.5971],
+          [79.4000, 29.5000],
+          [79.1200, 29.3900],
+          [78.9600, 29.2100]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river_gaula_kumaon",
+      "properties": {
+        "name": "Gaula River",
+        "basin": "Ramganga / Ganga",
+        "flood_risk": "HIGH_DEBRIS_CORRIDOR",
+        "description": "Flowing south of Nainital lake hills, past Kathgodam and Haldwani into the Terai."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [79.6000, 29.4500],
+          [79.5300, 29.3000],
+          [79.5130, 29.2183],
+          [79.4500, 29.1000]
+        ]
+      }
+    }
+  ]
+}

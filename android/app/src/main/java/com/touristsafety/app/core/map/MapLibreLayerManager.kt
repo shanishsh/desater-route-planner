@@ -67,6 +67,24 @@ object MapLibreLayerManager {
     const val LAYER_SAFE_HAVENS_SYMBOL = "layer-safe-havens-symbol"
     const val LAYER_WEATHER_POINTS_CIRCLE = "layer-weather-points-circle"
 
+    // Terrain & Safety Intelligence Layers
+    const val SOURCE_TERRAIN_SLOPE = "source-terrain-slope"
+    const val LAYER_TERRAIN_SLOPE_LINE = "layer-terrain-slope-line"
+
+    const val SOURCE_WATERWAYS = "source-waterways"
+    const val LAYER_WATERWAYS_LINE = "layer-waterways-line"
+
+    const val SOURCE_HISTORICAL_LANDSLIDES = "source-historical-landslides"
+    const val LAYER_HISTORICAL_LANDSLIDES_CIRCLE = "layer-historical-landslides-circle"
+    const val LAYER_HISTORICAL_LANDSLIDES_SYMBOL = "layer-historical-landslides-symbol"
+
+    const val SOURCE_CELLULAR_SITES = "source-cellular-sites"
+    const val LAYER_CELLULAR_SITES_CIRCLE = "layer-cellular-sites-circle"
+    const val LAYER_CELLULAR_SITES_SYMBOL = "layer-cellular-sites-symbol"
+
+    const val SOURCE_CELLULAR_COVERAGE = "source-cellular-coverage"
+    const val LAYER_CELLULAR_COVERAGE_LINE = "layer-cellular-coverage-line"
+
     // Ordered Route Hazard Sequence (Animated Icons & Sequence Badges)
     const val SOURCE_ROUTE_HAZARD_SEQUENCE = "source-route-hazard-sequence"
     const val LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL = "layer-route-hazard-sequence-symbol"
@@ -280,6 +298,115 @@ object MapLibreLayerManager {
                     )
                 }
                 style.addLayer(primLine)
+            }
+
+            // 4b. Terrain Slope Gradient Layer
+            if (style.getSource(SOURCE_TERRAIN_SLOPE) == null) {
+                style.addSource(GeoJsonSource(SOURCE_TERRAIN_SLOPE, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_TERRAIN_SLOPE_LINE) == null) {
+                val slopeLine = LineLayer(LAYER_TERRAIN_SLOPE_LINE, SOURCE_TERRAIN_SLOPE).apply {
+                    setProperties(
+                        lineColor(
+                            match(
+                                get("slope_bracket"),
+                                literal("Gentle (<15°)"), color(Color.rgb(76, 175, 80)),
+                                literal("Moderate (15°-30°)"), color(Color.rgb(255, 179, 0)),
+                                literal("Steep (30°-45°)"), color(Color.rgb(251, 140, 0)),
+                                literal("Precipitous (>45°)"), color(Color.rgb(211, 47, 47)),
+                                color(Color.rgb(120, 144, 156))
+                            )
+                        ),
+                        lineWidth(5.0f),
+                        lineOpacity(0.85f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(slopeLine)
+            }
+
+            // 4c. Authoritative Rivers and Waterways Layer
+            if (style.getSource(SOURCE_WATERWAYS) == null) {
+                style.addSource(GeoJsonSource(SOURCE_WATERWAYS, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_WATERWAYS_LINE) == null) {
+                val waterLine = LineLayer(LAYER_WATERWAYS_LINE, SOURCE_WATERWAYS).apply {
+                    setProperties(
+                        lineColor(Color.rgb(2, 136, 209)), // River Cyan-Blue #0288D1
+                        lineWidth(2.5f),
+                        lineOpacity(0.80f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(waterLine)
+            }
+
+            // 4d. Historical Landslides (GSI Bhukosh / USDMA)
+            if (style.getSource(SOURCE_HISTORICAL_LANDSLIDES) == null) {
+                style.addSource(GeoJsonSource(SOURCE_HISTORICAL_LANDSLIDES, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_HISTORICAL_LANDSLIDES_CIRCLE) == null) {
+                val lsCircle = CircleLayer(LAYER_HISTORICAL_LANDSLIDES_CIRCLE, SOURCE_HISTORICAL_LANDSLIDES).apply {
+                    setProperties(
+                        circleColor(Color.rgb(141, 110, 99)), // Earth Brown #8D6E63
+                        circleRadius(8.0f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(1.8f)
+                    )
+                }
+                style.addLayer(lsCircle)
+            }
+            if (style.getLayer(LAYER_HISTORICAL_LANDSLIDES_SYMBOL) == null) {
+                val lsSymbol = SymbolLayer(LAYER_HISTORICAL_LANDSLIDES_SYMBOL, SOURCE_HISTORICAL_LANDSLIDES).apply {
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_ANIM_LANDSLIDE),
+                        iconSize(0.70f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(lsSymbol)
+            }
+
+            // 4e. Cellular Infrastructure Sites & Estimated Coverage
+            if (style.getSource(SOURCE_CELLULAR_COVERAGE) == null) {
+                style.addSource(GeoJsonSource(SOURCE_CELLULAR_COVERAGE, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_CELLULAR_COVERAGE_LINE) == null) {
+                val covLine = LineLayer(LAYER_CELLULAR_COVERAGE_LINE, SOURCE_CELLULAR_COVERAGE).apply {
+                    setProperties(
+                        lineColor(
+                            match(
+                                get("status"),
+                                literal("PROBABLE_COVERAGE"), color(Color.rgb(0, 137, 123)),
+                                color(Color.rgb(158, 158, 158))
+                            )
+                        ),
+                        lineWidth(3.5f),
+                        lineOpacity(0.75f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(covLine)
+            }
+
+            if (style.getSource(SOURCE_CELLULAR_SITES) == null) {
+                style.addSource(GeoJsonSource(SOURCE_CELLULAR_SITES, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_CELLULAR_SITES_CIRCLE) == null) {
+                val cellCircle = CircleLayer(LAYER_CELLULAR_SITES_CIRCLE, SOURCE_CELLULAR_SITES).apply {
+                    setProperties(
+                        circleColor(Color.rgb(123, 31, 162)), // Purple #7B1FA2
+                        circleRadius(6.5f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(1.5f)
+                    )
+                }
+                style.addLayer(cellCircle)
             }
 
             // 5. Point Hazard & Infrastructure Circle & Symbol Layers
@@ -742,6 +869,61 @@ object MapLibreLayerManager {
                 weatherSource?.setGeoJson(weatherJson)
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating weather GeoJSON: ${t.message}")
+            }
+
+            // 7b. Update Terrain Slope GeoJSON
+            try {
+                val slopeSource = style.getSourceAs<GeoJsonSource>(SOURCE_TERRAIN_SLOPE)
+                val slopeJson = if (!state.terrainSlopeGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.terrainSlopeGeoJson)
+                } else EMPTY_GEOJSON
+                slopeSource?.setGeoJson(slopeJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating terrain slope GeoJSON: ${t.message}")
+            }
+
+            // 7c. Update Waterways GeoJSON
+            try {
+                val waterSource = style.getSourceAs<GeoJsonSource>(SOURCE_WATERWAYS)
+                val waterJson = if (!state.waterwaysGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.waterwaysGeoJson)
+                } else EMPTY_GEOJSON
+                waterSource?.setGeoJson(waterJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating waterways GeoJSON: ${t.message}")
+            }
+
+            // 7d. Update Historical Landslides GeoJSON
+            try {
+                val lsSource = style.getSourceAs<GeoJsonSource>(SOURCE_HISTORICAL_LANDSLIDES)
+                val lsJson = if (!state.historicalLandslidesGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.historicalLandslidesGeoJson)
+                } else EMPTY_GEOJSON
+                lsSource?.setGeoJson(lsJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating historical landslides GeoJSON: ${t.message}")
+            }
+
+            // 7e. Update Cellular Sites GeoJSON
+            try {
+                val cellSiteSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_SITES)
+                val cellSiteJson = if (!state.cellularSitesGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.cellularSitesGeoJson)
+                } else EMPTY_GEOJSON
+                cellSiteSource?.setGeoJson(cellSiteJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating cellular sites GeoJSON: ${t.message}")
+            }
+
+            // 7f. Update Cellular Coverage GeoJSON
+            try {
+                val cellCovSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_COVERAGE)
+                val cellCovJson = if (!state.cellularCoverageGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.cellularCoverageGeoJson)
+                } else EMPTY_GEOJSON
+                cellCovSource?.setGeoJson(cellCovJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating cellular coverage GeoJSON: ${t.message}")
             }
 
             // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip

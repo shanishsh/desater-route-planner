@@ -188,35 +188,14 @@ class UttarakhandBoundaryValidator @Inject constructor(
             )
         }
 
-        // For driving: both origin and destination are verified in Uttarakhand.
-        // Inter-district routes (e.g., Dehradun to Nainital) naturally transit connecting
-        // northern plains highway corridors (e.g. NH 74 / NH 734).
-        if (travelMode.equals("driving", ignoreCase = true)) {
-            for (pt in points) {
-                if (pt.first < 28.0 || pt.first > 32.0 || pt.second < 77.0 || pt.second > 81.5) {
-                    return Pair(false, "The calculated route path deviates excessively outside the regional transit corridor.")
-                }
-            }
-            return Pair(true, null)
-        }
-
-        // Sample intermediate vertices along the route polyline for pedestrian / hiking routes
-        val step = maxOf(1, points.size / 50)
-        var outsideCount = 0
-        var totalChecked = 0
-
-        for (i in points.indices step step) {
-            val pt = points[i]
-            totalChecked++
-            if (!isPointInUttarakhand(pt.first, pt.second)) {
-                outsideCount++
+        // Both origin and destination are verified in Uttarakhand.
+        // Inter-district routes (e.g., Dehradun to Nainital or Almora) naturally transit connecting
+        // northern plains highway/foothill corridors (e.g. NH 74 / NH 734).
+        for (pt in points) {
+            if (pt.first < 28.0 || pt.first > 32.0 || pt.second < 77.0 || pt.second > 81.5) {
+                return Pair(false, "The calculated route path deviates excessively outside the regional transit corridor.")
             }
         }
-
-        if (outsideCount > 0 && (outsideCount.toDouble() / totalChecked) > 0.05) {
-            return Pair(false, "Calculated trekking path exits the supported Uttarakhand administrative boundary.")
-        }
-
         return Pair(true, null)
     }
 }

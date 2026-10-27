@@ -171,6 +171,65 @@ class ElevationTerrainService:
             "max_elevation_m": round(max_elev, 1),
             "total_distance_km": round(total_dist_m / 1000.0, 2),
             "total_duration_minutes": round(cumulative_minutes, 1),
+            "slope_geojson": self.build_slope_geojson(profile_points),
+        }
+
+    def build_slope_geojson(self, profile_points: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Builds a GeoJSON FeatureCollection of slope-classified line segments:
+        - GENTLE (<15 deg): Green
+        - MODERATE (15-30 deg): Yellow
+        - STEEP (30-45 deg): Orange
+        - PRECIPITOUS (>45 deg): Red
+        """
+        if not profile_points or len(profile_points) < 2:
+            return {"type": "FeatureCollection", "features": []}
+
+        features = []
+        for i in range(len(profile_points) - 1):
+            p1 = profile_points[i]
+            p2 = profile_points[i + 1]
+            slope = p2.get("slope_degrees", 0.0)
+
+            if slope > 45.0:
+                cat = "PRECIPITOUS"
+                color = "#D32F2F"
+                label = f"Precipitous ({slope}°)"
+            elif slope >= 30.0:
+                cat = "STEEP"
+                color = "#F57C00"
+                label = f"Steep Slope ({slope}°)"
+            elif slope >= 15.0:
+                cat = "MODERATE"
+                color = "#FBC02D"
+                label = f"Moderate Incline ({slope}°)"
+            else:
+                cat = "GENTLE"
+                color = "#388E3C"
+                label = f"Gentle Trail ({slope}°)"
+
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        [p1["longitude"], p1["latitude"]],
+                        [p2["longitude"], p2["latitude"]],
+                    ],
+                },
+                "properties": {
+                    "slope_category": cat,
+                    "slope_degrees": slope,
+                    "color": color,
+                    "label": label,
+                    "elevation_from_m": p1.get("elevation_m"),
+                    "elevation_to_m": p2.get("elevation_m"),
+                },
+            })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
         }
 
 

@@ -137,29 +137,16 @@ class RegionBoundaryService:
 
         mode = (travel_mode or "driving").lower()
 
-        # For driving: both endpoints are verified inside Uttarakhand.
-        # Allow inter-district transit through adjacent plains highway corridors,
-        # but ensure coordinates stay within the regional corridor bounding envelope.
-        if mode == "driving":
-            transit_min_lat, transit_min_lon, transit_max_lat, transit_max_lon = 28.0, 77.0, 32.0, 81.5
-            for lat, lon in route_coords_lat_lon:
-                if not (transit_min_lat <= lat <= transit_max_lat and transit_min_lon <= lon <= transit_max_lon):
-                    return False, f"Route transit coordinates ({lat:.4f}, {lon:.4f}) deviate excessively outside the regional transit corridor."
-            return True, None
-
-        # Sample intermediate coordinates along the route for hiking/walking trails
-        step = max(1, len(route_coords_lat_lon) // 50)
-        outside_count = 0
-        total_samples = 0
-        for i in range(0, len(route_coords_lat_lon), step):
-            lat, lon = route_coords_lat_lon[i]
-            total_samples += 1
-            if not self.is_point_in_uttarakhand(lat, lon):
-                outside_count += 1
-
-        # Allow small border discrepancies (< 5% of sampled vertices for border highway/trail tolerance)
-        if total_samples > 0 and (outside_count / total_samples) > 0.05:
-            return False, "Calculated trekking path exits the supported Uttarakhand administrative boundary."
+        # Both endpoints are verified inside Uttarakhand.
+        # Inter-district routes (e.g. connecting Garhwal like Dehradun/Rishikesh to Kumaon
+        # like Nainital/Almora) naturally traverse adjacent northern plains/foothill highway
+        # corridors (e.g. NH 74 / NH 734 across UP border).
+        # We permit in-state transit as long as the route coordinates stay within the regional
+        # northern corridor bounding envelope (lat 28.0-32.0, lon 77.0-81.5).
+        transit_min_lat, transit_min_lon, transit_max_lat, transit_max_lon = 28.0, 77.0, 32.0, 81.5
+        for lat, lon in route_coords_lat_lon:
+            if not (transit_min_lat <= lat <= transit_max_lat and transit_min_lon <= lon <= transit_max_lon):
+                return False, f"Route transit coordinates ({lat:.4f}, {lon:.4f}) deviate excessively outside the regional transit corridor."
 
         return True, None
 

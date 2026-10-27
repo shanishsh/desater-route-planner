@@ -39,10 +39,8 @@ open class ServerConfigManager @Inject constructor(
                     || manufacturer.contains("Genymotion", ignoreCase = true)
                     || hardware.contains("goldfish", ignoreCase = true)
                     || hardware.contains("ranchu", ignoreCase = true)
-                    || product.contains("sdk_google", ignoreCase = true)
-                    || product.contains("google_sdk", ignoreCase = true)
-                    || product.contains("sdk", ignoreCase = true)
-                    || product.contains("sdk_x86", ignoreCase = true)
+                    || product.startsWith("sdk_google")
+                    || product.startsWith("google_sdk")
                     || product.contains("vbox86p", ignoreCase = true)
                     || product.contains("emulator", ignoreCase = true)
                     || product.contains("simulator", ignoreCase = true))
@@ -66,8 +64,13 @@ open class ServerConfigManager @Inject constructor(
                 prefs.edit().putString(KEY_BASE_URL, PRESET_RENDER).apply()
                 return PRESET_RENDER
             }
+            return saved
         }
-        return saved ?: if (isEmulator) PRESET_EMULATOR else PRESET_RENDER
+        // Even on emulator, default to PRESET_RENDER so cloud endpoints work out of the box
+        if (saved.isNullOrBlank()) {
+            return PRESET_RENDER
+        }
+        return saved
     }
 
     open fun getCurrentUrl(): String {

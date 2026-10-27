@@ -98,30 +98,33 @@ class UttarakhandBoundaryValidatorTest {
     }
 
     @Test
-    fun testInterDistrictDrivingRouteTransitingPlainsPasses() {
-        // Dehradun to Nainital route transiting plains highway (e.g. Najibabad/Kashipur)
+    fun testInterDistrictRouteTransitingPlainsPasses() {
+        // Dehradun to Nainital/Almora route transiting plains highway (e.g. Najibabad/Kashipur)
         val dehradunToNainital = listOf(
             30.3165 to 78.0322, // Dehradun (UK)
             29.6100 to 78.3400, // Najibabad area (UP plains transit corridor)
             29.2100 to 78.9600, // Kashipur area
             29.3919 to 79.4542  // Nainital (UK)
         )
-        val (isValid, reason) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "driving")
-        assertTrue(isValid)
-        assertTrue(reason == null)
+        val (isValidDriving, reasonDriving) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "driving")
+        assertTrue(isValidDriving)
+        assertTrue(reasonDriving == null)
+
+        val (isValidHiking, reasonHiking) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "hiking")
+        assertTrue(isValidHiking)
+        assertTrue(reasonHiking == null)
     }
 
     @Test
-    fun testInterDistrictHikingRouteTransitingPlainsFails() {
-        val dehradunToNainital = listOf(
+    fun testRouteDeviatingOutsideRegionalCorridorFails() {
+        val excessiveTransit = listOf(
             30.3165 to 78.0322,
-            29.6100 to 78.3400,
-            29.2100 to 78.9600,
+            27.1767 to 78.0081, // Agra (too far south, outside regional corridor)
             29.3919 to 79.4542
         )
-        val (isValid, reason) = validator.isRouteInUttarakhand(dehradunToNainital, travelMode = "hiking")
+        val (isValid, reason) = validator.isRouteInUttarakhand(excessiveTransit)
         assertFalse(isValid)
-        assertTrue(reason?.contains("exits the supported Uttarakhand administrative boundary") == true)
+        assertTrue(reason?.contains("deviates excessively") == true)
     }
 }
 

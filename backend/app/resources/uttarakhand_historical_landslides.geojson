@@ -1,0 +1,222 @@
+{
+  "type": "FeatureCollection",
+  "name": "Uttarakhand Historical Landslides and Chronic Hazard Zones",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "ls_kedarnath_2013",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.0669, 30.7346]
+      },
+      "properties": {
+        "id": "ls_kedarnath_2013",
+        "name": "Kedarnath Moraine Dam Failure & Debris Flow",
+        "year": 2013,
+        "date": "2013-06-16",
+        "district": "Rudraprayag",
+        "valley": "Mandakini Valley",
+        "hazard_type": "DEBRIS_FLOW",
+        "severity": "CATASTROPHIC",
+        "source": "GSI Bhukosh / USDMA",
+        "description": "Chorabari moraine dam breach combined with cloudburst runoff down Mandakini river channel.",
+        "radius_meters": 1500
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_malpa_1998",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [80.7300, 29.9800]
+      },
+      "properties": {
+        "id": "ls_malpa_1998",
+        "name": "Malpa Rockfall & Mass Movement",
+        "year": 1998,
+        "date": "1998-08-18",
+        "district": "Pithoragarh",
+        "valley": "Kali River Valley",
+        "hazard_type": "ROCKFALL",
+        "severity": "CATASTROPHIC",
+        "source": "GSI Bhukosh",
+        "description": "Massive catastrophic rockfall burying Malpa camp along Kailash Mansarovar pilgrimage route.",
+        "radius_meters": 800
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_varunavat_2003",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.4354, 30.7268]
+      },
+      "properties": {
+        "id": "ls_varunavat_2003",
+        "name": "Varunavat Parvat Landslide",
+        "year": 2003,
+        "date": "2003-09-24",
+        "district": "Uttarkashi",
+        "valley": "Bhagirathi Valley",
+        "hazard_type": "ROTATIONAL_SLIP",
+        "severity": "HIGH",
+        "source": "GSI Bhukosh",
+        "description": "Major structural slope failure affecting Uttarkashi township with extensive debris accumulation.",
+        "radius_meters": 1200
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_chamoli_2021",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.7280, 30.3830]
+      },
+      "properties": {
+        "id": "ls_chamoli_2021",
+        "name": "Chamoli Ronti Peak Rock-Ice Avalanche & Flash Flood",
+        "year": 2021,
+        "date": "2021-02-07",
+        "district": "Chamoli",
+        "valley": "Rishiganga / Dhauliganga Valley",
+        "hazard_type": "ROCK_ICE_AVALANCHE",
+        "severity": "CATASTROPHIC",
+        "source": "Wadia Institute of Himalayan Geology / USDMA",
+        "description": "Massive detachment from Ronti Peak precipitating debris surge down Rishiganga and Tapovan.",
+        "radius_meters": 2000
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_kaliasaur_chronic",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.8920, 30.2450]
+      },
+      "properties": {
+        "id": "ls_kaliasaur_chronic",
+        "name": "Kaliasaur Chronic Landslide Zone (NH 58)",
+        "year": 2024,
+        "date": "CHRONIC_MONSOON",
+        "district": "Rudraprayag",
+        "valley": "Alaknanda Valley",
+        "hazard_type": "CHRONIC_DEBRIS_SLIDE",
+        "severity": "HIGH",
+        "source": "BRO / PWD Uttarakhand",
+        "description": "Chronic slope instability zone on NH 58 between Srinagar and Rudraprayag requiring active monitoring.",
+        "radius_meters": 600
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_sirobagarh_chronic",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.8250, 30.2280]
+      },
+      "properties": {
+        "id": "ls_sirobagarh_chronic",
+        "name": "Sirobagarh Active Landslide Zone (NH 58)",
+        "year": 2024,
+        "date": "CHRONIC_MONSOON",
+        "district": "Pauri Garhwal",
+        "valley": "Alaknanda Valley",
+        "hazard_type": "CHRONIC_ROCKFALL",
+        "severity": "HIGH",
+        "source": "BRO / USDMA",
+        "description": "Notorious monsoon rockfall and mudslide corridor on Rishikesh-Badrinath highway.",
+        "radius_meters": 700
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_lambagarh_chronic",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.5250, 30.6800]
+      },
+      "properties": {
+        "id": "ls_lambagarh_chronic",
+        "name": "Lambagarh Slide Zone (NH 58)",
+        "year": 2024,
+        "date": "CHRONIC_MONSOON",
+        "district": "Chamoli",
+        "valley": "Alaknanda Valley",
+        "hazard_type": "CHRONIC_SLIDE",
+        "severity": "HIGH",
+        "source": "BRO / GSI",
+        "description": "High-altitude landslide zone near Govindghat-Badrinath stretch subject to flash flood washout.",
+        "radius_meters": 800
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_banswara_chronic",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.0350, 30.4950]
+      },
+      "properties": {
+        "id": "ls_banswara_chronic",
+        "name": "Banswara Chronic Slide (NH 107)",
+        "year": 2024,
+        "date": "CHRONIC_MONSOON",
+        "district": "Rudraprayag",
+        "valley": "Mandakini Valley",
+        "hazard_type": "DEBRIS_SLIDE",
+        "severity": "MEDIUM",
+        "source": "PWD Uttarakhand",
+        "description": "Recurrent slide sector along NH 107 connecting Rudraprayag and Guptkashi/Kedarnath.",
+        "radius_meters": 500
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_joshimath_subsidence",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.5662, 30.5564]
+      },
+      "properties": {
+        "id": "ls_joshimath_subsidence",
+        "name": "Joshimath Town Land Subsidence Sector",
+        "year": 2023,
+        "date": "2023-01-02",
+        "district": "Chamoli",
+        "valley": "Alaknanda / Dhauliganga",
+        "hazard_type": "LAND_SUBSIDENCE",
+        "severity": "HIGH",
+        "source": "CBRI / NGRI / USDMA",
+        "description": "Moraine-settlement reactivation with ground fissures and foundational settling across Sunil and Manohar Bagh wards.",
+        "radius_meters": 1500
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ls_nainital_balia_nala",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [79.4600, 29.3800]
+      },
+      "properties": {
+        "id": "ls_nainital_balia_nala",
+        "name": "Balia Nala Slope Instability Zone",
+        "year": 2024,
+        "date": "CHRONIC_MONSOON",
+        "district": "Nainital",
+        "valley": "Nainital Basin",
+        "hazard_type": "CHRONIC_SLOPE_COLLAPSE",
+        "severity": "HIGH",
+        "source": "GSI / Irrigation Dept Uttarakhand",
+        "description": "Progressive slope erosion and mass failure zone endangering southern ridges of Nainital town.",
+        "radius_meters": 750
+      }
+    }
+  ]
+}

@@ -1,4 +1,6 @@
 """Route Planning and Multi-Hazard Corridor Safety Scanning API."""
+import hashlib
+import json
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -139,6 +141,7 @@ async def plan_route(
         conditions_data=[c.model_dump() for c in analysis.conditions],
         alternatives_data=[a.model_dump() for a in analysis.alternatives],
         data_freshness_data=analysis.data_freshness,
+        analysis_data=analysis.model_dump(),
     )
     try:
         db.add(db_route)
@@ -232,6 +235,12 @@ async def get_planned_route(
 
     if not db_route:
         raise HTTPException(status_code=404, detail="Route not found")
+
+    if db_route.analysis_data:
+        try:
+            return PlannedRouteResponse(**db_route.analysis_data)
+        except Exception as e:
+            logger.warning(f"Error restoring cached analysis_data for {route_id}: {e}")
 
     conditions = [RouteWaypointCondition(**c) for c in (db_route.conditions_data or [])]
     alternatives = [RouteAlternativeSchema(**a) for a in (db_route.alternatives_data or [])]
@@ -445,9 +454,16 @@ async def get_route_offline_pack(
         "is_stale": False,
         "route_geometry": db_route.geometry_geojson,
         "corridor_geojson": freshness.get("corridor_geojson"),
-        "hazards_geojson": freshness.get("hazards_geojson") or {"type": "FeatureCollection", "features": []},
-        "fires_geojson": freshness.get("fires_geojson") or {"type": "FeatureCollection", "features": []},
-        "facilities_geojson": freshness.get("facilities_geojson") or {"type": "FeatureCollection", "features": []},
+        "hazards_geojson": freshness.get("hazards_geojson") or (db_route.analysis_data or {}).get("hazards_geojson") or {"type": "FeatureCollection", "features": []},
+        "fires_geojson": freshness.get("fires_geojson") or (db_route.analysis_data or {}).get("fires_geojson") or {"type": "FeatureCollection", "features": []},
+        "facilities_geojson": freshness.get("facilities_geojson") or (db_route.analysis_data or {}).get("facilities_geojson") or {"type": "FeatureCollection", "features": []},
+        "terrain_slope_geojson": (db_route.analysis_data or {}).get("terrain_slope_geojson") or {"type": "FeatureCollection", "features": []},
+        "cellular_sites_geojson": (db_route.analysis_data or {}).get("cellular_sites_geojson") or {"type": "FeatureCollection", "features": []},
+        "cellular_coverage_geojson": (db_route.analysis_data or {}).get("cellular_coverage_geojson") or {"type": "FeatureCollection", "features": []},
+        "waterways_geojson": (db_route.analysis_data or {}).get("waterways_geojson") or {"type": "FeatureCollection", "features": []},
+        "historical_landslides_geojson": (db_route.analysis_data or {}).get("historical_landslides_geojson") or {"type": "FeatureCollection", "features": []},
+        "terrain_exposure": (db_route.analysis_data or {}).get("terrain_exposure"),
+        "cellular_summary": (db_route.analysis_data or {}).get("cellular_summary"),
         "weather_snapshot": [c.get("weather") for c in (db_route.conditions_data or []) if c.get("weather")],
         "conditions": db_route.conditions_data or [],
         "alternatives": db_route.alternatives_data or [],
@@ -458,7 +474,13 @@ async def get_route_offline_pack(
             "wildfires": "NASA FIRMS NRT (MODIS/VIIRS)",
             "facilities": "OpenStreetMap Contributors under ODbL",
             "elevation": "Copernicus DEM 30m Grid",
+            "cellular": "OpenCelliD Project (CC BY-SA 4.0)",
+            "landslides": "Geological Survey of India (GSI) Bhukosh / USDMA",
+            "waterways": "OpenStreetMap Waterways / NRSC Glacial Lake Atlas",
         },
+        "sha256_checksum": hashlib.sha256(
+            json.dumps(db_route.geometry_geojson or {}, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
         "offline_usage_disclaimer": (
             "Pre-trek snapshot saved for offline mountain navigation. "
             "New disaster warnings, weather changes, and road closures cannot be received without active network coverage. "

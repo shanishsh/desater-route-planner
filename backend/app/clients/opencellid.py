@@ -15,6 +15,54 @@ DISCLAIMER_NOTICE = (
     "They do NOT guarantee live handset signal reception, carrier roaming, or continued operation during power outages or disasters."
 )
 
+# India MCC (404, 405) MNC Operator Translation
+OPERATOR_MAP = {
+    # Reliance Jio (MCC 405)
+    (405, 840): "Reliance Jio", (405, 854): "Reliance Jio", (405, 855): "Reliance Jio",
+    (405, 856): "Reliance Jio", (405, 857): "Reliance Jio", (405, 858): "Reliance Jio",
+    (405, 859): "Reliance Jio", (405, 860): "Reliance Jio", (405, 861): "Reliance Jio",
+    (405, 862): "Reliance Jio", (405, 863): "Reliance Jio", (405, 864): "Reliance Jio",
+    (405, 865): "Reliance Jio", (405, 866): "Reliance Jio", (405, 867): "Reliance Jio",
+    (405, 868): "Reliance Jio", (405, 869): "Reliance Jio", (405, 870): "Reliance Jio",
+    (405, 871): "Reliance Jio", (405, 872): "Reliance Jio", (405, 873): "Reliance Jio",
+    (405, 874): "Reliance Jio",
+
+    # Bharti Airtel (MCC 404 & 405)
+    (404, 2): "Bharti Airtel", (404, 3): "Bharti Airtel", (404, 10): "Bharti Airtel",
+    (404, 16): "Bharti Airtel", (404, 31): "Bharti Airtel", (404, 40): "Bharti Airtel",
+    (404, 45): "Bharti Airtel", (404, 49): "Bharti Airtel", (404, 70): "Bharti Airtel",
+    (404, 85): "Bharti Airtel", (404, 90): "Bharti Airtel", (404, 92): "Bharti Airtel",
+    (404, 93): "Bharti Airtel", (404, 94): "Bharti Airtel", (404, 95): "Bharti Airtel",
+    (404, 96): "Bharti Airtel", (404, 97): "Bharti Airtel", (404, 98): "Bharti Airtel",
+    (405, 51): "Bharti Airtel", (405, 52): "Bharti Airtel", (405, 53): "Bharti Airtel",
+
+    # BSNL / MTNL (MCC 404)
+    (404, 34): "BSNL", (404, 38): "BSNL", (404, 51): "BSNL", (404, 53): "BSNL",
+    (404, 54): "BSNL", (404, 55): "BSNL", (404, 57): "BSNL", (404, 58): "BSNL",
+    (404, 59): "BSNL", (404, 62): "BSNL", (404, 64): "BSNL", (404, 66): "BSNL",
+    (404, 71): "BSNL", (404, 72): "BSNL", (404, 74): "BSNL", (404, 76): "BSNL",
+    (404, 77): "BSNL", (404, 80): "BSNL", (404, 81): "BSNL", (405, 818): "BSNL",
+
+    # Vodafone Idea (Vi)
+    (404, 4): "Vodafone Idea", (404, 5): "Vodafone Idea", (404, 7): "Vodafone Idea",
+    (404, 11): "Vodafone Idea", (404, 12): "Vodafone Idea", (404, 13): "Vodafone Idea",
+    (404, 14): "Vodafone Idea", (404, 15): "Vodafone Idea", (404, 19): "Vodafone Idea",
+    (404, 20): "Vodafone Idea", (404, 21): "Vodafone Idea", (404, 22): "Vodafone Idea",
+    (404, 24): "Vodafone Idea", (404, 27): "Vodafone Idea", (404, 43): "Vodafone Idea",
+    (404, 44): "Vodafone Idea", (404, 46): "Vodafone Idea", (404, 60): "Vodafone Idea",
+    (404, 84): "Vodafone Idea", (404, 86): "Vodafone Idea", (404, 88): "Vodafone Idea",
+}
+
+def resolve_operator_name(mcc: Optional[int], mnc: Optional[int]) -> str:
+    """Translates MCC/MNC numeric codes into human-readable Indian telecom carrier."""
+    if mcc is None or mnc is None:
+        return "Unknown Carrier"
+    try:
+        key = (int(mcc), int(mnc))
+        return OPERATOR_MAP.get(key, f"Carrier ({mcc}-{mnc})")
+    except (ValueError, TypeError):
+        return "Unknown Carrier"
+
 
 class OpenCellIDClient:
     """Client for querying cellular base stations and towers from OpenCelliD."""
@@ -139,11 +187,13 @@ class OpenCellIDClient:
                             mcc = item.get("mcc")
                             mnc = item.get("mnc") if item.get("mnc") is not None else item.get("net")
                             cellid = item.get("cellid")
+                            operator_name = resolve_operator_name(mcc, mnc)
                             cells.append({
                                 "id": f"cell_{mcc}_{mnc}_{cellid}",
                                 "latitude": float(item["lat"]),
                                 "longitude": float(item["lon"]),
                                 "radio": item.get("radio", "LTE"),
+                                "operator": operator_name,
                                 "mcc": mcc,
                                 "mnc": mnc,
                                 "lac": item.get("lac"),
@@ -204,6 +254,41 @@ class OpenCellIDClient:
             "retrieved_at": now.isoformat(),
             "is_cached": False,
         }
+
+    async def fetch_corridor_cells(
+        self,
+        coordinates: List[List[float]],
+        sample_step: int = 15,
+        radius_m: int = 950,
+    ) -> List[Dict[str, Any]]:
+        """
+        Samples coordinates along a route polyline and queries OpenCelliD for nearby cell sites.
+        Aggregates unique cell sites across sampled waypoints.
+        Coordinates are expected as [longitude, latitude] or [latitude, longitude].
+        """
+        if not self.is_configured() or not coordinates:
+            return []
+
+        unique_cells: Dict[str, Dict[str, Any]] = {}
+        step = max(1, len(coordinates) // sample_step)
+        sampled = [coordinates[i] for i in range(0, len(coordinates), step)]
+        if coordinates[-1] not in sampled:
+            sampled.append(coordinates[-1])
+
+        for pt in sampled:
+            # Detect whether point is [lon, lat] or [lat, lon]
+            if len(pt) >= 2:
+                # Uttarakhand latitude is roughly 28-32, longitude is 77-81
+                if pt[0] > 50.0:  # lon, lat
+                    lon, lat = pt[0], pt[1]
+                else:  # lat, lon
+                    lat, lon = pt[0], pt[1]
+
+                res = await self.fetch_nearby_cells(latitude=lat, longitude=lon, radius_m=radius_m)
+                for cell in res.get("cells", []):
+                    unique_cells[cell["id"]] = cell
+
+        return list(unique_cells.values())
 
     async def close(self):
         await self.client.aclose()

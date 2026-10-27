@@ -219,14 +219,13 @@ class Settings(BaseSettings):
     OPENCELLID_BASE_URL: str = "https://opencellid.org/cell/getInArea"
 
     IMD_API_KEY: str = ""
-
-    IMD_API_SECRET: str = ""
-
     IMD_EMAIL: str = ""
 
     IMD_PASSWORD: str = ""
 
     IMD_BASE_URL: str = "https://api.imd.gov.in"
+
+    NASA_LHASA_BASE_URL: str = "https://maps.nccs.nasa.gov/download/landslides"
 
     FOREST_CACHE_TTL_SECONDS: int = 86400  # 24 hours
 

@@ -281,6 +281,16 @@ class PlannedRouteResponse(BaseModel):
     facilities_geojson: Optional[Dict[str, Any]] = None
     forests_geojson: Optional[Dict[str, Any]] = None
     weather_geojson: Optional[Dict[str, Any]] = None
+    terrain_slope_geojson: Optional[Dict[str, Any]] = None
+    cellular_sites_geojson: Optional[Dict[str, Any]] = None
+    cellular_coverage_geojson: Optional[Dict[str, Any]] = None
+    waterways_geojson: Optional[Dict[str, Any]] = None
+    historical_landslides_geojson: Optional[Dict[str, Any]] = None
+    terrain_exposure: Optional[Dict[str, Any]] = None
+    cellular_summary: Optional[Dict[str, Any]] = None
+    waterway_summary: Optional[Dict[str, Any]] = None
+    landslide_summary: Optional[Dict[str, Any]] = None
+    nasa_lhasa_status: Optional[Dict[str, Any]] = None
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     grounded_summary: Optional[Dict[str, Any]] = None
     distance_meters: float = 0.0
@@ -379,6 +389,16 @@ class RouteAnalysisResponse(BaseModel):
     facilities_geojson: Optional[Dict[str, Any]] = None
     forests_geojson: Optional[Dict[str, Any]] = None
     weather_geojson: Optional[Dict[str, Any]] = None
+    terrain_slope_geojson: Optional[Dict[str, Any]] = None
+    cellular_sites_geojson: Optional[Dict[str, Any]] = None
+    cellular_coverage_geojson: Optional[Dict[str, Any]] = None
+    waterways_geojson: Optional[Dict[str, Any]] = None
+    historical_landslides_geojson: Optional[Dict[str, Any]] = None
+    terrain_exposure: Optional[Dict[str, Any]] = None
+    cellular_summary: Optional[Dict[str, Any]] = None
+    waterway_summary: Optional[Dict[str, Any]] = None
+    landslide_summary: Optional[Dict[str, Any]] = None
+    nasa_lhasa_status: Optional[Dict[str, Any]] = None
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     analysis_limitations: List[str] = Field(default_factory=list)
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)

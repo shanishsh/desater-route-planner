@@ -17,6 +17,12 @@ from app.services.routing.base import RouteResult, haversine_distance_km
 from app.services.terrain.elevation_service import elevation_service
 from app.services.risk.trailguard_risk_engine import trailguard_risk_engine
 from app.services.spatial.route_corridor_service import route_corridor_service, DEFAULT_CORRIDOR_METERS
+from app.clients.opencellid import opencellid_client
+from app.clients.nasa_lhasa import nasa_lhasa_client
+from app.services.spatial.cellular_coverage_service import cellular_coverage_service
+from app.services.spatial.historical_landslide_service import historical_landslide_service
+from app.services.spatial.waterway_service import waterway_service
+from app.services.risk.terrain_exposure_calculator import terrain_exposure_calculator
 from app.schemas.route_plan import (
     RouteWaypointCondition,
     RouteWeatherCondition,
@@ -172,6 +178,20 @@ class RouteConditionAnalyzer:
 
         stmt = select(DisasterAlert).where(*alert_filters)
 
+        async def _safe_cells():
+            try:
+                return await opencellid_client.fetch_corridor_cells(raw_coords)
+            except Exception as e:
+                logger.warning(f"OpenCelliD corridor cells query failed: {e}")
+                return []
+
+        async def _safe_lhasa():
+            try:
+                return await nasa_lhasa_client.fetch_landslide_nowcast(min_lat, min_lon, max_lat, max_lon)
+            except Exception as e:
+                logger.warning(f"NASA LHASA nowcast query failed: {e}")
+                return {"status": "UNAVAILABLE_UPSTREAM", "available": False, "nowcasts": []}
+
         async def _safe_db_alerts():
             try:
                 res = await db.execute(stmt)
@@ -184,8 +204,8 @@ class RouteConditionAnalyzer:
                     pass
                 return []
 
-        (elevation_data, forest_features, fires_res, amenity_items), candidate_alerts = await asyncio.gather(
-            asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities()),
+        (elevation_data, forest_features, fires_res, amenity_items, cell_masts, lhasa_res), candidate_alerts = await asyncio.gather(
+            asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities(), _safe_cells(), _safe_lhasa()),
             _safe_db_alerts(),
         )
 
@@ -1102,6 +1122,33 @@ class RouteConditionAnalyzer:
             decision_narrative=decision_explanation,
         )
 
+        # Hydrology and Riverbed Proximity
+        waterways_geojson, waterway_summary = waterway_service.get_corridor_waterways(
+            raw_coords, corridor_radius_m=corridor_dist_m
+        )
+
+        # Historical Landslides (GSI Bhukosh / USDMA)
+        historical_landslides_geojson, landslide_summary = historical_landslide_service.get_corridor_landslides(
+            raw_coords, corridor_radius_m=corridor_dist_m
+        )
+
+        # Cellular Coverage & Cell Masts
+        cellular_sites_geojson = cellular_coverage_service.build_cellular_sites_geojson(cell_masts)
+        cellular_coverage_geojson, cellular_summary = cellular_coverage_service.build_cellular_coverage_geojson(
+            raw_coords, cell_masts
+        )
+
+        # Slope GeoJSON from DEM
+        terrain_slope_geojson = elevation_data.get("slope_geojson") or {"type": "FeatureCollection", "features": []}
+
+        # Terrain and Historical Exposure Index (0-100)
+        terrain_exposure = terrain_exposure_calculator.compute_exposure(
+            elev_points,
+            waterway_summary,
+            landslide_summary,
+            max_elevation_m=elevation_data.get("max_elevation_m", 0.0),
+        )
+
         return PlannedRouteResponse(
             route_id=route.route_id,
             route_version=1,
@@ -1124,6 +1171,16 @@ class RouteConditionAnalyzer:
             facilities_geojson=facilities_geojson,
             forests_geojson=forests_geojson,
             weather_geojson=weather_geojson,
+            terrain_slope_geojson=terrain_slope_geojson,
+            cellular_sites_geojson=cellular_sites_geojson,
+            cellular_coverage_geojson=cellular_coverage_geojson,
+            waterways_geojson=waterways_geojson,
+            historical_landslides_geojson=historical_landslides_geojson,
+            terrain_exposure=terrain_exposure,
+            cellular_summary=cellular_summary,
+            waterway_summary=waterway_summary,
+            landslide_summary=landslide_summary,
+            nasa_lhasa_status=lhasa_res,
             geometry_diagnostics=geometry_diagnostics,
             distance_meters=round(route.distance_km * 1000.0, 1),
             duration_seconds=round(route.duration_minutes * 60.0, 1),
