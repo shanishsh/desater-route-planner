@@ -151,6 +151,13 @@ fun MapLayersSheet(
                         LegendBadge(color = Color(0xFFD32F2F), label = "Active Fire (FIRMS)")
                         LegendBadge(color = Color(0xFFC62828), label = "Hazard Zone")
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        LegendBadge(color = Color(0xFF651FFF), label = "Cell Tower & Range")
+                    }
                 }
             }
 

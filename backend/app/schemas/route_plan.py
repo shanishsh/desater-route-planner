@@ -283,6 +283,7 @@ class PlannedRouteResponse(BaseModel):
     weather_geojson: Optional[Dict[str, Any]] = None
     terrain_slope_geojson: Optional[Dict[str, Any]] = None
     cellular_sites_geojson: Optional[Dict[str, Any]] = None
+    cellular_range_geojson: Optional[Dict[str, Any]] = None
     cellular_coverage_geojson: Optional[Dict[str, Any]] = None
     waterways_geojson: Optional[Dict[str, Any]] = None
     historical_landslides_geojson: Optional[Dict[str, Any]] = None
@@ -391,6 +392,7 @@ class RouteAnalysisResponse(BaseModel):
     weather_geojson: Optional[Dict[str, Any]] = None
     terrain_slope_geojson: Optional[Dict[str, Any]] = None
     cellular_sites_geojson: Optional[Dict[str, Any]] = None
+    cellular_range_geojson: Optional[Dict[str, Any]] = None
     cellular_coverage_geojson: Optional[Dict[str, Any]] = None
     waterways_geojson: Optional[Dict[str, Any]] = None
     historical_landslides_geojson: Optional[Dict[str, Any]] = None

@@ -183,6 +183,12 @@ class RouteRepository @Inject constructor(
             facilities_geojson = facilitiesGeom,
             forests_geojson = forestsGeom,
             weather_geojson = weatherGeom,
+            terrain_slope_geojson = entity.terrainSlopeGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            cellular_sites_geojson = entity.cellularSitesGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            cellular_range_geojson = entity.cellularRangeGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            cellular_coverage_geojson = entity.cellularCoverageGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            waterways_geojson = entity.waterwaysGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            historical_landslides_geojson = entity.historicalLandslidesGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
             provider_statuses = providerStatuses,
             analysis_limitations = limitations,
             created_at = java.util.Date(entity.cachedAt).toString()
@@ -367,6 +373,9 @@ class RouteRepository @Inject constructor(
                 facilitiesGeoJson = null, // Stored safely in JSON file on disk
                 forestsGeoJson = null, // Stored safely in JSON file on disk
                 weatherGeoJson = null, // Stored safely in JSON file on disk
+                cellularSitesGeoJson = dto.cellular_sites_geojson?.toString(),
+                cellularRangeGeoJson = dto.cellular_range_geojson?.toString(),
+                cellularCoverageGeoJson = dto.cellular_coverage_geojson?.toString(),
                 dataFreshnessJson = null,
                 providerStatusesJson = null,
                 analysisLimitationsJson = null,

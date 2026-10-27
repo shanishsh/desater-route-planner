@@ -32,6 +32,7 @@ object MapIconFactory {
     const val ICON_SHELTER = "poi-shelter"
     const val ICON_WILDFIRE = "icon-wildfire"
     const val ICON_DISASTER = "icon-disaster"
+    const val ICON_CELL_TOWER = "poi-cell-tower"
 
     // Animated Hazard Icon Keys
     const val ICON_ANIM_THUNDERSTORM = "icon-anim-thunderstorm"
@@ -49,6 +50,7 @@ object MapIconFactory {
     const val LEGACY_ICON_FUEL = "icon-fuel"
     const val LEGACY_ICON_FIRE_STATION = "icon-fire-station"
     const val LEGACY_ICON_SHELTER = "icon-shelter"
+    const val LEGACY_ICON_CELL_TOWER = "icon-cell-tower"
 
     private const val ICON_SIZE = 64 // 64x64 px standard resolution for crisp DPI rendering
 
@@ -147,6 +149,15 @@ object MapIconFactory {
         }
         if (style.getImage(ICON_DISASTER) == null) {
             style.addImage(ICON_DISASTER, createDisasterBitmap())
+        }
+
+        // Cell Tower
+        val cellTowerBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_cell_tower) { createCellTowerBitmap() }
+        if (style.getImage(ICON_CELL_TOWER) == null) {
+            style.addImage(ICON_CELL_TOWER, cellTowerBitmap)
+        }
+        if (style.getImage(LEGACY_ICON_CELL_TOWER) == null) {
+            style.addImage(LEGACY_ICON_CELL_TOWER, cellTowerBitmap)
         }
 
         // Register Animated Category Icons (Initial Static Frame 0)
@@ -583,6 +594,80 @@ object MapIconFactory {
             markPaint
         )
         canvas.drawCircle(center, center + 6.5f, 1.8f, markPaint)
+
+        return bitmap
+    }
+
+    /**
+     * Cell Tower Icon: Indigo circular badge with white antenna lattice mast and radiating radio waves.
+     */
+    fun createCellTowerBitmap(): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        // Indigo background #651FFF
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(101, 31, 255)
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        // White border
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, strokePaint)
+
+        // White antenna mast path
+        val mastPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 2.4f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        val mastPath = Path().apply {
+            // Legs
+            moveTo(center - 10f, 48f)
+            lineTo(center, 22f)
+            lineTo(center + 10f, 48f)
+            // Crossbars
+            moveTo(center - 5f, 31f)
+            lineTo(center + 5f, 31f)
+            moveTo(center - 8.5f, 40f)
+            lineTo(center + 8.5f, 40f)
+            // Spire
+            moveTo(center, 22f)
+            lineTo(center, 15f)
+        }
+        canvas.drawPath(mastPath, mastPaint)
+
+        // Radiating radio arcs
+        val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 2.0f
+            strokeCap = Paint.Cap.ROUND
+        }
+        val innerRect = RectF(center - 9f, 9f, center + 9f, 27f)
+        canvas.drawArc(innerRect, 215f, 50f, false, wavePaint)
+        canvas.drawArc(innerRect, 275f, 50f, false, wavePaint)
+
+        val outerRect = RectF(center - 15f, 5f, center + 15f, 35f)
+        canvas.drawArc(outerRect, 210f, 55f, false, wavePaint)
+        canvas.drawArc(outerRect, 275f, 55f, false, wavePaint)
+
+        // Beacon dot at tip
+        val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, 15f, 2.0f, dotPaint)
 
         return bitmap
     }

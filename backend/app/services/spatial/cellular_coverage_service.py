@@ -55,25 +55,99 @@ class CellularCoverageService:
 
             operator = cell.get("operator", "Unknown Carrier")
             radio = cell.get("radio", "LTE")
-            range_m = cell.get("range_m", 1000)
+            range_m = float(cell.get("range_m", 1500.0))
+            cell_id = cell.get("id") or f"cell_{round(lat, 4)}_{round(lon, 4)}"
 
             features.append({
                 "type": "Feature",
-                "id": cell.get("id"),
+                "id": cell_id,
                 "geometry": {
                     "type": "Point",
-                    "coordinates": [round(lon, 6), round(lat, 6)],
+                    "coordinates": [round(float(lon), 6), round(float(lat), 6)],
                 },
                 "properties": {
-                    "id": cell.get("id"),
+                    "id": cell_id,
+                    "name": f"{operator} ({radio})",
+                    "icon_id": "poi-cell-tower",
+                    "category": "CELL_TOWER",
                     "operator": operator,
                     "radio": radio,
                     "range_m": range_m,
                     "mcc": cell.get("mcc"),
                     "mnc": cell.get("mnc"),
-                    "source": "OpenCelliD",
-                    "source_url": "https://opencellid.org/",
+                    "source": cell.get("source", "OpenCelliD"),
+                    "source_url": cell.get("source_url", "https://opencellid.org/"),
                     "disclaimer": self.CELLULAR_DISCLAIMER,
+                },
+            })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+        }
+
+    def build_cellular_range_geojson(
+        self,
+        cell_records: List[Dict[str, Any]],
+        num_points: int = 32,
+    ) -> Dict[str, Any]:
+        """
+        Builds a GeoJSON Polygon FeatureCollection representing estimated transmission range halos
+        for each known cell tower. Uses geodesic circular polygon calculation with radius range_m.
+        """
+        features = []
+        r_earth = 6371000.0  # Earth radius in meters
+
+        for cell in cell_records:
+            lat = cell.get("latitude")
+            lon = cell.get("longitude")
+            if lat is None or lon is None:
+                continue
+
+            try:
+                lat_f = float(lat)
+                lon_f = float(lon)
+                range_m = max(float(cell.get("range_m", 2500.0)), 500.0)
+            except (ValueError, TypeError):
+                continue
+
+            operator = cell.get("operator", "Unknown Carrier")
+            radio = cell.get("radio", "LTE")
+            cell_id = cell.get("id") or f"cell_{round(lat_f, 4)}_{round(lon_f, 4)}"
+
+            # Compute geodesic circular polygon vertices
+            coords = []
+            lat_rad = math.radians(lat_f)
+            lon_rad = math.radians(lon_f)
+            d_div_r = range_m / r_earth
+
+            for i in range(num_points + 1):
+                bearing = 2.0 * math.pi * (i % num_points) / num_points
+                pt_lat = math.asin(
+                    math.sin(lat_rad) * math.cos(d_div_r)
+                    + math.cos(lat_rad) * math.sin(d_div_r) * math.cos(bearing)
+                )
+                pt_lon = lon_rad + math.atan2(
+                    math.sin(bearing) * math.sin(d_div_r) * math.cos(lat_rad),
+                    math.cos(d_div_r) - math.sin(lat_rad) * math.sin(pt_lat),
+                )
+                coords.append([round(math.degrees(pt_lon), 6), round(math.degrees(pt_lat), 6)])
+
+            features.append({
+                "type": "Feature",
+                "id": f"range_{cell_id}",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [coords],
+                },
+                "properties": {
+                    "id": cell_id,
+                    "tower_id": cell_id,
+                    "operator": operator,
+                    "radio": radio,
+                    "range_m": range_m,
+                    "fill_color": "#7C4DFF",
+                    "stroke_color": "#651FFF",
                 },
             })
 

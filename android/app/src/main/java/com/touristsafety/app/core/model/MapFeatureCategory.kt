@@ -77,6 +77,11 @@ enum class MapFeatureCategory(
         displayName = "Route Waypoint",
         icon = Icons.Default.LocationOn,
         primaryColor = Color(0xFF00ACC1) // Waypoint Cyan
+    ),
+    CELL_TOWER(
+        displayName = "Mobile Network Tower",
+        icon = Icons.Default.CellTower,
+        primaryColor = Color(0xFF651FFF) // Deep Purple / Indigo
     )
 }
 

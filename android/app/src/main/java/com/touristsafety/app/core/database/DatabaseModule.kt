@@ -42,6 +42,12 @@ object DatabaseModule {
         }
     }
 
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `planned_routes` ADD COLUMN `cellularRangeGeoJson` TEXT DEFAULT NULL")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -50,7 +56,8 @@ object DatabaseModule {
             AppDatabase::class.java,
             "tourist_safety.db"
         )
-            .addMigrations(MIGRATION_9_10)
+            .addMigrations(MIGRATION_9_10, MIGRATION_10_11)
+            .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }

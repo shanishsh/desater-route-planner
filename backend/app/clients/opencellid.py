@@ -1,6 +1,8 @@
 """OpenCelliD client for cell tower coordinates and radio coverage reference."""
+import json
 import math
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import httpx
@@ -9,6 +11,31 @@ from app.clients.circuit_breaker import CircuitBreaker
 from app.cache.redis_cache import cache_service
 
 logger = logging.getLogger(__name__)
+
+BASE_TOWERS_FILE = Path(__file__).resolve().parent.parent / "resources" / "uttarakhand_cell_towers.json"
+
+
+def _load_baseline_towers() -> List[Dict[str, Any]]:
+    """Loads authoritative baseline cell towers in Uttarakhand."""
+    if BASE_TOWERS_FILE.exists():
+        try:
+            with open(BASE_TOWERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load baseline cell towers from {BASE_TOWERS_FILE}: {e}")
+    return []
+
+
+def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates great-circle distance between two coordinates in meters."""
+    r = 6371000.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2.0) ** 2
+    )
+    return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 DISCLAIMER_NOTICE = (
     "Cell-tower coordinate records from OpenCelliD provide fixed mast locations and nominal cell technology (LTE/GSM/UMTS). "
@@ -263,30 +290,54 @@ class OpenCellIDClient:
     ) -> List[Dict[str, Any]]:
         """
         Samples coordinates along a route polyline and queries OpenCelliD for nearby cell sites.
+        Supplements and falls back to verified Uttarakhand telecom baseline infrastructure.
         Aggregates unique cell sites across sampled waypoints.
         Coordinates are expected as [longitude, latitude] or [latitude, longitude].
         """
-        if not self.is_configured() or not coordinates:
+        if not coordinates:
             return []
 
         unique_cells: Dict[str, Dict[str, Any]] = {}
-        step = max(1, len(coordinates) // sample_step)
-        sampled = [coordinates[i] for i in range(0, len(coordinates), step)]
-        if coordinates[-1] not in sampled:
-            sampled.append(coordinates[-1])
 
-        for pt in sampled:
-            # Detect whether point is [lon, lat] or [lat, lon]
+        # Parse route points to (lat, lon)
+        route_pts: List[tuple] = []
+        for pt in coordinates:
             if len(pt) >= 2:
-                # Uttarakhand latitude is roughly 28-32, longitude is 77-81
                 if pt[0] > 50.0:  # lon, lat
-                    lon, lat = pt[0], pt[1]
+                    route_pts.append((float(pt[1]), float(pt[0])))
                 else:  # lat, lon
-                    lat, lon = pt[0], pt[1]
+                    route_pts.append((float(pt[0]), float(pt[1])))
 
-                res = await self.fetch_nearby_cells(latitude=lat, longitude=lon, radius_m=radius_m)
-                for cell in res.get("cells", []):
-                    unique_cells[cell["id"]] = cell
+        if not route_pts:
+            return []
+
+        # 1. Check verified Uttarakhand baseline cell towers along the corridor
+        baseline_towers = _load_baseline_towers()
+        step = max(1, len(route_pts) // sample_step)
+        sampled_pts = [route_pts[i] for i in range(0, len(route_pts), step)]
+        if route_pts[-1] not in sampled_pts:
+            sampled_pts.append(route_pts[-1])
+
+        for tower in baseline_towers:
+            t_lat = tower.get("latitude")
+            t_lon = tower.get("longitude")
+            t_range = float(tower.get("range_m", 3000.0))
+            if t_lat is not None and t_lon is not None:
+                for r_lat, r_lon in sampled_pts:
+                    dist = _haversine_distance_m(r_lat, r_lon, float(t_lat), float(t_lon))
+                    if dist <= (t_range + 3000.0):  # within tower coverage or proximity
+                        unique_cells[tower["id"]] = tower
+                        break
+
+        # 2. If OpenCellID is configured and circuit breaker allows, query live OpenCellID
+        if self.is_configured() and self.circuit_breaker.can_execute():
+            for lat, lon in sampled_pts:
+                try:
+                    res = await self.fetch_nearby_cells(latitude=lat, longitude=lon, radius_m=radius_m)
+                    for cell in res.get("cells", []):
+                        unique_cells[cell["id"]] = cell
+                except Exception as e:
+                    logger.debug(f"OpenCelliD point query failed: {e}")
 
         return list(unique_cells.values())
 

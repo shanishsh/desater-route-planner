@@ -78,6 +78,10 @@ object MapLibreLayerManager {
     const val LAYER_HISTORICAL_LANDSLIDES_CIRCLE = "layer-historical-landslides-circle"
     const val LAYER_HISTORICAL_LANDSLIDES_SYMBOL = "layer-historical-landslides-symbol"
 
+    const val SOURCE_CELLULAR_RANGE = "source-cellular-range"
+    const val LAYER_CELLULAR_RANGE_FILL = "layer-cellular-range-fill"
+    const val LAYER_CELLULAR_RANGE_LINE = "layer-cellular-range-line"
+
     const val SOURCE_CELLULAR_SITES = "source-cellular-sites"
     const val LAYER_CELLULAR_SITES_CIRCLE = "layer-cellular-sites-circle"
     const val LAYER_CELLULAR_SITES_SYMBOL = "layer-cellular-sites-symbol"
@@ -371,7 +375,31 @@ object MapLibreLayerManager {
                 style.addLayer(lsSymbol)
             }
 
-            // 4e. Cellular Infrastructure Sites & Estimated Coverage
+            // 4e. Cellular Range Halos, Coverage Line & Mast Sites
+            if (style.getSource(SOURCE_CELLULAR_RANGE) == null) {
+                style.addSource(GeoJsonSource(SOURCE_CELLULAR_RANGE, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_CELLULAR_RANGE_FILL) == null) {
+                val rangeFill = FillLayer(LAYER_CELLULAR_RANGE_FILL, SOURCE_CELLULAR_RANGE).apply {
+                    setProperties(
+                        fillColor(Color.rgb(124, 77, 255)), // Indigo #7C4DFF
+                        fillOpacity(0.18f)
+                    )
+                }
+                style.addLayer(rangeFill)
+            }
+            if (style.getLayer(LAYER_CELLULAR_RANGE_LINE) == null) {
+                val rangeLine = LineLayer(LAYER_CELLULAR_RANGE_LINE, SOURCE_CELLULAR_RANGE).apply {
+                    setProperties(
+                        lineColor(Color.rgb(101, 31, 255)), // Deep Indigo #651FFF
+                        lineWidth(1.8f),
+                        lineOpacity(0.6f),
+                        lineDasharray(arrayOf(3f, 2f))
+                    )
+                }
+                style.addLayer(rangeLine)
+            }
+
             if (style.getSource(SOURCE_CELLULAR_COVERAGE) == null) {
                 style.addSource(GeoJsonSource(SOURCE_CELLULAR_COVERAGE, EMPTY_GEOJSON))
             }
@@ -400,13 +428,24 @@ object MapLibreLayerManager {
             if (style.getLayer(LAYER_CELLULAR_SITES_CIRCLE) == null) {
                 val cellCircle = CircleLayer(LAYER_CELLULAR_SITES_CIRCLE, SOURCE_CELLULAR_SITES).apply {
                     setProperties(
-                        circleColor(Color.rgb(123, 31, 162)), // Purple #7B1FA2
-                        circleRadius(6.5f),
+                        circleColor(Color.rgb(101, 31, 255)), // Indigo #651FFF
+                        circleRadius(10f),
                         circleStrokeColor(Color.WHITE),
-                        circleStrokeWidth(1.5f)
+                        circleStrokeWidth(2f)
                     )
                 }
                 style.addLayer(cellCircle)
+            }
+            if (style.getLayer(LAYER_CELLULAR_SITES_SYMBOL) == null) {
+                val cellSymbol = SymbolLayer(LAYER_CELLULAR_SITES_SYMBOL, SOURCE_CELLULAR_SITES).apply {
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_CELL_TOWER),
+                        iconSize(0.65f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(true)
+                    )
+                }
+                style.addLayer(cellSymbol)
             }
 
             // 5. Point Hazard & Infrastructure Circle & Symbol Layers
@@ -904,6 +943,21 @@ object MapLibreLayerManager {
                 Log.w(TAG, "Failed updating historical landslides GeoJSON: ${t.message}")
             }
 
+            // 7d-2. Update Cellular Range Halos GeoJSON
+            try {
+                val rangeSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_RANGE)
+                var rangeJson = state.cellularRangeGeoJson
+                if (rangeJson.isNullOrBlank() && !state.cellularSitesGeoJson.isNullOrBlank()) {
+                    rangeJson = synthesizeCellularRangeGeoJson(state.cellularSitesGeoJson)
+                }
+                val finalRangeJson = if (!rangeJson.isNullOrBlank()) {
+                    ensureFeatureCollection(rangeJson)
+                } else EMPTY_GEOJSON
+                rangeSource?.setGeoJson(finalRangeJson)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating cellular range GeoJSON: ${t.message}")
+            }
+
             // 7e. Update Cellular Sites GeoJSON
             try {
                 val cellSiteSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_SITES)
@@ -1066,6 +1120,105 @@ object MapLibreLayerManager {
         style.getLayer(LAYER_SAFE_HAVENS_SYMBOL)?.setProperties(
             visibility(if (shelterVis) Property.VISIBLE else Property.NONE)
         )
+
+        // Cellular Tower & Range Visibility
+        val cellVis = (filterCat == null || filterCat == MapFeatureCategory.CELL_TOWER) &&
+                (vis[MapFeatureCategory.CELL_TOWER] != false)
+
+        style.getLayer(LAYER_CELLULAR_RANGE_FILL)?.setProperties(
+            visibility(if (cellVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_CELLULAR_RANGE_LINE)?.setProperties(
+            visibility(if (cellVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_CELLULAR_SITES_CIRCLE)?.setProperties(
+            visibility(if (cellVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_CELLULAR_SITES_SYMBOL)?.setProperties(
+            visibility(if (cellVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_CELLULAR_COVERAGE_LINE)?.setProperties(
+            visibility(if (cellVis) Property.VISIBLE else Property.NONE)
+        )
+    }
+
+    /**
+     * Synthesizes 32-point geodesic circular polygons for cell masts directly on Android client
+     * if precomputed range polygons are absent. Guarantees visible range halos across all conditions.
+     */
+    fun synthesizeCellularRangeGeoJson(sitesGeoJson: String, numPoints: Int = 32): String {
+        return try {
+            val json = org.json.JSONObject(sitesGeoJson)
+            val features = json.optJSONArray("features") ?: return EMPTY_GEOJSON
+            val rangeFeatures = org.json.JSONArray()
+            val rEarth = 6371000.0
+
+            for (i in 0 until features.length()) {
+                val feat = features.optJSONObject(i) ?: continue
+                val geom = feat.optJSONObject("geometry") ?: continue
+                val coords = geom.optJSONArray("coordinates") ?: continue
+                if (coords.length() < 2) continue
+                val lon = coords.optDouble(0)
+                val lat = coords.optDouble(1)
+                if (lat.isNaN() || lon.isNaN()) continue
+
+                val props = feat.optJSONObject("properties") ?: org.json.JSONObject()
+                val rangeM = props.optDouble("range_m", 2500.0).coerceAtLeast(500.0)
+                val operator = props.optString("operator", "Mobile Network")
+                val radio = props.optString("radio", "LTE")
+                val cellId = feat.optString("id", "tower_$i")
+
+                val latRad = Math.toRadians(lat)
+                val lonRad = Math.toRadians(lon)
+                val dDivR = rangeM / rEarth
+
+                val ringArray = org.json.JSONArray()
+                for (p in 0..numPoints) {
+                    val bearing = 2.0 * Math.PI * (p % numPoints) / numPoints
+                    val ptLat = Math.asin(
+                        Math.sin(latRad) * Math.cos(dDivR) +
+                                Math.cos(latRad) * Math.sin(dDivR) * Math.cos(bearing)
+                    )
+                    val ptLon = lonRad + Math.atan2(
+                        Math.sin(bearing) * Math.sin(dDivR) * Math.cos(latRad),
+                        Math.cos(dDivR) - Math.sin(latRad) * Math.sin(ptLat)
+                    )
+                    val ptCoord = org.json.JSONArray()
+                    ptCoord.put(Math.round(Math.toDegrees(ptLon) * 1000000.0) / 1000000.0)
+                    ptCoord.put(Math.round(Math.toDegrees(ptLat) * 1000000.0) / 1000000.0)
+                    ringArray.put(ptCoord)
+                }
+
+                val polyCoords = org.json.JSONArray()
+                polyCoords.put(ringArray)
+
+                val polyGeom = org.json.JSONObject()
+                polyGeom.put("type", "Polygon")
+                polyGeom.put("coordinates", polyCoords)
+
+                val rangeProp = org.json.JSONObject()
+                rangeProp.put("id", cellId)
+                rangeProp.put("operator", operator)
+                rangeProp.put("radio", radio)
+                rangeProp.put("range_m", rangeM)
+
+                val rangeFeat = org.json.JSONObject()
+                rangeFeat.put("type", "Feature")
+                rangeFeat.put("id", "range_$cellId")
+                rangeFeat.put("geometry", polyGeom)
+                rangeFeat.put("properties", rangeProp)
+
+                rangeFeatures.put(rangeFeat)
+            }
+
+            val out = org.json.JSONObject()
+            out.put("type", "FeatureCollection")
+            out.put("features", rangeFeatures)
+            out.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error synthesizing cellular range: ${e.message}")
+            EMPTY_GEOJSON
+        }
     }
 
     fun escapeJson(text: String?): String {

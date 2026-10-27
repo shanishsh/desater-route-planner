@@ -1134,6 +1134,7 @@ class RouteConditionAnalyzer:
 
         # Cellular Coverage & Cell Masts
         cellular_sites_geojson = cellular_coverage_service.build_cellular_sites_geojson(cell_masts)
+        cellular_range_geojson = cellular_coverage_service.build_cellular_range_geojson(cell_masts)
         cellular_coverage_geojson, cellular_summary = cellular_coverage_service.build_cellular_coverage_geojson(
             raw_coords, cell_masts
         )
@@ -1173,6 +1174,7 @@ class RouteConditionAnalyzer:
             weather_geojson=weather_geojson,
             terrain_slope_geojson=terrain_slope_geojson,
             cellular_sites_geojson=cellular_sites_geojson,
+            cellular_range_geojson=cellular_range_geojson,
             cellular_coverage_geojson=cellular_coverage_geojson,
             waterways_geojson=waterways_geojson,
             historical_landslides_geojson=historical_landslides_geojson,
@@ -1365,6 +1367,16 @@ class RouteConditionAnalyzer:
             facilities_geojson=analysis.facilities_geojson,
             forests_geojson=analysis.forests_geojson,
             weather_geojson=analysis.weather_geojson,
+            terrain_slope_geojson=analysis.terrain_slope_geojson,
+            cellular_sites_geojson=analysis.cellular_sites_geojson,
+            cellular_range_geojson=analysis.cellular_range_geojson,
+            cellular_coverage_geojson=analysis.cellular_coverage_geojson,
+            waterways_geojson=analysis.waterways_geojson,
+            historical_landslides_geojson=analysis.historical_landslides_geojson,
+            terrain_exposure=analysis.terrain_exposure,
+            cellular_summary=analysis.cellular_summary,
+            waterway_summary=analysis.waterway_summary,
+            landslide_summary=analysis.landslide_summary,
             geometry_diagnostics=fresh.get("geometry_diagnostics", {}),
             alternatives=analysis.alternatives,
             analysis_limitations=limitations,

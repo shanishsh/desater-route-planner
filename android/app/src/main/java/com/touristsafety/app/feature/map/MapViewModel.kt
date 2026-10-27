@@ -48,7 +48,8 @@ enum class MapFilterChip(val label: String, val category: MapFeatureCategory?) {
     ACTIVE_FIRES("Active Fires", MapFeatureCategory.ACTIVE_FIRE_DETECTION),
     WEATHER("Weather", MapFeatureCategory.WEATHER_POINT),
     DISASTER_ALERTS("Disaster Alerts", MapFeatureCategory.HAZARD_ZONE),
-    SHELTERS_ASSISTANCE("Shelters & Info", MapFeatureCategory.SHELTER)
+    SHELTERS_ASSISTANCE("Shelters & Info", MapFeatureCategory.SHELTER),
+    CELLULAR("Cell Towers", MapFeatureCategory.CELL_TOWER)
 }
 
 data class MapUiState(
@@ -116,6 +117,7 @@ data class MapUiState(
     val weatherGeoJson: String? = null,
     val terrainSlopeGeoJson: String? = null,
     val cellularSitesGeoJson: String? = null,
+    val cellularRangeGeoJson: String? = null,
     val cellularCoverageGeoJson: String? = null,
     val waterwaysGeoJson: String? = null,
     val historicalLandslidesGeoJson: String? = null,
@@ -249,6 +251,12 @@ class MapViewModel @Inject constructor(
                             firesGeoJson = null,
                             facilitiesGeoJson = null,
                             weatherGeoJson = null,
+                            terrainSlopeGeoJson = null,
+                            cellularSitesGeoJson = null,
+                            cellularRangeGeoJson = null,
+                            cellularCoverageGeoJson = null,
+                            waterwaysGeoJson = null,
+                            historicalLandslidesGeoJson = null,
                             geometryDiagnostics = emptyMap(),
                             corridorPolygonCoordinates = emptyList(),
                             primaryCorridorPolygonCoordinates = emptyList()
@@ -277,6 +285,12 @@ class MapViewModel @Inject constructor(
                             firesGeoJson = activeRoute.fires_geojson?.toString(),
                             facilitiesGeoJson = activeRoute.facilities_geojson?.toString(),
                             weatherGeoJson = activeRoute.weather_geojson?.toString(),
+                            terrainSlopeGeoJson = activeRoute.terrain_slope_geojson?.toString(),
+                            cellularSitesGeoJson = activeRoute.cellular_sites_geojson?.toString(),
+                            cellularRangeGeoJson = activeRoute.cellular_range_geojson?.toString(),
+                            cellularCoverageGeoJson = activeRoute.cellular_coverage_geojson?.toString(),
+                            waterwaysGeoJson = activeRoute.waterways_geojson?.toString(),
+                            historicalLandslidesGeoJson = activeRoute.historical_landslides_geojson?.toString(),
                             geometryDiagnostics = activeRoute.geometry_diagnostics,
                             routeDistanceKm = activeRoute.distance_km,
                             routeDurationHours = activeRoute.duration_minutes / 60.0,
@@ -753,6 +767,7 @@ class MapViewModel @Inject constructor(
                 weatherGeoJson = analysis.weather_geojson?.toString(),
                 terrainSlopeGeoJson = analysis.terrain_slope_geojson?.toString(),
                 cellularSitesGeoJson = analysis.cellular_sites_geojson?.toString(),
+                cellularRangeGeoJson = analysis.cellular_range_geojson?.toString(),
                 cellularCoverageGeoJson = analysis.cellular_coverage_geojson?.toString(),
                 waterwaysGeoJson = analysis.waterways_geojson?.toString(),
                 historicalLandslidesGeoJson = analysis.historical_landslides_geojson?.toString(),
@@ -837,6 +852,7 @@ class MapViewModel @Inject constructor(
                 routePrimaryGeoJson = fallbackRoute.geometry_geojson?.toString(),
                 terrainSlopeGeoJson = fallbackRoute.terrain_slope_geojson?.toString(),
                 cellularSitesGeoJson = fallbackRoute.cellular_sites_geojson?.toString(),
+                cellularRangeGeoJson = fallbackRoute.cellular_range_geojson?.toString(),
                 cellularCoverageGeoJson = fallbackRoute.cellular_coverage_geojson?.toString(),
                 waterwaysGeoJson = fallbackRoute.waterways_geojson?.toString(),
                 historicalLandslidesGeoJson = fallbackRoute.historical_landslides_geojson?.toString()
@@ -948,6 +964,59 @@ class MapViewModel @Inject constructor(
         list.addAll(rawHazardZones)
         list.addAll(rawWeatherPoints)
 
+        // 5. Cellular Sites & Transmission Masts
+        _uiState.value.cellularSitesGeoJson?.let { sitesJson ->
+            try {
+                val json = org.json.JSONObject(sitesJson)
+                val features = json.optJSONArray("features")
+                if (features != null) {
+                    for (i in 0 until features.length()) {
+                        val feat = features.optJSONObject(i) ?: continue
+                        val geom = feat.optJSONObject("geometry") ?: continue
+                        val coords = geom.optJSONArray("coordinates") ?: continue
+                        if (coords.length() < 2) continue
+                        val lon = coords.optDouble(0)
+                        val lat = coords.optDouble(1)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val props = feat.optJSONObject("properties") ?: org.json.JSONObject()
+                        val op = props.optString("operator", "Mobile Network")
+                        val radio = props.optString("radio", "LTE")
+                        val rangeM = props.optDouble("range_m", 2500.0)
+                        val cellId = feat.optString("id", "tower_$i")
+                        val source = props.optString("source", "OpenCelliD / Telecom Baseline")
+                        val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, lat, lon)
+
+                        list.add(
+                            UnifiedMapFeature(
+                                id = "cell_tower_$cellId",
+                                category = MapFeatureCategory.CELL_TOWER,
+                                title = "$op ($radio)",
+                                subtitle = "Nominal Range: ${rangeM.toInt()} m • MCC ${props.optString("mcc", "404/405")} MNC ${props.optString("mnc", "")}",
+                                latitude = lat,
+                                longitude = lon,
+                                distanceMeters = dist,
+                                sourceName = source,
+                                sourceTimestampEpochMs = System.currentTimeMillis(),
+                                isVerified = true,
+                                details = mapOf(
+                                    "Operator" to op,
+                                    "Radio Standard" to radio,
+                                    "Nominal Transmission Range" to "${rangeM.toInt()} meters",
+                                    "MCC" to props.optString("mcc", "404/405"),
+                                    "MNC" to props.optString("mnc", "Unknown"),
+                                    "Source" to source,
+                                    "Notice" to "Topography and ridge lines may obstruct RF propagation. Emergency 112 / SMS is not guaranteed."
+                                )
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MapViewModel", "Failed parsing cellular sites for unified features: ${e.message}")
+            }
+        }
+
         // Calculate counts per category
         val counts = mutableMapOf<MapFeatureCategory, Int>()
         list.forEach { feat ->
@@ -1055,6 +1124,7 @@ class MapViewModel @Inject constructor(
                 MapFilterChip.WEATHER -> feat.category == MapFeatureCategory.WEATHER_POINT
                 MapFilterChip.DISASTER_ALERTS -> feat.category == MapFeatureCategory.HAZARD_ZONE
                 MapFilterChip.SHELTERS_ASSISTANCE -> feat.category == MapFeatureCategory.SHELTER || feat.category == MapFeatureCategory.TOURIST_ASSISTANCE
+                MapFilterChip.CELLULAR -> feat.category == MapFeatureCategory.CELL_TOWER
             }
         }
     }

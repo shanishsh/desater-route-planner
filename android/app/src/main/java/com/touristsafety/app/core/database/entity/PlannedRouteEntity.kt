@@ -33,6 +33,7 @@ data class PlannedRouteEntity(
     val weatherGeoJson: String? = null,
     val terrainSlopeGeoJson: String? = null,
     val cellularSitesGeoJson: String? = null,
+    val cellularRangeGeoJson: String? = null,
     val cellularCoverageGeoJson: String? = null,
     val waterwaysGeoJson: String? = null,
     val historicalLandslidesGeoJson: String? = null,

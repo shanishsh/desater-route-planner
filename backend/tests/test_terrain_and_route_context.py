@@ -65,6 +65,13 @@ def test_cellular_coverage_classification():
     sites_geojson = cellular_coverage_service.build_cellular_sites_geojson(mock_cells)
     assert len(sites_geojson["features"]) == 1
     assert sites_geojson["features"][0]["properties"]["operator"] == "Reliance Jio"
+    assert sites_geojson["features"][0]["properties"]["icon_id"] == "poi-cell-tower"
+
+    range_geojson = cellular_coverage_service.build_cellular_range_geojson(mock_cells)
+    assert len(range_geojson["features"]) == 1
+    assert range_geojson["features"][0]["geometry"]["type"] == "Polygon"
+    assert len(range_geojson["features"][0]["geometry"]["coordinates"][0]) == 33  # 32 pts + closed
+    assert range_geojson["features"][0]["properties"]["operator"] == "Reliance Jio"
 
     coverage_geojson, summary = cellular_coverage_service.build_cellular_coverage_geojson(
         trail_coords, mock_cells
@@ -74,6 +81,17 @@ def test_cellular_coverage_classification():
     # Must distinguish probable coverage from unknown coverage
     assert "Reliance Jio" in summary["operators_detected"]
     assert "disclaimer" in summary
+
+
+@pytest.mark.asyncio
+async def test_cellular_corridor_fallback_towers():
+    from app.clients.opencellid import opencellid_client
+    # Almora coords
+    almora_coords = [[79.6591, 29.5971], [79.6615, 29.5990]]
+    cells = await opencellid_client.fetch_corridor_cells(almora_coords)
+    assert len(cells) >= 1
+    operators = [c["operator"] for c in cells]
+    assert any("Jio" in op or "BSNL" in op or "Airtel" in op for op in operators)
 
 
 def test_terrain_exposure_calculator():
