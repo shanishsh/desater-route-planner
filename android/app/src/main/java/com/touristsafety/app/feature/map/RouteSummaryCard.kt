@@ -49,6 +49,8 @@ fun RouteSummaryCard(
     analysisLimitations: List<String> = emptyList(),
     onOpenComparison: () -> Unit = {},
     onClearRoute: (() -> Unit)? = null,
+    verificationStatus: String = "MAPPED_TRAIL",
+    unverifiedReason: String? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -106,6 +108,39 @@ fun RouteSummaryCard(
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
                     )
+
+                    // Verification Status Badge
+                    val statusText = when (verificationStatus) {
+                        "USER_DRAWN_UNVERIFIED" -> "🟠 User-drawn — walkability unverified"
+                        "PARTIALLY_VERIFIED" -> "🟡 Partially verified trail"
+                        "RECORDED_TREK" -> "🔵 Recorded GPS trek"
+                        else -> "🟢 Mapped trail route"
+                    }
+                    val statusBg = when (verificationStatus) {
+                        "USER_DRAWN_UNVERIFIED" -> Color(0xFFFFF3E0)
+                        "PARTIALLY_VERIFIED" -> Color(0xFFFFFDE7)
+                        "RECORDED_TREK" -> Color(0xFFE3F2FD)
+                        else -> Color(0xFFE8F5E9)
+                    }
+                    val statusColor = when (verificationStatus) {
+                        "USER_DRAWN_UNVERIFIED" -> Color(0xFFE65100)
+                        "PARTIALLY_VERIFIED" -> Color(0xFFF57F17)
+                        "RECORDED_TREK" -> Color(0xFF1565C0)
+                        else -> Color(0xFF2E7D32)
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = statusBg,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
+                    ) {
+                        Text(
+                            text = statusText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -183,6 +218,43 @@ fun RouteSummaryCard(
             // Expanded Route Options, Alternatives, and Corridor Cards Carousel
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
+                    if (verificationStatus == "USER_DRAWN_UNVERIFIED" || verificationStatus == "PARTIALLY_VERIFIED") {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF3E0),
+                            border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = unverifiedReason ?: "Walkability is unverified. Never assume a user-drawn or unverified path is passable on foot across alpine terrain.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFE65100),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    } else if (verificationStatus == "RECORDED_TREK") {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE3F2FD),
+                            border = BorderStroke(1.dp, Color(0xFF90CAF9)),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.GpsFixed, contentDescription = null, tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Recorded trek from live GPS movement. Actual path traversed by device.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF1976D2),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                     // Corridor Width Selector (Safety scan: X km each side)
                     Row(
                         modifier = Modifier

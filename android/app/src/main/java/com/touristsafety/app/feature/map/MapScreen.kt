@@ -220,13 +220,17 @@ fun MapScreen(
                         }
 
                         // Render vector layers & markers safely on top of loaded base style
-                        updateMaplibreLayers(mapboxMap, state)
+                        updateMaplibreLayers(mapboxMap, state, context)
                     } catch (t: Throwable) {
                         android.util.Log.e("MapScreen", "Error during style load init: ${t.message}", t)
                     }
                 }
 
                 mapboxMap.addOnMapClickListener { latLng ->
+                    if (viewModel.uiState.value.isDrawingMode) {
+                        viewModel.addDraftWaypoint(latLng.latitude, latLng.longitude)
+                        return@addOnMapClickListener true
+                    }
                     try {
                         val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
                         val renderedFeatures = mapboxMap.queryRenderedFeatures(
@@ -334,12 +338,16 @@ fun MapScreen(
         state.selectedFilter,
         state.layerVisibilities,
         state.routeCoordinates,
+        state.draftPolyline,
+        state.draftWaypoints,
+        state.proposedConnectorCoordinates,
+        state.liveRecordedTrackCoordinates,
         baseMapStatus
     ) {
         if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
             maplibreMapInstance?.let { map ->
                 if (map.style?.isFullyLoaded == true) {
-                    updateMaplibreLayers(map, state)
+                    updateMaplibreLayers(map, state, context)
                 }
             }
         }
@@ -396,7 +404,7 @@ fun MapScreen(
                 map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
                     android.util.Log.i("MapScreen", "Retry loaded base style successfully")
                     baseMapStatus = BaseMapStatus.READY
-                    updateMaplibreLayers(map, state)
+                    updateMaplibreLayers(map, state, context)
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MapScreen", "Retry style load failed: ${t.message}")
@@ -410,7 +418,7 @@ fun MapScreen(
                     map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
                         android.util.Log.i("MapScreen", "Retry loaded base style successfully")
                         baseMapStatus = BaseMapStatus.READY
-                        updateMaplibreLayers(map, state)
+                        updateMaplibreLayers(map, state, context)
                     }
                 } catch (t: Throwable) {
                     android.util.Log.e("MapScreen", "Retry style load failed: ${t.message}")
@@ -431,7 +439,7 @@ fun MapScreen(
                 map.setStyle(fallbackBuilder) { style ->
                     android.util.Log.i("MapScreen", "Applied OSM raster fallback style successfully")
                     baseMapStatus = BaseMapStatus.FALLBACK_RASTER_ACTIVE
-                    updateMaplibreLayers(map, state)
+                    updateMaplibreLayers(map, state, context)
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MapScreen", "Fallback style failed: ${t.message}")
@@ -445,7 +453,7 @@ fun MapScreen(
                     map.setStyle(fallbackBuilder) { style ->
                         android.util.Log.i("MapScreen", "Applied OSM raster fallback style successfully")
                         baseMapStatus = BaseMapStatus.FALLBACK_RASTER_ACTIVE
-                        updateMaplibreLayers(map, state)
+                        updateMaplibreLayers(map, state, context)
                     }
                 } catch (t: Throwable) {
                     android.util.Log.e("MapScreen", "Fallback style failed: ${t.message}")
@@ -476,7 +484,7 @@ fun MapScreen(
                     try {
                         maplibreMapInstance?.let { map ->
                             if (map.style?.isFullyLoaded == true) {
-                                updateMaplibreLayers(map, state)
+                                updateMaplibreLayers(map, state, context)
 
                                 if (state.activeRouteId != null && state.activeRouteId != lastRenderedRouteId) {
                                     lastRenderedRouteId = state.activeRouteId
@@ -708,6 +716,8 @@ fun MapScreen(
         // 3. FLOATING MAP CONTROLS (Right Column)
         FloatingMapControls(
             isOffline = state.isOfflineMode,
+            isDrawing = state.isDrawingMode,
+            isRecording = state.isRecordingTrek,
             onRecenter = {
                 viewModel.recenterToUserLocation()
                 maplibreMapInstance?.animateCamera(
@@ -733,6 +743,8 @@ fun MapScreen(
                 viewModel.toggleOfflineSchematic()
             },
             onReportTrailCondition = { showReportConditionSheet = true },
+            onStartDrawing = { viewModel.enterDrawingMode("TRAIL_FOLLOWING") },
+            onStartRecording = { viewModel.startLiveTrekRecording() },
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 12.dp)
@@ -795,38 +807,430 @@ fun MapScreen(
                     analysisLimitations = state.analysisLimitations,
                     onOpenComparison = { viewModel.toggleComparisonSheet(true) },
                     onClearRoute = { viewModel.clearRoute() },
+                    verificationStatus = state.routeVerificationStatus,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-        } else {
-            // Sleek floating pill when exploring the map without an active route
+        } else if (!state.isDrawingMode && !state.isRecordingTrek) {
+            // 3-Mode Entry Card when exploring the map without active route
             Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 4.dp,
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                shadowElevation = 6.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 14.dp)
-                    .clickable { onNavigateToPlanTrip() }
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
+                    .fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DirectionsWalk,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Plan Safe Trek",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
+                    // Mode 1: Find Trail Route
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.weight(1f).clickable { onNavigateToPlanTrip() }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.DirectionsWalk, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Find Trail", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+
+                    // Mode 2: Draw My Route
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.weight(1f).clickable { viewModel.enterDrawingMode("TRAIL_FOLLOWING") }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.Gesture, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Draw Route", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+                    }
+
+                    // Mode 3: Record My Trek
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier.weight(1f).clickable { viewModel.startLiveTrekRecording() }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.FiberManualRecord, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Record Trek", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        }
+                    }
                 }
+            }
+        }
+
+        // DRAWING MODE HUD (Top banner & bottom controls)
+        if (state.isDrawingMode) {
+            // Top banner
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, top = 6.dp)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Gesture, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Draw Route", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFFF3E0)
+                        ) {
+                            Text(
+                                "🟠 Walkability Unverified",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val isTrailFollowing = state.drawingType == "TRAIL_FOLLOWING"
+                            FilterChip(
+                                selected = isTrailFollowing,
+                                onClick = { viewModel.setDrawingType("TRAIL_FOLLOWING") },
+                                label = { Text("Trail-Following", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                            FilterChip(
+                                selected = !isTrailFollowing,
+                                onClick = { viewModel.setDrawingType("FREEHAND") },
+                                label = { Text("Freehand", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+
+                        Text(
+                            text = "${state.draftWaypoints.size} pts • ${state.draftDistanceKm} km",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+                }
+            }
+
+            // Bottom editing toolbar
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFF475569)),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(
+                        onClick = { viewModel.undoDraftWaypoint() },
+                        enabled = state.draftUndoStack.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.Default.Undo,
+                            contentDescription = "Undo",
+                            tint = if (state.draftUndoStack.isNotEmpty()) Color.White else Color.Gray
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.clearDraft() },
+                        enabled = state.draftWaypoints.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Clear",
+                            tint = if (state.draftWaypoints.isNotEmpty()) Color(0xFFFCA5A5) else Color.Gray
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.exitDrawingMode() },
+                        border = BorderStroke(1.dp, Color(0xFF94A3B8)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) {
+                        Text("Cancel", fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = { viewModel.openSaveDraftDialog() },
+                        enabled = state.draftPolyline.size >= 2,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Finish Route", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // SAVE DRAFT ROUTE DIALOG
+        if (state.showSaveDraftDialog) {
+            var routeName by remember { mutableStateOf("Custom Trek ${java.text.SimpleDateFormat("dd MMM", java.util.Locale.US).format(java.util.Date())}") }
+            var routeDesc by remember { mutableStateOf("") }
+
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissSaveDraftDialog() },
+                title = { Text("Save Custom Route", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Drawn Path: ${state.draftWaypoints.size} waypoints • ${state.draftDistanceKm} km",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = routeName,
+                            onValueChange = { routeName = it },
+                            label = { Text("Route Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = routeDesc,
+                            onValueChange = { routeDesc = it },
+                            label = { Text("Description / Notes (Optional)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF3E0),
+                            border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Walkability unverified. Never assume a manually drawn line across forests, cliffs, or rivers is safe or accessible.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFE65100),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.saveDraftRoute(routeName, routeDesc.ifBlank { null }) },
+                        enabled = routeName.isNotBlank() && !state.isSavingDraftRoute
+                    ) {
+                        if (state.isSavingDraftRoute) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text("Save & Analyze")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.dismissSaveDraftDialog() }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // LIVE TREK RECORDING HUD OVERLAY
+        if (state.isRecordingTrek) {
+            var showStopTrekDialog by remember { mutableStateOf(false) }
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, if (state.isTrekPaused) Color(0xFFF59E0B) else Color(0xFFEF4444)),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(if (state.isTrekPaused) Color(0xFFF59E0B) else Color(0xFFEF4444))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (state.isTrekPaused) "TREK PAUSED" else "LIVE TREK RECORDING",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        val hours = state.recordedTrekDurationSeconds / 3600
+                        val mins = (state.recordedTrekDurationSeconds % 3600) / 60
+                        val secs = state.recordedTrekDurationSeconds % 60
+                        val timeStr = if (hours > 0) {
+                            String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, mins, secs)
+                        } else {
+                            String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
+                        }
+                        Text(
+                            text = timeStr,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Distance: ${state.recordedTrekDistanceKm} km",
+                            fontSize = 12.sp,
+                            color = Color(0xFFE2E8F0)
+                        )
+                        Text(
+                            text = "Points: ${state.liveRecordedTrackCoordinates.size}",
+                            fontSize = 12.sp,
+                            color = Color(0xFFE2E8F0)
+                        )
+                        Text(
+                            text = "GPS: ${state.gpsSignalQuality}",
+                            fontSize = 12.sp,
+                            color = if (state.gpsSignalQuality.contains("POOR")) Color(0xFFFCA5A5) else Color(0xFF86EFAC)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (state.isTrekPaused) {
+                            Button(
+                                onClick = { viewModel.resumeLiveTrekRecording() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Resume")
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { viewModel.pauseLiveTrekRecording() },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color(0xFF94A3B8)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Pause")
+                            }
+                        }
+
+                        Button(
+                            onClick = { showStopTrekDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Finish & Save")
+                        }
+                    }
+                }
+            }
+
+            if (showStopTrekDialog) {
+                var trekTitle by remember { mutableStateOf("Recorded Trek ${java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.US).format(java.util.Date())}") }
+                AlertDialog(
+                    onDismissRequest = { showStopTrekDialog = false },
+                    title = { Text("Save Recorded Trek", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Total distance: ${state.recordedTrekDistanceKm} km with ${state.liveRecordedTrackCoordinates.size} GPS points.")
+                            OutlinedTextField(
+                                value = trekTitle,
+                                onValueChange = { trekTitle = it },
+                                label = { Text("Trek Title") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            showStopTrekDialog = false
+                            viewModel.stopAndSaveLiveTrek(trekTitle)
+                        }) {
+                            Text("Save Trek")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showStopTrekDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
             }
         }
 
@@ -1087,17 +1491,44 @@ private fun FilterChipsRow(
 @Composable
 private fun FloatingMapControls(
     isOffline: Boolean,
+    isDrawing: Boolean = false,
+    isRecording: Boolean = false,
     onRecenter: () -> Unit,
     onFitRoute: () -> Unit,
     onOpenLayers: () -> Unit,
     onToggleOffline: () -> Unit,
     onReportTrailCondition: () -> Unit = {},
+    onStartDrawing: () -> Unit = {},
+    onStartRecording: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (!isDrawing && !isRecording) {
+            FloatingActionButton(
+                onClick = onStartDrawing,
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(4.dp)
+            ) {
+                Icon(Icons.Default.Gesture, contentDescription = "Draw Route", modifier = Modifier.size(20.dp))
+            }
+
+            FloatingActionButton(
+                onClick = onStartRecording,
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = Color(0xFFD32F2F),
+                elevation = FloatingActionButtonDefaults.elevation(4.dp)
+            ) {
+                Icon(Icons.Default.FiberManualRecord, contentDescription = "Record Trek", modifier = Modifier.size(20.dp))
+            }
+        }
         FloatingActionButton(
             onClick = onRecenter,
             modifier = Modifier.size(42.dp),

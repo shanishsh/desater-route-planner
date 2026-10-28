@@ -99,6 +99,21 @@ class OSRMRoutingProvider:
                         detail="No viable route found between the specified origin and destination coordinates.",
                     )
 
+                # Validate snapping distances from OSRM response
+                osrm_wpts = data.get("waypoints", [])
+                if len(osrm_wpts) >= 2 and profile == "walking":
+                    snap_orig = osrm_wpts[0].get("distance", 0.0)
+                    snap_dest = osrm_wpts[1].get("distance", 0.0)
+                    straight_km = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
+                    if max(snap_orig, snap_dest) > 400.0 or (routes[0]["distance"] / 1000.0) < (straight_km * 0.85):
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail=(
+                                f"No viable pedestrian route found between ({origin_lat:.4f}, {origin_lon:.4f}) and "
+                                f"({dest_lat:.4f}, {dest_lon:.4f}). Points are off-trail or separated by disconnected terrain."
+                            ),
+                        )
+
                 primary = routes[0]
                 coords = primary["geometry"]["coordinates"]
                 dist_km = round(primary["distance"] / 1000.0, 2)

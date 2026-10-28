@@ -25,6 +25,116 @@ class RouteRepository @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
 
+    data class VerifiedTrailInfo(
+        val id: String,
+        val name: String,
+        val coordinates: List<Pair<Double, Double>>
+    )
+
+    private val verifiedTrails: List<VerifiedTrailInfo> by lazy {
+        loadVerifiedTrailsFromAssets()
+    }
+
+    private fun loadVerifiedTrailsFromAssets(): List<VerifiedTrailInfo> {
+        return try {
+            val inputStream = context.assets.open("uttarakhand_verified_trails.geojson")
+            val jsonStr = inputStream.bufferedReader().use { it.readText() }
+            val root = org.json.JSONObject(jsonStr)
+            val features = root.optJSONArray("features") ?: org.json.JSONArray()
+            val list = mutableListOf<VerifiedTrailInfo>()
+            for (i in 0 until features.length()) {
+                val feat = features.getJSONObject(i)
+                val props = feat.optJSONObject("properties") ?: org.json.JSONObject()
+                val geom = feat.optJSONObject("geometry") ?: org.json.JSONObject()
+                val name = props.optString("name", "Trail $i")
+                val id = props.optString("id", "trail-$i")
+                val coordsArray = geom.optJSONArray("coordinates")
+                if (coordsArray != null) {
+                    val coords = mutableListOf<Pair<Double, Double>>()
+                    for (j in 0 until coordsArray.length()) {
+                        val pt = coordsArray.getJSONArray(j)
+                        val lon = pt.getDouble(0)
+                        val lat = pt.getDouble(1)
+                        coords.add(lat to lon)
+                    }
+                    if (coords.isNotEmpty()) {
+                        list.add(VerifiedTrailInfo(id = id, name = name, coordinates = coords))
+                    }
+                }
+            }
+            list
+        } catch (e: Exception) {
+            Log.w("RouteRepository", "Failed to load verified trails from assets", e)
+            emptyList()
+        }
+    }
+
+    fun connectAlongTrailIfPossible(
+        p1: Pair<Double, Double>,
+        p2: Pair<Double, Double>,
+        maxDistKm: Double = 0.5
+    ): List<Pair<Double, Double>> {
+        val trails = verifiedTrails
+        var bestTrail: VerifiedTrailInfo? = null
+        var bestIdx1 = -1
+        var bestIdx2 = -1
+        var minTotalDist = Double.MAX_VALUE
+
+        for (trail in trails) {
+            var minD1 = Double.MAX_VALUE
+            var idx1 = -1
+            var minD2 = Double.MAX_VALUE
+            var idx2 = -1
+
+            for (i in trail.coordinates.indices) {
+                val pt = trail.coordinates[i]
+                val d1 = haversineDistanceKm(p1.first, p1.second, pt.first, pt.second)
+                if (d1 < minD1) {
+                    minD1 = d1
+                    idx1 = i
+                }
+                val d2 = haversineDistanceKm(p2.first, p2.second, pt.first, pt.second)
+                if (d2 < minD2) {
+                    minD2 = d2
+                    idx2 = i
+                }
+            }
+
+            if (minD1 <= maxDistKm && minD2 <= maxDistKm && idx1 != -1 && idx2 != -1) {
+                val totalDist = minD1 + minD2
+                if (totalDist < minTotalDist) {
+                    minTotalDist = totalDist
+                    bestTrail = trail
+                    bestIdx1 = idx1
+                    bestIdx2 = idx2
+                }
+            }
+        }
+
+        if (bestTrail != null && bestIdx1 != -1 && bestIdx2 != -1) {
+            val trailCoords = bestTrail.coordinates
+            val slice = if (bestIdx1 <= bestIdx2) {
+                trailCoords.subList(bestIdx1, bestIdx2 + 1)
+            } else {
+                trailCoords.subList(bestIdx2, bestIdx1 + 1).reversed()
+            }
+            return listOf(p1) + slice + listOf(p2)
+        }
+
+        return listOf(p1, p2)
+    }
+
+    private fun haversineDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2.0) * Math.sin(dLat / 2.0) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2.0) * Math.sin(dLon / 2.0)
+        val c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a))
+        return r * c
+    }
+
     private fun getRoutesDir(): File {
         val dir = File(context.filesDir, "saved_routes")
         if (!dir.exists()) {
@@ -191,7 +301,12 @@ class RouteRepository @Inject constructor(
             historical_landslides_geojson = entity.historicalLandslidesGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
             provider_statuses = providerStatuses,
             analysis_limitations = limitations,
-            created_at = java.util.Date(entity.cachedAt).toString()
+            created_at = java.util.Date(entity.cachedAt).toString(),
+            is_user_drawn = entity.isUserDrawn,
+            drawing_mode = entity.drawingMode,
+            verification_status = entity.verificationStatus,
+            proposed_connector_geojson = entity.proposedConnectorGeoJson?.let { try { json.parseToJsonElement(it) } catch (e: Exception) { null } },
+            unverified_reason = if (entity.isUserDrawn) (entity.userDescription ?: "User-drawn route — walkability unverified") else null
         )
         _activeRouteFlow.value = dto
     }
@@ -726,6 +841,69 @@ suspend fun syncTrackPointsBatch(
             )
         }
     }
+
+    suspend fun saveCustomRoute(
+        title: String,
+        description: String?,
+        coordinates: List<Pair<Double, Double>>,
+        drawingMode: String = "FREEHAND",
+        verificationStatus: String = "USER_DRAWN_UNVERIFIED",
+        distanceKm: Double
+    ): PlannedRouteEntity {
+        val routeId = "user-route-" + java.util.UUID.randomUUID().toString()
+        val geomJson = buildLineStringGeoJson(coordinates)
+        val orig = coordinates.firstOrNull() ?: (0.0 to 0.0)
+        val dest = coordinates.lastOrNull() ?: (0.0 to 0.0)
+        val entity = PlannedRouteEntity(
+            routeId = routeId,
+            title = title.ifBlank { "User-Drawn Route" },
+            originName = "Drawn Start",
+            originLat = orig.first,
+            originLon = orig.second,
+            destinationName = "Drawn Destination",
+            destLat = dest.first,
+            destLon = dest.second,
+            travelMode = "hiking",
+            distanceKm = distanceKm,
+            durationMinutes = (distanceKm / 3.0) * 60.0,
+            overallHazardScore = 0.0,
+            overallSafetyStatus = "SAFE",
+            highRiskSegmentsCount = 0,
+            routeGeoJson = geomJson,
+            isSavedOffline = true,
+            isUserDrawn = true,
+            drawingMode = drawingMode,
+            verificationStatus = verificationStatus,
+            userDescription = description,
+            updatedAt = System.currentTimeMillis()
+        )
+        plannedRouteDao.insertOrUpdate(entity)
+        activateSavedRoute(entity)
+        return entity
+    }
+
+    suspend fun deleteCustomRoute(routeId: String) {
+        val entity = plannedRouteDao.getRouteById(routeId)
+        if (entity != null) {
+            plannedRouteDao.deleteRoute(routeId)
+        }
+        val file = File(getRoutesDir(), "$routeId.json")
+        if (file.exists()) {
+            file.delete()
+        }
+        if (_activeRouteFlow.value?.route_id == routeId) {
+            _activeRouteFlow.value = null
+        }
+    }
+
+    private fun buildLineStringGeoJson(coords: List<Pair<Double, Double>>): String {
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"LineString\",\"coordinates\":[")
+        coords.forEachIndexed { i, (lat, lon) ->
+            if (i > 0) sb.append(",")
+            sb.append("[").append(lon).append(",").append(lat).append("]")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
 }
-
-

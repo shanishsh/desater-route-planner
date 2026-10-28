@@ -1218,6 +1218,12 @@ class RouteConditionAnalyzer:
             analysis_limitations=analysis_limitations,
             data_freshness=freshness,
             created_at=now.isoformat(),
+            verification_status=getattr(route, "verification_status", "MAPPED_TRAIL"),
+            drawing_mode=getattr(route, "drawing_mode", "AUTOMATIC"),
+            is_user_drawn=getattr(route, "is_user_drawn", False),
+            proposed_connector_geojson=getattr(route, "proposed_connector_geojson", None),
+            unverified_reason=getattr(route, "unverified_reason", None),
+            trail_name=getattr(route, "trail_name", None),
         )
 
     async def analyze_persisted_route(
@@ -1383,6 +1389,12 @@ class RouteConditionAnalyzer:
             geometry_diagnostics=fresh.get("geometry_diagnostics", {}),
             alternatives=analysis.alternatives,
             analysis_limitations=limitations,
+            verification_status=getattr(analysis, "verification_status", "MAPPED_TRAIL"),
+            drawing_mode=getattr(analysis, "drawing_mode", "AUTOMATIC"),
+            is_user_drawn=getattr(analysis, "is_user_drawn", False),
+            proposed_connector_geojson=getattr(analysis, "proposed_connector_geojson", None),
+            unverified_reason=getattr(analysis, "unverified_reason", None),
+            trail_name=getattr(analysis, "trail_name", None),
         )
 
 

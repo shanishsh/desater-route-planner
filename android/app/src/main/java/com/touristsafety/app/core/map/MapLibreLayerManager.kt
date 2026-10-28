@@ -94,6 +94,20 @@ object MapLibreLayerManager {
     const val LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL = "layer-route-hazard-sequence-symbol"
 
     // Active Trek Layers
+    // Verified Himalayan Trails
+    const val SOURCE_VERIFIED_TRAILS = "source-verified-trails"
+    const val LAYER_VERIFIED_TRAILS_LINE = "layer-verified-trails-line"
+
+    // Proposed Off-Trail Connector (Dashed Amber)
+    const val SOURCE_PROPOSED_CONNECTOR = "source-proposed-connector"
+    const val LAYER_PROPOSED_CONNECTOR_LINE = "layer-proposed-connector-line"
+
+    // User-Drawn Draft Route & Waypoint Pins
+    const val SOURCE_DRAFT_ROUTE = "source-draft-route"
+    const val LAYER_DRAFT_ROUTE_LINE = "layer-draft-route-line"
+    const val SOURCE_DRAFT_WAYPOINTS = "source-draft-waypoints"
+    const val LAYER_DRAFT_WAYPOINTS_CIRCLE = "layer-draft-waypoints-circle"
+
     const val SOURCE_TRAVELED_TRACK = "source-traveled-track"
     const val LAYER_TRAVELED_TRACK_LINE = "layer-traveled-track-line"
     const val SOURCE_TREK_CURRENT_POS = "source-trek-current-pos"
@@ -304,6 +318,93 @@ object MapLibreLayerManager {
                     )
                 }
                 style.addLayer(primLine)
+            }
+
+            // 4. Verified Himalayan Trails Layer (Baseline green dashed path)
+            if (context != null && style.getSource(SOURCE_VERIFIED_TRAILS) == null) {
+                val trailsJson = getOrLoadVerifiedTrailsGeoJson(context)
+                if (trailsJson != null) {
+                    style.addSource(GeoJsonSource(SOURCE_VERIFIED_TRAILS, trailsJson))
+                }
+            }
+            if (style.getLayer(LAYER_VERIFIED_TRAILS_LINE) == null && style.getSource(SOURCE_VERIFIED_TRAILS) != null) {
+                val trailLine = LineLayer(LAYER_VERIFIED_TRAILS_LINE, SOURCE_VERIFIED_TRAILS).apply {
+                    setProperties(
+                        lineColor(Color.parseColor("#10B981")),
+                        lineWidth(2.5f),
+                        lineOpacity(0.70f),
+                        lineDasharray(arrayOf(2.0f, 2.0f)),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(trailLine)
+            }
+
+            // 4a-1. Proposed Connector Layer (Dashed Amber)
+            if (style.getSource(SOURCE_PROPOSED_CONNECTOR) == null) {
+                style.addSource(GeoJsonSource(SOURCE_PROPOSED_CONNECTOR, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_PROPOSED_CONNECTOR_LINE) == null) {
+                val connLine = LineLayer(LAYER_PROPOSED_CONNECTOR_LINE, SOURCE_PROPOSED_CONNECTOR).apply {
+                    setProperties(
+                        lineColor(Color.parseColor("#F59E0B")),
+                        lineWidth(3.5f),
+                        lineOpacity(0.95f),
+                        lineDasharray(arrayOf(2.5f, 2.5f)),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(connLine)
+            }
+
+            // 4a-2. User-Drawn Draft Route & Waypoints Layers
+            if (style.getSource(SOURCE_DRAFT_ROUTE) == null) {
+                style.addSource(GeoJsonSource(SOURCE_DRAFT_ROUTE, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_DRAFT_ROUTE_LINE) == null) {
+                val draftLine = LineLayer(LAYER_DRAFT_ROUTE_LINE, SOURCE_DRAFT_ROUTE).apply {
+                    setProperties(
+                        lineColor(Color.parseColor("#8B5CF6")),
+                        lineWidth(4.5f),
+                        lineOpacity(0.90f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(draftLine)
+            }
+            if (style.getSource(SOURCE_DRAFT_WAYPOINTS) == null) {
+                style.addSource(GeoJsonSource(SOURCE_DRAFT_WAYPOINTS, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_DRAFT_WAYPOINTS_CIRCLE) == null) {
+                val draftCircle = CircleLayer(LAYER_DRAFT_WAYPOINTS_CIRCLE, SOURCE_DRAFT_WAYPOINTS).apply {
+                    setProperties(
+                        circleColor(Color.WHITE),
+                        circleRadius(6.0f),
+                        circleStrokeColor(Color.parseColor("#8B5CF6")),
+                        circleStrokeWidth(2.5f)
+                    )
+                }
+                style.addLayer(draftCircle)
+            }
+
+            // 4a-3. Traveled Track Line (Live GPS Recording)
+            if (style.getSource(SOURCE_TRAVELED_TRACK) == null) {
+                style.addSource(GeoJsonSource(SOURCE_TRAVELED_TRACK, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_TRAVELED_TRACK_LINE) == null) {
+                val trackLine = LineLayer(LAYER_TRAVELED_TRACK_LINE, SOURCE_TRAVELED_TRACK).apply {
+                    setProperties(
+                        lineColor(Color.parseColor("#10B981")),
+                        lineWidth(5.0f),
+                        lineOpacity(0.95f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                style.addLayer(trackLine)
             }
 
             // 4b. Terrain Slope Gradient Layer
@@ -805,6 +906,28 @@ object MapLibreLayerManager {
                 corridorSource?.setGeoJson(corrJson)
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating corridor GeoJSON: ${t.message}")
+            }
+
+            // 1b. Update Proposed Connector GeoJSON
+            try {
+                if (state.proposedConnectorCoordinates.size >= 2) {
+                    updateProposedConnector(style, state.proposedConnectorCoordinates)
+                } else {
+                    style.getSourceAs<GeoJsonSource>(SOURCE_PROPOSED_CONNECTOR)?.setGeoJson(EMPTY_GEOJSON)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating proposed connector: ${t.message}")
+            }
+
+            // 1c. Update User-Drawn Draft Route GeoJSON
+            try {
+                if (state.isDrawingMode) {
+                    updateDraftRoute(style, state.draftWaypoints, state.draftPolyline)
+                } else {
+                    clearDraftRoute(style)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating draft route: ${t.message}")
             }
 
             // 2. Update Primary & Secondary Route GeoJSON
@@ -1411,6 +1534,7 @@ object MapLibreLayerManager {
 
     private var cachedMaskGeoJson: String? = null
     private var cachedBoundaryGeoJson: String? = null
+    private var cachedVerifiedTrailsGeoJson: String? = null
 
     private fun getOrLoadMaskGeoJson(context: android.content.Context): String? {
         if (cachedMaskGeoJson != null) return cachedMaskGeoJson
@@ -1438,6 +1562,20 @@ object MapLibreLayerManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading uttarakhand_forest_reserves.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun getOrLoadVerifiedTrailsGeoJson(context: android.content.Context): String? {
+        if (cachedVerifiedTrailsGeoJson != null) return cachedVerifiedTrailsGeoJson
+        return try {
+            context.assets.open("uttarakhand_verified_trails.geojson").use { stream ->
+                val str = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedVerifiedTrailsGeoJson = ensureFeatureCollection(str)
+                cachedVerifiedTrailsGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_verified_trails.geojson from assets: ${e.message}", e)
             null
         }
     }
@@ -1485,6 +1623,61 @@ object MapLibreLayerManager {
         }
         sb.append("]}")
         return sb.toString()
+    }
+
+    fun updateDraftRoute(style: Style, waypoints: List<Pair<Double, Double>>, polyline: List<Pair<Double, Double>>) {
+        if (!style.isFullyLoaded) return
+        val routeSource = style.getSourceAs<GeoJsonSource>(SOURCE_DRAFT_ROUTE)
+        val wptSource = style.getSourceAs<GeoJsonSource>(SOURCE_DRAFT_WAYPOINTS)
+        if (polyline.size < 2) {
+            routeSource?.setGeoJson(EMPTY_GEOJSON)
+        } else {
+            val sb = StringBuilder()
+            sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+            polyline.forEachIndexed { i, (lat, lon) ->
+                if (i > 0) sb.append(",")
+                sb.append("[").append(lon).append(",").append(lat).append("]")
+            }
+            sb.append("]}}]}")
+            routeSource?.setGeoJson(sb.toString())
+        }
+
+        if (waypoints.isEmpty()) {
+            wptSource?.setGeoJson(EMPTY_GEOJSON)
+        } else {
+            val sb = StringBuilder()
+            sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
+            waypoints.forEachIndexed { i, (lat, lon) ->
+                if (i > 0) sb.append(",")
+                sb.append("{\"type\":\"Feature\",\"properties\":{\"index\":").append(i).append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+                sb.append(lon).append(",").append(lat).append("]}}")
+            }
+            sb.append("]}")
+            wptSource?.setGeoJson(sb.toString())
+        }
+    }
+
+    fun clearDraftRoute(style: Style) {
+        if (!style.isFullyLoaded) return
+        style.getSourceAs<GeoJsonSource>(SOURCE_DRAFT_ROUTE)?.setGeoJson(EMPTY_GEOJSON)
+        style.getSourceAs<GeoJsonSource>(SOURCE_DRAFT_WAYPOINTS)?.setGeoJson(EMPTY_GEOJSON)
+    }
+
+    fun updateProposedConnector(style: Style, connectorCoords: List<Pair<Double, Double>>) {
+        if (!style.isFullyLoaded) return
+        val source = style.getSourceAs<GeoJsonSource>(SOURCE_PROPOSED_CONNECTOR) ?: return
+        if (connectorCoords.size < 2) {
+            source.setGeoJson(EMPTY_GEOJSON)
+            return
+        }
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+        connectorCoords.forEachIndexed { i, (lat, lon) ->
+            if (i > 0) sb.append(",")
+            sb.append("[").append(lon).append(",").append(lat).append("]")
+        }
+        sb.append("]}}]}")
+        source.setGeoJson(sb.toString())
     }
 
     fun updateTraveledTrack(style: Style, coordinates: List<Pair<Double, Double>>) {

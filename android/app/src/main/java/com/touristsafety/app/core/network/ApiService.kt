@@ -116,6 +116,11 @@ interface ApiService {
         @Body body: PlanRouteRequestDto
     ): Response<PlannedRouteResponseDto>
 
+    @POST("routes/custom/analyze")
+    suspend fun analyzeCustomRoute(
+        @Body body: CustomRouteAnalysisRequestDto
+    ): Response<PlannedRouteResponseDto>
+
     @POST("routes/{id}/analyze")
     suspend fun analyzeRoute(
         @Path("id") id: String,

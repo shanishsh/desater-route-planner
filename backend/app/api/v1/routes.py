@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.database.session import get_db
 from app.models.planned_route import PlannedRoute
 from app.services.routing.osrm_provider import osrm_routing_provider
+from app.services.routing.trail_routing_engine import trail_routing_engine
 from app.services.route_condition_analyzer import route_condition_analyzer
 from app.services.ai.route_summary_assistant import route_summary_assistant
 from app.services.spatial.region_boundary_service import region_boundary_service
@@ -25,6 +26,7 @@ from app.schemas.route_plan import (
     RouteAlternativeSchema,
     RouteAnalysisRequest,
     RouteAnalysisResponse,
+    CustomRouteAnalysisRequest,
 )
 
 router = APIRouter(prefix="/routes", tags=["Route Planning & Safety"])
@@ -85,16 +87,27 @@ async def plan_route(
             detail=ped_reason or "Motor vehicles are prohibited on this trekking corridor. Please select walking or hiking mode.",
         )
 
-    # 3. Calculate genuine route geometry and alternatives via configured routing provider (OSRM)
-    route_result = await osrm_routing_provider.calculate_route(
-        origin_lat=request.origin_lat,
-        origin_lon=request.origin_lon,
-        origin_name=request.origin_name or "Current Location",
-        dest_lat=request.destination_lat,
-        dest_lon=request.destination_lon,
-        dest_name=request.destination_name,
-        travel_mode=request.travel_mode or "driving",
-    )
+    # 3. Calculate genuine route geometry and alternatives via configured routing provider
+    t_mode = (request.travel_mode or "driving").lower()
+    if t_mode in ("hiking", "walking"):
+        route_result = await trail_routing_engine.calculate_hiking_route(
+            origin_lat=request.origin_lat,
+            origin_lon=request.origin_lon,
+            origin_name=request.origin_name or "Current Location",
+            dest_lat=request.destination_lat,
+            dest_lon=request.destination_lon,
+            dest_name=request.destination_name,
+        )
+    else:
+        route_result = await osrm_routing_provider.calculate_route(
+            origin_lat=request.origin_lat,
+            origin_lon=request.origin_lon,
+            origin_name=request.origin_name or "Current Location",
+            dest_lat=request.destination_lat,
+            dest_lon=request.destination_lon,
+            dest_name=request.destination_name,
+            travel_mode=t_mode,
+        )
 
     # 3b. Verify calculated route polyline remains within Uttarakhand state boundary
     raw_coords = (route_result.geometry_geojson or {}).get("coordinates", [])
@@ -190,6 +203,131 @@ async def analyze_route_corridor(
         analysis.grounded_summary = summary_obj.model_dump()
     except Exception as e:
         logger.warning(f"Could not generate grounded route summary: {e}")
+
+    return analysis
+
+
+@router.post("/custom/analyze", response_model=PlannedRouteResponse, status_code=status.HTTP_201_CREATED)
+async def analyze_custom_drawn_route(
+    request: CustomRouteAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Accepts a user-drawn polyline geometry (from 'Draw my route' or GPS recorded trek),
+    validates coordinate geometry against the Uttarakhand boundary, calculates actual
+    polyline path distance, performs corridor multi-hazard analysis, and marks the route as
+    'USER_DRAWN_UNVERIFIED' (or requested drawing_mode).
+    """
+    import uuid
+    from app.services.routing.base import RouteResult, haversine_distance_km, sample_points_along_polyline, Waypoint
+
+    raw_coords = (request.geometry_geojson or {}).get("coordinates", [])
+    if not raw_coords or len(raw_coords) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="User-drawn route geometry must contain at least 2 coordinate points.",
+        )
+
+    # Validate coordinate ordering [lon, lat] and boundary
+    coords_lat_lon = []
+    dist_km = 0.0
+    for idx, pt in enumerate(raw_coords):
+        if len(pt) < 2:
+            continue
+        lon, lat = pt[0], pt[1]
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Coordinate at index {idx} ({lat}, {lon}) is out of WGS84 bounds.",
+            )
+        if not region_boundary_service.is_point_in_uttarakhand(lat, lon):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Point ({lat:.4f}, {lon:.4f}) is outside Uttarakhand state boundaries.",
+            )
+        coords_lat_lon.append((lat, lon))
+        if idx > 0:
+            dist_km += haversine_distance_km(coords_lat_lon[idx-1][0], coords_lat_lon[idx-1][1], lat, lon)
+
+    dist_km = round(dist_km, 2)
+    dur_mins = round((dist_km / 3.0) * 60.0, 1)  # Himalayan hiking speed ~3 km/h
+
+    # Sample waypoints along the drawn polyline
+    sampled = sample_points_along_polyline(raw_coords, interval_km=max(1.0, dist_km / 10.0), max_points=12)
+    waypoints = [
+        Waypoint(
+            index=i,
+            name=f"Drawn Waypoint {i+1}",
+            latitude=round(w[0], 5),
+            longitude=round(w[1], 5),
+            distance_from_start_km=round(w[2], 2),
+            estimated_travel_time_minutes=round((w[2] / 3.0) * 60.0, 1),
+        )
+        for i, w in enumerate(sampled)
+    ]
+
+    route_id = f"user-route-{uuid.uuid4().hex[:12]}"
+    origin_name = "User Route Start"
+    dest_name = "User Route Destination"
+
+    v_status = "USER_DRAWN_UNVERIFIED" if request.drawing_mode != "RECORDED_TREK" else "RECORDED_TREK"
+
+    route_result = RouteResult(
+        route_id=route_id,
+        title=request.title or "User-Drawn Route",
+        origin_name=origin_name,
+        origin_lat=coords_lat_lon[0][0],
+        origin_lon=coords_lat_lon[0][1],
+        destination_name=dest_name,
+        destination_lat=coords_lat_lon[-1][0],
+        destination_lon=coords_lat_lon[-1][1],
+        travel_mode="hiking",
+        distance_km=dist_km,
+        duration_minutes=dur_mins,
+        geometry_geojson={"type": "LineString", "coordinates": raw_coords},
+        waypoints=waypoints,
+        alternatives=[],
+        verification_status=v_status,
+        unverified_reason="Route geometry is user-defined. Walkability and terrain obstacles are unverified.",
+        drawing_mode=request.drawing_mode,
+        is_user_drawn=True,
+    )
+
+    corr_m = (request.corridor_distance_km or 2.0) * 1000.0
+    analysis = await route_condition_analyzer.analyze_route(
+        db=db,
+        route=route_result,
+        corridor_distance_meters=corr_m,
+    )
+
+    db_route = PlannedRoute(
+        id=analysis.route_id,
+        title=analysis.title,
+        origin_name=analysis.origin_name,
+        origin_lat=analysis.origin_lat,
+        origin_lon=analysis.origin_lon,
+        destination_name=analysis.destination_name,
+        dest_lat=analysis.dest_lat,
+        dest_lon=analysis.dest_lon,
+        travel_mode=analysis.travel_mode,
+        distance_km=analysis.distance_km,
+        duration_minutes=analysis.duration_minutes,
+        geometry_geojson=analysis.geometry_geojson,
+        overall_hazard_score=analysis.overall_hazard_score,
+        overall_safety_status=analysis.overall_safety_status,
+        route_version=1,
+        routing_provider="USER_DRAWN",
+        conditions_data=[c.model_dump() for c in analysis.conditions],
+        alternatives_data=[a.model_dump() for a in analysis.alternatives],
+        data_freshness_data=analysis.data_freshness,
+        analysis_data=analysis.model_dump(),
+    )
+    try:
+        db.add(db_route)
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to persist custom route to database: {e}")
+        await db.rollback()
 
     return analysis
 

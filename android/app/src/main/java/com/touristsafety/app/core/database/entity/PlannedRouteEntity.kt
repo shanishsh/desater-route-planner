@@ -50,5 +50,12 @@ data class PlannedRouteEntity(
     val totalAscentM: Double = 0.0,
     val maxElevationM: Double = 0.0,
     val isSavedOffline: Boolean = true,
-    val cachedAt: Long = System.currentTimeMillis()
+    val cachedAt: Long = System.currentTimeMillis(),
+    val isUserDrawn: Boolean = false,
+    val drawingMode: String = "AUTOMATIC",
+    val verificationStatus: String = "MAPPED_TRAIL",
+    val userDescription: String? = null,
+    val proposedConnectorGeoJson: String? = null,
+    val waypointsJson: String = "[]",
+    val updatedAt: Long = System.currentTimeMillis()
 )

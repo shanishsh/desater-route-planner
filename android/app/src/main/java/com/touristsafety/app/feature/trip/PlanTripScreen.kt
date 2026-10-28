@@ -67,6 +67,61 @@ fun PlanTripScreen(
             isPedestrianOnly = true
         ),
         VerifiedCorridor(
+            label = "Tungnath – Chandrashila",
+            originName = "Chopta Roadhead",
+            originLat = 30.4870,
+            originLon = 79.2170,
+            destName = "Tungnath Temple",
+            destLat = 30.4883,
+            destLon = 79.2174,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
+            label = "Valley of Flowers",
+            originName = "Govindghat Base",
+            originLat = 30.6247,
+            originLon = 79.5606,
+            destName = "Valley of Flowers Entry",
+            destLat = 30.7258,
+            destLon = 79.5936,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
+            label = "Hemkund Sahib",
+            originName = "Ghangaria Camp",
+            originLat = 30.7011,
+            originLon = 79.5852,
+            destName = "Hemkund Sahib Gurudwara",
+            destLat = 30.7001,
+            destLon = 79.6083,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
+            label = "Har Ki Dun",
+            originName = "Sankri Base",
+            originLat = 31.0772,
+            originLon = 78.1802,
+            destName = "Har Ki Dun Valley",
+            destLat = 31.1444,
+            destLon = 78.4116,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
+            label = "Gaumukh – Tapovan",
+            originName = "Gangotri Temple",
+            originLat = 30.9947,
+            originLon = 78.9398,
+            destName = "Gaumukh Glacier",
+            destLat = 30.9255,
+            destLon = 79.0805,
+            mode = "hiking",
+            isPedestrianOnly = true
+        ),
+        VerifiedCorridor(
             label = "Gaurikund Base (NH 107)",
             originName = "Rudraprayag Junction",
             originLat = 30.2844,

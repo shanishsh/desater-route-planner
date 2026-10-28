@@ -119,5 +119,19 @@ class WaterwayService:
             "features": matching_features,
         }, summary
 
+    def find_waterways_near_point(self, lat: float, lon: float, radius_km: float = 0.06) -> List[Dict[str, Any]]:
+        """Finds river channels passing within radius_km of a specific geographic coordinate."""
+        radius_m = radius_km * 1000.0
+        matches = []
+        for feat in self._features:
+            props = feat.get("properties", {})
+            geom = feat.get("geometry", {})
+            coords = geom.get("coordinates", [])
+            for c in coords:
+                if len(c) >= 2 and haversine_m(lat, lon, c[1], c[0]) <= radius_m:
+                    matches.append(props)
+                    break
+        return matches
+
 
 waterway_service = WaterwayService()

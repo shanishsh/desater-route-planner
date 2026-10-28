@@ -21,6 +21,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.*
 import org.json.JSONObject
 import javax.inject.Inject
@@ -125,7 +127,24 @@ data class MapUiState(
     val routeHazardSequence: List<com.touristsafety.app.core.model.RouteOrderedHazardItem> = emptyList(),
     val selectedHazardSequenceItem: com.touristsafety.app.core.model.RouteOrderedHazardItem? = null,
     val isAnimationEnabled: Boolean = true,
-    val isHazardTimelineExpanded: Boolean = false
+    val isHazardTimelineExpanded: Boolean = false,
+    val isDrawingMode: Boolean = false,
+    val drawingType: String = "FREEHAND",
+    val draftWaypoints: List<Pair<Double, Double>> = emptyList(),
+    val draftPolyline: List<Pair<Double, Double>> = emptyList(),
+    val draftDistanceKm: Double = 0.0,
+    val draftUndoStack: List<List<Pair<Double, Double>>> = emptyList(),
+    val showSaveDraftDialog: Boolean = false,
+    val isSavingDraftRoute: Boolean = false,
+    val routeVerificationStatus: String = "MAPPED_TRAIL",
+    val proposedConnectorCoordinates: List<Pair<Double, Double>> = emptyList(),
+    val isRecordingTrek: Boolean = false,
+    val isTrekPaused: Boolean = false,
+    val recordedTrekDistanceKm: Double = 0.0,
+    val recordedTrekDurationSeconds: Long = 0L,
+    val liveRecordedTrackCoordinates: List<Pair<Double, Double>> = emptyList(),
+    val gpsSignalQuality: String = "GOOD",
+    val activeTrekTripId: String? = null
 )
 
 @HiltViewModel
@@ -174,13 +193,34 @@ class MapViewModel @Inject constructor(
                     val inState = boundaryValidator?.isPointInUttarakhand(locState.latitude, locState.longitude) ?: true
                     _uiState.update { current ->
                         if (inState) {
+                            val acc = locState.accuracyMeters ?: 50f
+                            val signalQuality = when {
+                                acc <= 10.0f -> "GOOD"
+                                acc <= 25.0f -> "FAIR"
+                                else -> "POOR"
+                            }
+                            var updatedTrack = current.liveRecordedTrackCoordinates
+                            var addedDist = 0.0
+                            if (current.isRecordingTrek && !current.isTrekPaused && acc <= 30.0f) {
+                                val newPt = locState.latitude to locState.longitude
+                                if (updatedTrack.isEmpty() || updatedTrack.last() != newPt) {
+                                    if (updatedTrack.isNotEmpty()) {
+                                        val last = updatedTrack.last()
+                                        addedDist = haversineDistanceKm(last.first, last.second, newPt.first, newPt.second)
+                                    }
+                                    updatedTrack = updatedTrack + newPt
+                                }
+                            }
                             current.copy(
                                 userLocation = locState.latitude to locState.longitude,
                                 userLocationAccuracyMeters = locState.accuracyMeters,
                                 isUserLocationAcquired = true,
                                 isLocationFresh = locState.isFresh,
                                 isLocating = locState.isLocating,
-                                locationErrorMessage = locState.errorMessage
+                                locationErrorMessage = locState.errorMessage,
+                                gpsSignalQuality = signalQuality,
+                                liveRecordedTrackCoordinates = updatedTrack,
+                                recordedTrekDistanceKm = Math.round((current.recordedTrekDistanceKm + addedDist) * 100.0) / 100.0
                             )
                         } else {
                             current.copy(
@@ -777,7 +817,9 @@ class MapViewModel @Inject constructor(
                 geometryDiagnostics = analysis.geometry_diagnostics,
                 plannedRouteAlternatives = if (analysis.alternatives.isNotEmpty()) analysis.alternatives else it.plannedRouteAlternatives,
                 analysisLimitations = analysis.analysis_limitations,
-                isAnalyzingCorridor = false
+                isAnalyzingCorridor = false,
+                routeVerificationStatus = analysis.verification_status,
+                proposedConnectorCoordinates = parseRouteGeoJson(analysis.proposed_connector_geojson?.toString())
             )
         }
         rebuildUnifiedFeatures()
@@ -1566,5 +1608,271 @@ class MapViewModel @Inject constructor(
             if (v != null) result[k] = v
         }
         return result
+    }
+
+    private var liveTrekTimerJob: Job? = null
+
+    fun enterDrawingMode(type: String = "FREEHAND") {
+        _uiState.update {
+            it.copy(
+                isDrawingMode = true,
+                drawingType = type,
+                draftWaypoints = emptyList(),
+                draftPolyline = emptyList(),
+                draftDistanceKm = 0.0,
+                draftUndoStack = emptyList(),
+                showSaveDraftDialog = false
+            )
+        }
+    }
+
+    fun exitDrawingMode() {
+        _uiState.update {
+            it.copy(
+                isDrawingMode = false,
+                draftWaypoints = emptyList(),
+                draftPolyline = emptyList(),
+                draftDistanceKm = 0.0,
+                draftUndoStack = emptyList(),
+                showSaveDraftDialog = false
+            )
+        }
+    }
+
+    fun setDrawingType(type: String) {
+        _uiState.update { state ->
+            val wpts = state.draftWaypoints
+            val polyline = if (type == "TRAIL_FOLLOWING" && wpts.size >= 2) {
+                val fullPoly = mutableListOf<Pair<Double, Double>>()
+                for (i in 0 until wpts.size - 1) {
+                    val seg = routeRepository.connectAlongTrailIfPossible(wpts[i], wpts[i + 1])
+                    if (fullPoly.isEmpty()) fullPoly.addAll(seg) else fullPoly.addAll(seg.drop(1))
+                }
+                fullPoly
+            } else {
+                wpts
+            }
+            var dist = 0.0
+            for (i in 0 until polyline.size - 1) {
+                dist += haversineDistanceKm(polyline[i].first, polyline[i].second, polyline[i + 1].first, polyline[i + 1].second)
+            }
+            state.copy(
+                drawingType = type,
+                draftPolyline = polyline,
+                draftDistanceKm = Math.round(dist * 100.0) / 100.0
+            )
+        }
+    }
+
+    fun addDraftWaypoint(lat: Double, lon: Double) {
+        val state = _uiState.value
+        if (!state.isDrawingMode) return
+
+        if (boundaryValidator != null && !boundaryValidator.isPointInUttarakhand(lat, lon)) {
+            Log.w("MapViewModel", "Ignoring point outside Uttarakhand: ($lat, $lon)")
+            return
+        }
+
+        val currentWpts = state.draftWaypoints.toMutableList()
+        val undoStack = state.draftUndoStack.toMutableList()
+        undoStack.add(ArrayList(currentWpts))
+
+        currentWpts.add(lat to lon)
+
+        val polyline = if (state.drawingType == "TRAIL_FOLLOWING" && currentWpts.size >= 2) {
+            val fullPoly = mutableListOf<Pair<Double, Double>>()
+            for (i in 0 until currentWpts.size - 1) {
+                val seg = routeRepository.connectAlongTrailIfPossible(currentWpts[i], currentWpts[i + 1])
+                if (fullPoly.isEmpty()) {
+                    fullPoly.addAll(seg)
+                } else {
+                    fullPoly.addAll(seg.drop(1))
+                }
+            }
+            fullPoly
+        } else {
+            currentWpts
+        }
+
+        var dist = 0.0
+        for (i in 0 until polyline.size - 1) {
+            dist += haversineDistanceKm(
+                polyline[i].first, polyline[i].second,
+                polyline[i + 1].first, polyline[i + 1].second
+            )
+        }
+
+        _uiState.update {
+            it.copy(
+                draftWaypoints = currentWpts,
+                draftPolyline = polyline,
+                draftDistanceKm = Math.round(dist * 100.0) / 100.0,
+                draftUndoStack = undoStack
+            )
+        }
+    }
+
+    fun undoDraftWaypoint() {
+        val state = _uiState.value
+        if (state.draftUndoStack.isEmpty()) return
+        val undoStack = state.draftUndoStack.toMutableList()
+        val prevWpts = undoStack.removeAt(undoStack.lastIndex)
+
+        val polyline = if (state.drawingType == "TRAIL_FOLLOWING" && prevWpts.size >= 2) {
+            val fullPoly = mutableListOf<Pair<Double, Double>>()
+            for (i in 0 until prevWpts.size - 1) {
+                val seg = routeRepository.connectAlongTrailIfPossible(prevWpts[i], prevWpts[i + 1])
+                if (fullPoly.isEmpty()) {
+                    fullPoly.addAll(seg)
+                } else {
+                    fullPoly.addAll(seg.drop(1))
+                }
+            }
+            fullPoly
+        } else {
+            prevWpts
+        }
+
+        var dist = 0.0
+        for (i in 0 until polyline.size - 1) {
+            dist += haversineDistanceKm(
+                polyline[i].first, polyline[i].second,
+                polyline[i + 1].first, polyline[i + 1].second
+            )
+        }
+
+        _uiState.update {
+            it.copy(
+                draftWaypoints = prevWpts,
+                draftPolyline = polyline,
+                draftDistanceKm = Math.round(dist * 100.0) / 100.0,
+                draftUndoStack = undoStack
+            )
+        }
+    }
+
+    fun clearDraft() {
+        _uiState.update {
+            it.copy(
+                draftWaypoints = emptyList(),
+                draftPolyline = emptyList(),
+                draftDistanceKm = 0.0,
+                draftUndoStack = emptyList()
+            )
+        }
+    }
+
+    fun openSaveDraftDialog() {
+        _uiState.update { it.copy(showSaveDraftDialog = true) }
+    }
+
+    fun dismissSaveDraftDialog() {
+        _uiState.update { it.copy(showSaveDraftDialog = false) }
+    }
+
+    fun saveDraftRoute(title: String, description: String?) {
+        val state = _uiState.value
+        if (state.draftPolyline.size < 2) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSavingDraftRoute = true) }
+            try {
+                val entity = routeRepository.saveCustomRoute(
+                    title = title,
+                    description = description,
+                    coordinates = state.draftPolyline,
+                    drawingMode = state.drawingType,
+                    verificationStatus = "USER_DRAWN_UNVERIFIED",
+                    distanceKm = state.draftDistanceKm
+                )
+                _uiState.update {
+                    it.copy(
+                        isSavingDraftRoute = false,
+                        showSaveDraftDialog = false,
+                        isDrawingMode = false,
+                        routeTitle = entity.title,
+                        routeCoordinates = state.draftPolyline,
+                        routeDistanceKm = entity.distanceKm,
+                        routeVerificationStatus = "USER_DRAWN_UNVERIFIED",
+                        draftWaypoints = emptyList(),
+                        draftPolyline = emptyList(),
+                        draftDistanceKm = 0.0
+                    )
+                }
+                triggerRouteCorridorAnalysis(entity.routeId)
+            } catch (e: Exception) {
+                Log.e("MapViewModel", "Failed to save custom route: ${e.message}", e)
+                _uiState.update { it.copy(isSavingDraftRoute = false) }
+            }
+        }
+    }
+
+    fun startLiveTrekRecording() {
+        val tripId = "trek-" + java.util.UUID.randomUUID().toString()
+        _uiState.update {
+            it.copy(
+                isRecordingTrek = true,
+                isTrekPaused = false,
+                activeTrekTripId = tripId,
+                recordedTrekDistanceKm = 0.0,
+                recordedTrekDurationSeconds = 0L,
+                liveRecordedTrackCoordinates = emptyList()
+            )
+        }
+        liveTrekTimerJob?.cancel()
+        liveTrekTimerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000L)
+                if (!_uiState.value.isTrekPaused) {
+                    _uiState.update { it.copy(recordedTrekDurationSeconds = it.recordedTrekDurationSeconds + 1) }
+                }
+            }
+        }
+    }
+
+    fun pauseLiveTrekRecording() {
+        _uiState.update { it.copy(isTrekPaused = true) }
+    }
+
+    fun resumeLiveTrekRecording() {
+        _uiState.update { it.copy(isTrekPaused = false) }
+    }
+
+    fun stopAndSaveLiveTrek(trekTitle: String) {
+        liveTrekTimerJob?.cancel()
+        liveTrekTimerJob = null
+        val state = _uiState.value
+        val coords = state.liveRecordedTrackCoordinates
+
+        viewModelScope.launch {
+            if (coords.size >= 2) {
+                routeRepository.saveCustomRoute(
+                    title = trekTitle.ifBlank { "Recorded Trek " + java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.US).format(java.util.Date()) },
+                    description = "Live GPS trek recorded with ${coords.size} points. Distance: ${state.recordedTrekDistanceKm} km",
+                    coordinates = coords,
+                    drawingMode = "RECORDED_TREK",
+                    verificationStatus = "RECORDED_TREK",
+                    distanceKm = state.recordedTrekDistanceKm
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    isRecordingTrek = false,
+                    isTrekPaused = false,
+                    activeTrekTripId = null
+                )
+            }
+        }
+    }
+
+    private fun haversineDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2.0) * Math.sin(dLat / 2.0) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2.0) * Math.sin(dLon / 2.0)
+        val c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a))
+        return r * c
     }
 }

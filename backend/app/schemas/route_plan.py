@@ -294,6 +294,20 @@ class PlannedRouteResponse(BaseModel):
     nasa_lhasa_status: Optional[Dict[str, Any]] = None
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     grounded_summary: Optional[Dict[str, Any]] = None
+    verification_status: str = "MAPPED_TRAIL"
+    drawing_mode: str = "AUTOMATIC"
+    is_user_drawn: bool = False
+    proposed_connector_geojson: Optional[Dict[str, Any]] = None
+    unverified_reason: Optional[str] = None
+    trail_name: Optional[str] = None
+
+
+class CustomRouteAnalysisRequest(BaseModel):
+    title: str = "User-Drawn Route"
+    description: Optional[str] = None
+    geometry_geojson: Dict[str, Any]
+    drawing_mode: str = "FREEHAND"  # "FREEHAND" or "TRAIL_FOLLOWING"
+    corridor_distance_km: float = 2.0
     distance_meters: float = 0.0
     duration_seconds: float = 0.0
     routing_provider: str = "OSRM"
@@ -325,6 +339,12 @@ class PlannedRouteResponse(BaseModel):
     analysis_limitations: List[str] = Field(default_factory=list)
     data_freshness: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
+    verification_status: str = "MAPPED_TRAIL"
+    drawing_mode: str = "AUTOMATIC"
+    is_user_drawn: bool = False
+    proposed_connector_geojson: Optional[Dict[str, Any]] = None
+    unverified_reason: Optional[str] = None
+    trail_name: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -405,6 +425,20 @@ class RouteAnalysisResponse(BaseModel):
     analysis_limitations: List[str] = Field(default_factory=list)
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     grounded_summary: Optional[Dict[str, Any]] = None
+    verification_status: str = "MAPPED_TRAIL"
+    drawing_mode: str = "AUTOMATIC"
+    is_user_drawn: bool = False
+    proposed_connector_geojson: Optional[Dict[str, Any]] = None
+    unverified_reason: Optional[str] = None
+    trail_name: Optional[str] = None
+
+
+class CustomRouteAnalysisRequest(BaseModel):
+    title: str = "User-Drawn Route"
+    description: Optional[str] = None
+    geometry_geojson: Dict[str, Any]
+    drawing_mode: str = "FREEHAND"  # "FREEHAND" or "TRAIL_FOLLOWING"
+    corridor_distance_km: float = 2.0
 
 
 class StartTripRequest(BaseModel):

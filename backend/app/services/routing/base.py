@@ -43,6 +43,12 @@ class RouteResult:
     geometry_geojson: Dict[str, Any]  # GeoJSON LineString
     waypoints: List[Waypoint] = field(default_factory=list)
     alternatives: List[RouteAlternative] = field(default_factory=list)
+    verification_status: str = "MAPPED_TRAIL"
+    unverified_reason: Optional[str] = None
+    proposed_connector_geojson: Optional[Dict[str, Any]] = None
+    drawing_mode: str = "AUTOMATIC"
+    is_user_drawn: bool = False
+    trail_name: Optional[str] = None
 
 
 def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

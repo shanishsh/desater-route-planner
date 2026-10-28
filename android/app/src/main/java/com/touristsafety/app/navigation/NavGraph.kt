@@ -166,7 +166,10 @@ fun AppNavGraph(
 
         composable(Screen.Map.route) {
             val viewModel: MapViewModel = hiltViewModel()
-            MapScreen(viewModel = viewModel)
+            MapScreen(
+                viewModel = viewModel,
+                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) }
+            )
         }
 
         composable(Screen.Alerts.route) {

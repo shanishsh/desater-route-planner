@@ -233,7 +233,13 @@ data class PlannedRouteResponseDto(
     val provider_statuses: Map<String, ProviderStatusItemDto> = emptyMap(),
     val analysis_limitations: List<String> = emptyList(),
     val created_at: String = "",
-    val grounded_summary: GroundedRouteSummaryDto? = null
+    val grounded_summary: GroundedRouteSummaryDto? = null,
+    val is_user_drawn: Boolean = false,
+    val drawing_mode: String = "AUTOMATIC",
+    val verification_status: String = "MAPPED_TRAIL",
+    val proposed_connector_geojson: JsonElement? = null,
+    val unverified_reason: String? = null,
+    val trail_name: String? = null
 )
 
 @Serializable
@@ -275,7 +281,13 @@ data class RouteAnalysisResponseDto(
     val analysis_limitations: List<String> = emptyList(),
     val overlays_geojson: JsonElement? = null,
     val geometry_diagnostics: Map<String, JsonElement> = emptyMap(),
-    val grounded_summary: GroundedRouteSummaryDto? = null
+    val grounded_summary: GroundedRouteSummaryDto? = null,
+    val is_user_drawn: Boolean = false,
+    val drawing_mode: String = "AUTOMATIC",
+    val verification_status: String = "MAPPED_TRAIL",
+    val proposed_connector_geojson: JsonElement? = null,
+    val unverified_reason: String? = null,
+    val trail_name: String? = null
 )
 
 @Serializable
@@ -462,4 +474,13 @@ data class TrackPointsSyncResponseDto(
     val suggested_alternative_id: String? = null,
     val status: String = "ACTIVE",
     val message: String = ""
+)
+
+@Serializable
+data class CustomRouteAnalysisRequestDto(
+    val coordinates: List<List<Double>>,
+    val route_name: String = "Custom Trek",
+    val corridor_distance_km: Double = 5.0,
+    val drawing_mode: String = "FREEHAND",
+    val description: String? = null
 )
