@@ -1175,7 +1175,7 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
 
         try {
             MapLibreLayerManager.setupSourcesAndLayers(style, context)
-            MapLibreLayerManager.updateData(style, state)
+            MapLibreLayerManager.updateData(style, state, context)
         } catch (t: Throwable) {
             android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")
         }

@@ -13,10 +13,12 @@ interface ForestDao {
     @Query("SELECT * FROM forest_features")
     fun getAllForestFeatures(): Flow<List<ForestEntity>>
 
+    @Query("SELECT COUNT(*) FROM forest_features")
+    suspend fun getCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(features: List<ForestEntity>)
 
     @Query("DELETE FROM forest_features")
     suspend fun clearAll()
 }
-

@@ -94,12 +94,15 @@ class RouteConditionAnalyzer:
             try:
                 res = await asyncio.wait_for(
                     osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon),
-                    timeout=3.5
+                    timeout=6.0
                 )
-                return res.get("features", []) if res else []
+                feats = res.get("features", []) if res else []
+                if not feats:
+                    feats = osm_forest_client.get_baseline_forests_in_bbox(min_lat, min_lon, max_lat, max_lon)
+                return feats
             except Exception as e:
                 logger.warning(f"Forest query failed or timed out: {e}")
-                return []
+                return osm_forest_client.get_baseline_forests_in_bbox(min_lat, min_lon, max_lat, max_lon)
 
         async def _safe_fires():
             try:

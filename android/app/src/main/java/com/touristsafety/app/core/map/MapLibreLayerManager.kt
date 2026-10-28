@@ -185,13 +185,14 @@ object MapLibreLayerManager {
 
             // 2. Forest Polygons Source & Layers
             if (style.getSource(SOURCE_FOREST_POLYGONS) == null) {
-                style.addSource(GeoJsonSource(SOURCE_FOREST_POLYGONS, EMPTY_GEOJSON))
+                val initialForest = if (context != null) getOrLoadForestsBaselineGeoJson(context) ?: EMPTY_GEOJSON else (cachedForestsBaselineGeoJson ?: EMPTY_GEOJSON)
+                style.addSource(GeoJsonSource(SOURCE_FOREST_POLYGONS, initialForest))
             }
             if (style.getLayer(LAYER_FOREST_FILL) == null) {
                 val forestFill = FillLayer(LAYER_FOREST_FILL, SOURCE_FOREST_POLYGONS).apply {
                     setProperties(
-                        fillColor(Color.argb(55, 46, 125, 50)), // Forest Green #2E7D32
-                        fillOpacity(0.22f)
+                        fillColor(Color.rgb(46, 125, 50)), // Forest Green #2E7D32
+                        fillOpacity(0.35f)
                     )
                 }
                 style.addLayer(forestFill)
@@ -199,8 +200,9 @@ object MapLibreLayerManager {
             if (style.getLayer(LAYER_FOREST_LINE) == null) {
                 val forestLine = LineLayer(LAYER_FOREST_LINE, SOURCE_FOREST_POLYGONS).apply {
                     setProperties(
-                        lineColor(Color.rgb(76, 175, 80)), // #4CAF50
-                        lineWidth(1.5f),
+                        lineColor(Color.rgb(27, 94, 32)), // Dark Green outline #1B5E20
+                        lineWidth(2.0f),
+                        lineOpacity(0.85f),
                         lineJoin(Property.LINE_JOIN_ROUND)
                     )
                 }
@@ -780,9 +782,9 @@ object MapLibreLayerManager {
     /**
      * Updates all GeoJSON sources with the latest state data without destroying layers.
      */
-    fun updateData(style: Style, state: MapUiState) {
+    fun updateData(style: Style, state: MapUiState, context: android.content.Context? = null) {
         if (!style.isFullyLoaded) return
-        setupSourcesAndLayers(style)
+        setupSourcesAndLayers(style, context)
 
         Log.d(TAG, "MapLibre updateData: allFeatures=${state.allFeatures.size}, " +
                 "hazardsGeoJson=${!state.hazardsGeoJson.isNullOrBlank()}, " +
@@ -849,11 +851,21 @@ object MapLibreLayerManager {
             // 4. Update Forest Polygons
             try {
                 val forestSource = style.getSourceAs<GeoJsonSource>(SOURCE_FOREST_POLYGONS)
-                val forestJson = if (!state.forestsGeoJson.isNullOrBlank()) {
+                val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
+                val routeForestHasFeatures = !state.forestsGeoJson.isNullOrBlank() &&
+                        state.forestsGeoJson.contains("\"coordinates\"") &&
+                        !state.forestsGeoJson.contains("\"features\":[]")
+                val baselineJson = if (context != null) getOrLoadForestsBaselineGeoJson(context) else cachedForestsBaselineGeoJson
+                val forestJson = if (routeForestHasFeatures) {
+                    ensureFeatureCollection(state.forestsGeoJson)
+                } else if (forestFeatures.isNotEmpty()) {
+                    buildPolygonFeatureCollection(forestFeatures)
+                } else if (!baselineJson.isNullOrBlank()) {
+                    baselineJson
+                } else if (!state.forestsGeoJson.isNullOrBlank()) {
                     ensureFeatureCollection(state.forestsGeoJson)
                 } else {
-                    val forestFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.FOREST_AREA && it.geometryPolygon != null }
-                    buildPolygonFeatureCollection(forestFeatures)
+                    EMPTY_GEOJSON
                 }
                 forestSource?.setGeoJson(forestJson)
             } catch (t: Throwable) {
@@ -1410,6 +1422,22 @@ object MapLibreLayerManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading uttarakhand_mask.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private var cachedForestsBaselineGeoJson: String? = null
+
+    private fun getOrLoadForestsBaselineGeoJson(context: android.content.Context): String? {
+        if (cachedForestsBaselineGeoJson != null) return cachedForestsBaselineGeoJson
+        return try {
+            context.assets.open("uttarakhand_forest_reserves.geojson").use { stream ->
+                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedForestsBaselineGeoJson = ensureFeatureCollection(text)
+                cachedForestsBaselineGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_forest_reserves.geojson from assets: ${e.message}", e)
             null
         }
     }

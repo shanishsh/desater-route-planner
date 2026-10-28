@@ -322,6 +322,7 @@ class MapViewModel @Inject constructor(
 
         // 3. Forest Geography (OSM)
         viewModelScope.launch {
+            forestRepository.seedFromAssetsIfEmpty()
             forestRepository.getForestFeatures().collect { forests ->
                 if (_uiState.value.activeRouteId == null) {
                     rawForestFeatures = forests
@@ -619,7 +620,9 @@ class MapViewModel @Inject constructor(
                 Log.w("MapViewModel", "Error parsing corridor forests", e)
             }
         }
-        rawForestFeatures = forestList
+        if (forestList.isNotEmpty()) {
+            rawForestFeatures = forestList
+        }
 
         // 2. Active Fires from fire_detections with genuine coordinates
         rawFireHotspots = analysis.fire_detections.mapIndexed { idx, fire ->
