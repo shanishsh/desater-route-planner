@@ -503,5 +503,129 @@ class MapViewModelTest {
         viewModel.clearRoute()
         verify(exactly = 1) { routeRepository.clearActiveRoute() }
     }
-}
 
+    @Test
+    fun `tapping route weather sample sets exact typed target and coordinates`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        val sampleWeather = com.touristsafety.app.core.network.dto.RouteWeatherConditionDto(
+            temperature_c = 12.5,
+            relative_humidity_pct = 65.0,
+            precipitation_probability_pct = 15.0,
+            precipitation_mm = 0.2,
+            wind_speed_kmh = 14.0,
+            weather_code = 2,
+            weather_description = "Partly Cloudy",
+            warning_level = "NONE",
+            forecast_valid_at = "14:00 UTC",
+            source = "Open-Meteo"
+        )
+        val target = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+            sampleId = "weather-sample-2",
+            sampleIndex = 2,
+            name = "Rambara Waypoint",
+            latitude = 30.6850,
+            longitude = 79.0520,
+            distanceAlongRouteKm = 7.5,
+            weather = sampleWeather
+        )
+
+        viewModel.selectTarget(target)
+
+        val state = viewModel.uiState.value
+        assertNotNull(state.selectedTarget)
+        assertTrue(state.selectedTarget is com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather)
+        val sel = state.selectedTarget as com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather
+        assertEquals("weather-sample-2", sel.sampleId)
+        assertEquals(2, sel.sampleIndex)
+        assertEquals("Rambara Waypoint", sel.name)
+        assertEquals(30.6850, sel.latitude, 0.0001)
+        assertEquals(79.0520, sel.longitude, 0.0001)
+        assertEquals(12.5, sel.weather.temperature_c, 0.001)
+        assertEquals(30.6850 to 79.0520, state.selectedPointCoordinate)
+    }
+
+    @Test
+    fun `inspectPoint sets arbitrary point target and coordinates with generation token`() = runTest(testDispatcher) {
+        val mockContextRepo = mockk<PointContextRepository>(relaxed = true)
+        val mockDto = com.touristsafety.app.core.network.dto.PointContextDto(
+            latitude = 30.7346,
+            longitude = 79.0669,
+            in_uttarakhand = true,
+            nearest_settlement = "Kedarnath Area",
+            settlement_distance_km = 1.2,
+            elevation_m = 3584.0
+        )
+        coEvery { mockContextRepo.getPointContext(30.7346, 79.0669, any()) } returns Result.success(mockDto)
+
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository,
+            pointContextRepository = mockContextRepo
+        )
+
+        viewModel.inspectPoint(30.7346, 79.0669)
+
+        // Immediately state has loading = true, target set
+        val state1 = viewModel.uiState.value
+        assertNotNull(state1.selectedTarget)
+        assertTrue(state1.selectedTarget is com.touristsafety.app.core.model.SelectedMapTarget.ArbitraryPoint)
+        assertEquals(30.7346 to 79.0669, state1.selectedPointCoordinate)
+        assertTrue(state1.pointContextLoading)
+        assertTrue(state1.pointContextGenerationToken > 0L)
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state2 = viewModel.uiState.value
+        assertFalse(state2.pointContextLoading)
+        assertNotNull(state2.pointContextData)
+        assertEquals("Kedarnath Area", state2.pointContextData?.nearest_settlement)
+        assertEquals(3584.0, state2.pointContextData?.elevation_m)
+    }
+
+    @Test
+    fun `clearSelection resets selected target and coordinates`() = runTest(testDispatcher) {
+        val viewModel = MapViewModel(
+            itineraryRepository,
+            routeRepository,
+            emergencyRepository,
+            forestRepository,
+            fireHotspotRepository,
+            disasterRepository,
+            weatherRepository,
+            providerStatusRepository,
+            connectivityMonitor,
+            deviceLocationRepository
+        )
+
+        viewModel.inspectPoint(30.7346, 79.0669)
+        assertNotNull(viewModel.uiState.value.selectedTarget)
+        assertNotNull(viewModel.uiState.value.selectedPointCoordinate)
+
+        viewModel.clearSelection()
+
+        assertNull(viewModel.uiState.value.selectedTarget)
+        assertNull(viewModel.uiState.value.selectedPointCoordinate)
+        assertNull(viewModel.uiState.value.pointContextData)
+        assertFalse(viewModel.uiState.value.pointContextLoading)
+    }
+}

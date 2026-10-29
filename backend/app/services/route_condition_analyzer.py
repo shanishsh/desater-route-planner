@@ -999,19 +999,36 @@ class RouteConditionAnalyzer:
                 })
         # 6. Waypoints
         for wp in waypoint_conditions:
+            wp_id = f"weather-sample-{wp.index}"
             overlay_features.append({
                 "type": "Feature",
+                "id": wp_id,
                 "geometry": {"type": "Point", "coordinates": [wp.longitude, wp.latitude]},
                 "properties": {
+                    "id": wp_id,
+                    "sample_id": wp_id,
+                    "sample_index": wp.index,
                     "layer": "weather_point",
-                    "index": wp.index,
+                    "category": "WEATHER_POINT",
+                    "category_enum": "WEATHER_POINT",
                     "name": wp.name,
+                    "title": f"Weather: {wp.name}",
+                    "latitude": wp.latitude,
+                    "longitude": wp.longitude,
+                    "distance_km": wp.distance_from_start_km,
                     "temperature_c": wp.weather.temperature_c,
+                    "relative_humidity_pct": getattr(wp.weather, "relative_humidity_pct", 0.0),
+                    "precipitation_probability_pct": getattr(wp.weather, "precipitation_probability_pct", 0.0),
                     "precipitation_mm": wp.weather.precipitation_mm,
                     "wind_speed_kmh": wp.weather.wind_speed_kmh,
+                    "weather_code": getattr(wp.weather, "weather_code", 0),
                     "description": wp.weather.weather_description,
                     "warning_level": wp.weather.warning_level,
                     "arrival_at": wp.estimated_arrival_at,
+                    "forecast_valid_at": str(getattr(wp.weather, "forecast_valid_at", wp.estimated_arrival_at)),
+                    "source": getattr(wp.weather, "source", "Open-Meteo"),
+                    "is_simulated": getattr(wp.weather, "is_simulated", False),
+                    "elevation_m": getattr(wp, "elevation_m", 0.0),
                 }
             })
 

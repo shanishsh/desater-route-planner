@@ -45,6 +45,13 @@ interface ApiService {
         @Query("lon") lon: Double
     ): Response<WeatherDto>
 
+    @GET("places/point-context")
+    suspend fun getPointContext(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("radius_km") radiusKm: Double = 5.0
+    ): Response<PointContextDto>
+
     @GET("disaster-alerts")
     suspend fun getDisasterAlerts(): Response<List<DisasterAlertDto>>
 

@@ -35,6 +35,7 @@ object MapLibreLayerManager {
     private var lastWeatherGeoJson: String? = null
     private var lastSlopeGeoJson: String? = null
     private var lastWaterwayGeoJson: String? = null
+    private var lastSelectedPointGeoJson: String? = null
 
     // Sources
     const val SOURCE_UTTARAKHAND_MASK = "source-uttarakhand-mask"
@@ -47,6 +48,7 @@ object MapLibreLayerManager {
     const val SOURCE_ACTIVE_FIRES = "source-active-fires"
     const val SOURCE_SAFE_HAVENS = "source-safe-havens"
     const val SOURCE_WEATHER_POINTS = "source-weather-points"
+    const val SOURCE_SELECTED_POINT = "source-selected-point"
 
     // Layers
     const val LAYER_UTTARAKHAND_MASK_FILL = "layer-uttarakhand-mask-fill"
@@ -78,6 +80,8 @@ object MapLibreLayerManager {
     const val LAYER_SAFE_HAVENS_CIRCLE = "layer-safe-havens-circle"
     const val LAYER_SAFE_HAVENS_SYMBOL = "layer-safe-havens-symbol"
     const val LAYER_WEATHER_POINTS_CIRCLE = "layer-weather-points-circle"
+    const val LAYER_SELECTED_POINT_RING = "layer-selected-point-ring"
+    const val LAYER_SELECTED_POINT_CIRCLE = "layer-selected-point-circle"
 
     // Terrain & Safety Intelligence Layers
     const val SOURCE_TERRAIN_SLOPE = "source-terrain-slope"

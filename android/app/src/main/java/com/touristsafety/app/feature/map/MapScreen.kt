@@ -233,13 +233,14 @@ fun MapScreen(
                     }
                     try {
                         val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
-                        val renderedFeatures = mapboxMap.queryRenderedFeatures(
+
+                        // 1. Priority 1: Interactive Point Markers & Weather Circles
+                        val pointFeatures = mapboxMap.queryRenderedFeatures(
                             screenPoint,
+                            MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                             MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
-                            MapLibreLayerManager.LAYER_DISASTER_FILL,
-                            MapLibreLayerManager.LAYER_DISASTER_LINE,
                             MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
                             MapLibreLayerManager.LAYER_DISASTER_POINTS_CIRCLE,
                             MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
@@ -254,49 +255,112 @@ fun MapScreen(
                             MapLibreLayerManager.LAYER_FIRE_STATIONS_CIRCLE,
                             MapLibreLayerManager.LAYER_SAFE_HAVENS_SYMBOL,
                             MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
-                            MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
-                            MapLibreLayerManager.LAYER_FOREST_FILL,
-                            MapLibreLayerManager.LAYER_FOREST_LINE,
-                            MapLibreLayerManager.LAYER_WATERWAYS_FILL,
-                            MapLibreLayerManager.LAYER_WATERWAYS_LINE
+                            MapLibreLayerManager.LAYER_HISTORICAL_LANDSLIDES_SYMBOL,
+                            MapLibreLayerManager.LAYER_HISTORICAL_LANDSLIDES_CIRCLE,
+                            MapLibreLayerManager.LAYER_CELLULAR_SITES_SYMBOL,
+                            MapLibreLayerManager.LAYER_CELLULAR_SITES_CIRCLE
                         )
-                        if (renderedFeatures.isNotEmpty()) {
-                            val top = renderedFeatures.first()
-                            val featId = top.getStringProperty("id") ?: top.id()
-                            val seqLabel = top.getStringProperty("sequence_label")
 
-                            // Check if tapped feature is in the ordered hazard sequence
+                        if (pointFeatures.isNotEmpty()) {
+                            val top = pointFeatures.first()
+                            val featId = top.getStringProperty("id") ?: top.id()
+                            val layerId = top.getStringProperty("layer")
+                            val catProp = top.getStringProperty("category") ?: top.getStringProperty("category_enum")
+
+                            // Weather Point Sample tapped
+                            if (layerId == "weather_point" || catProp == "WEATHER_POINT") {
+                                val sampleId = top.getStringProperty("sample_id") ?: featId
+                                val sampleIdx = top.getNumberProperty("sample_index")?.toInt() ?: top.getNumberProperty("index")?.toInt() ?: 0
+                                val targetSample = state.routeWeatherSamples.firstOrNull { it.sampleId == sampleId || it.sampleIndex == sampleIdx }
+                                if (targetSample != null) {
+                                    viewModel.selectTarget(targetSample)
+                                    return@addOnMapClickListener true
+                                } else {
+                                    val name = top.getStringProperty("name") ?: top.getStringProperty("title") ?: "Route Weather Sample"
+                                    val tempC = top.getNumberProperty("temperature_c")?.toDouble() ?: 18.0
+                                    val windKmh = top.getNumberProperty("wind_speed_kmh")?.toDouble() ?: 10.0
+                                    val precipMm = top.getNumberProperty("precipitation_mm")?.toDouble() ?: 0.0
+                                    val precipProb = top.getNumberProperty("precipitation_probability_pct")?.toDouble() ?: 0.0
+                                    val desc = top.getStringProperty("description") ?: "Weather Forecast"
+                                    val distKm = top.getNumberProperty("distance_km")?.toDouble() ?: 0.0
+                                    val dynamicSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                                        sampleId = sampleId ?: "weather-sample-$sampleIdx",
+                                        sampleIndex = sampleIdx,
+                                        name = name,
+                                        latitude = latLng.latitude,
+                                        longitude = latLng.longitude,
+                                        distanceAlongRouteKm = distKm,
+                                        weather = com.touristsafety.app.core.network.dto.RouteWeatherConditionDto(
+                                            temperature_c = tempC,
+                                            relative_humidity_pct = top.getNumberProperty("relative_humidity_pct")?.toDouble() ?: 60.0,
+                                            precipitation_probability_pct = precipProb,
+                                            precipitation_mm = precipMm,
+                                            wind_speed_kmh = windKmh,
+                                            weather_code = top.getNumberProperty("weather_code")?.toInt() ?: 1,
+                                            weather_description = desc,
+                                            warning_level = top.getStringProperty("warning_level") ?: "NONE",
+                                            forecast_valid_at = top.getStringProperty("forecast_valid_at") ?: "Current",
+                                            source = top.getStringProperty("source") ?: "Open-Meteo"
+                                        )
+                                    )
+                                    viewModel.selectTarget(dynamicSample)
+                                    return@addOnMapClickListener true
+                                }
+                            }
+
+                            // Hazard sequence item tapped
+                            val seqLabel = top.getStringProperty("sequence_label")
                             val seqItem = state.routeHazardSequence.firstOrNull { it.feature.id == featId || it.sequenceLabel == seqLabel }
                             if (seqItem != null) {
                                 viewModel.selectHazardSequenceItem(seqItem)
                                 return@addOnMapClickListener true
                             }
+
+                            // Known mapped feature tapped
                             val clicked = state.allFeatures.firstOrNull { it.id == featId }
                                 ?: state.allFeatures.firstOrNull { it.title == top.getStringProperty("title") }
                             if (clicked != null) {
                                 viewModel.selectFeature(clicked)
                                 return@addOnMapClickListener true
-                            } else {
-                                val title = top.getStringProperty("title") ?: top.getStringProperty("name")
-                                if (!title.isNullOrBlank()) {
-                                    val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
-                                    val category = when (catStr.lowercase()) {
-                                        "flood_inundation_zone", "lake_reservoir", "river_channel", "waterway", "waterways" -> MapFeatureCategory.WATERWAY
-                                        else -> try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
-                                    }
-                                    val dynamicFeature = UnifiedMapFeature(
-                                        id = featId ?: "feature-${System.currentTimeMillis()}",
-                                        title = title,
-                                        subtitle = top.getStringProperty("subtitle") ?: top.getStringProperty("description"),
-                                        category = category,
-                                        latitude = latLng.latitude,
-                                        longitude = latLng.longitude
-                                    )
-                                    viewModel.selectFeature(dynamicFeature)
-                                    return@addOnMapClickListener true
-                                }
                             }
                         }
+
+                        // 2. Priority 2: Line Features (Route)
+                        val lineFeatures = mapboxMap.queryRenderedFeatures(
+                            screenPoint,
+                            MapLibreLayerManager.LAYER_ROUTE_PRIMARY_LINE,
+                            MapLibreLayerManager.LAYER_ROUTE_SECONDARY_LINE
+                        )
+                        if (lineFeatures.isNotEmpty()) {
+                            viewModel.inspectPoint(latLng.latitude, latLng.longitude)
+                            return@addOnMapClickListener true
+                        }
+
+                        // 3. Priority 3: Polygon Features (Disasters, Forests, Waterways)
+                        val polyFeatures = mapboxMap.queryRenderedFeatures(
+                            screenPoint,
+                            MapLibreLayerManager.LAYER_DISASTER_FILL,
+                            MapLibreLayerManager.LAYER_DISASTER_LINE,
+                            MapLibreLayerManager.LAYER_FOREST_FILL,
+                            MapLibreLayerManager.LAYER_FOREST_LINE,
+                            MapLibreLayerManager.LAYER_WATERWAYS_FILL,
+                            MapLibreLayerManager.LAYER_WATERWAYS_LINE
+                        )
+                        if (polyFeatures.isNotEmpty()) {
+                            val topPoly = polyFeatures.first()
+                            val polyId = topPoly.getStringProperty("id") ?: topPoly.id()
+                            val clickedPoly = state.allFeatures.firstOrNull { it.id == polyId }
+                                ?: state.allFeatures.firstOrNull { it.title == topPoly.getStringProperty("title") }
+                            if (clickedPoly != null) {
+                                viewModel.selectFeature(clickedPoly)
+                                return@addOnMapClickListener true
+                            }
+                        }
+
+                        // 4. Priority 4: Empty Map Area -> Universal Map Tap Point Inspection
+                        viewModel.inspectPoint(latLng.latitude, latLng.longitude)
+                        return@addOnMapClickListener true
+
                     } catch (t: Throwable) {
                         android.util.Log.w("MapScreen", "Map tap query failed safely: ${t.message}")
                     }
@@ -1263,10 +1327,16 @@ fun MapScreen(
 
         // 5. BOTTOM SHEETS & DIALOGS
 
-        // A. Selected Feature Detail Bottom Sheet
-        state.selectedFeature?.let { feature ->
+        // A. Selected Target / Feature Detail Bottom Sheet
+        if (state.selectedTarget != null) {
+            PointDetailsBottomSheet(
+                uiState = state,
+                onDismiss = { viewModel.clearSelection() },
+                onSelectHazard = { viewModel.selectFeature(it) }
+            )
+        } else if (state.selectedFeature != null) {
             FeatureDetailBottomSheet(
-                feature = feature,
+                feature = state.selectedFeature!!,
                 onDismiss = { viewModel.selectFeature(null) }
             )
         }

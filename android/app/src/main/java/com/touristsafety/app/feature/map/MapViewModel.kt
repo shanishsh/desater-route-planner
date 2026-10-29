@@ -150,7 +150,14 @@ data class MapUiState(
     val recordedTrekDurationSeconds: Long = 0L,
     val liveRecordedTrackCoordinates: List<Pair<Double, Double>> = emptyList(),
     val gpsSignalQuality: String = "GOOD",
-    val activeTrekTripId: String? = null
+    val activeTrekTripId: String? = null,
+    val selectedTarget: com.touristsafety.app.core.model.SelectedMapTarget? = null,
+    val selectedPointCoordinate: Pair<Double, Double>? = null,
+    val pointContextLoading: Boolean = false,
+    val pointContextData: com.touristsafety.app.core.network.dto.PointContextDto? = null,
+    val pointContextError: String? = null,
+    val pointContextGenerationToken: Long = 0L,
+    val routeWeatherSamples: List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather> = emptyList()
 )
 
 @HiltViewModel
@@ -166,6 +173,7 @@ class MapViewModel @Inject constructor(
     private val connectivityMonitor: NetworkConnectivityMonitor,
     private val deviceLocationRepository: DeviceLocationRepository,
     val trailReportRepository: TrailReportRepository? = null,
+    val pointContextRepository: PointContextRepository? = null,
     private val boundaryValidator: UttarakhandBoundaryValidator? = null,
     @ApplicationContext private val context: Context? = null
 ) : ViewModel() {
@@ -181,6 +189,8 @@ class MapViewModel @Inject constructor(
     private var rawHazardZones: List<UnifiedMapFeature> = emptyList()
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
     private var rawWaterwayFeatures: List<UnifiedMapFeature> = emptyList()
+    private var selectionGenerationToken: Long = 0L
+    private var pointContextJob: Job? = null
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
@@ -781,31 +791,70 @@ class MapViewModel @Inject constructor(
             )
             _uiState.update { it.copy(routeSummaryWeather = wModel) }
 
-            rawWeatherPoints = analysis.weather_by_waypoint.mapIndexed { idx, wpWeather ->
-                val sampleLat = if (idx < _uiState.value.routeCoordinates.size) _uiState.value.routeCoordinates[idx].first else userLoc.first
-                val sampleLon = if (idx < _uiState.value.routeCoordinates.size) _uiState.value.routeCoordinates[idx].second else userLoc.second
-                UnifiedMapFeature(
-                    id = "weather_route_sample_$idx",
-                    category = MapFeatureCategory.WEATHER_POINT,
-                    title = "Sample ${idx + 1}: ${wpWeather.weather_description}",
-                    subtitle = "${wpWeather.temperature_c}°C • Wind: ${wpWeather.wind_speed_kmh} km/h",
-                    latitude = sampleLat,
-                    longitude = sampleLon,
-                    distanceMeters = 0f,
-                    sourceName = wpWeather.source,
-                    sourceTimestampEpochMs = System.currentTimeMillis(),
-                    isVerified = true,
-                    isCached = false,
-                    details = mapOf(
-                        "Temperature" to "${wpWeather.temperature_c}°C",
-                        "Precipitation" to "${wpWeather.precipitation_mm} mm (${wpWeather.precipitation_probability_pct}%)",
-                        "Wind Speed" to "${wpWeather.wind_speed_kmh} km/h",
-                        "Relative Humidity" to "${wpWeather.relative_humidity_pct}%",
-                        "Forecast Time" to wpWeather.forecast_valid_at,
-                        "Warning Level" to wpWeather.warning_level
+            val waypointList = if (analysis.affected_segments.isNotEmpty()) {
+                analysis.affected_segments
+            } else {
+                val activeConditions = routeRepository.activeRouteFlow.value?.conditions ?: emptyList()
+                analysis.weather_by_waypoint.mapIndexed { idx, wpWeather ->
+                    val matchingCond = activeConditions.getOrNull(idx)
+                    val lat = matchingCond?.latitude ?: userLoc.first
+                    val lon = matchingCond?.longitude ?: userLoc.second
+                    val name = matchingCond?.name ?: "Waypoint ${idx + 1}"
+                    val distKm = matchingCond?.distance_from_start_km ?: 0.0
+                    com.touristsafety.app.core.network.dto.RouteWaypointConditionDto(
+                        index = idx,
+                        name = name,
+                        latitude = lat,
+                        longitude = lon,
+                        distance_from_start_km = distKm,
+                        estimated_arrival_at = wpWeather.forecast_valid_at,
+                        hazard_level = wpWeather.warning_level,
+                        weather = wpWeather
+                    )
+                }
+            }
+
+            val samples = mutableListOf<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>()
+            val weatherFeats = mutableListOf<UnifiedMapFeature>()
+            waypointList.forEach { wp ->
+                val sampleId = "weather-sample-${wp.index}"
+                val targetSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                    sampleId = sampleId,
+                    sampleIndex = wp.index,
+                    name = wp.name,
+                    latitude = wp.latitude,
+                    longitude = wp.longitude,
+                    distanceAlongRouteKm = wp.distance_from_start_km,
+                    weather = wp.weather
+                )
+                samples.add(targetSample)
+                weatherFeats.add(
+                    UnifiedMapFeature(
+                        id = sampleId,
+                        category = MapFeatureCategory.WEATHER_POINT,
+                        title = "Weather: ${wp.name}",
+                        subtitle = "${wp.weather.temperature_c}°C • Wind: ${wp.weather.wind_speed_kmh} km/h",
+                        latitude = wp.latitude,
+                        longitude = wp.longitude,
+                        distanceMeters = (wp.distance_from_start_km * 1000.0).toFloat(),
+                        sourceName = wp.weather.source,
+                        sourceTimestampEpochMs = System.currentTimeMillis(),
+                        isVerified = true,
+                        isCached = false,
+                        details = mapOf(
+                            "Sample ID" to sampleId,
+                            "Temperature" to "${wp.weather.temperature_c}°C",
+                            "Precipitation" to "${wp.weather.precipitation_mm} mm (${wp.weather.precipitation_probability_pct}%)",
+                            "Wind Speed" to "${wp.weather.wind_speed_kmh} km/h",
+                            "Relative Humidity" to "${wp.weather.relative_humidity_pct}%",
+                            "Forecast Time" to wp.weather.forecast_valid_at,
+                            "Warning Level" to wp.weather.warning_level
+                        )
                     )
                 )
             }
+            rawWeatherPoints = weatherFeats
+            _uiState.update { it.copy(routeWeatherSamples = samples) }
         }
 
         // 5. Update layer statuses from provider_statuses
@@ -905,6 +954,48 @@ class MapViewModel @Inject constructor(
         }
         rawHazardZones = alertList
 
+        // Extract fallback route weather samples
+        val fallbackSamples = mutableListOf<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>()
+        val fallbackWeatherFeats = mutableListOf<UnifiedMapFeature>()
+        fallbackRoute.conditions.forEach { wp ->
+            val sampleId = "weather-sample-${wp.index}"
+            val targetSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                sampleId = sampleId,
+                sampleIndex = wp.index,
+                name = wp.name,
+                latitude = wp.latitude,
+                longitude = wp.longitude,
+                distanceAlongRouteKm = wp.distance_from_start_km,
+                weather = wp.weather
+            )
+            fallbackSamples.add(targetSample)
+            fallbackWeatherFeats.add(
+                UnifiedMapFeature(
+                    id = sampleId,
+                    category = MapFeatureCategory.WEATHER_POINT,
+                    title = "Weather: ${wp.name}",
+                    subtitle = "${wp.weather.temperature_c}°C • ${wp.weather.weather_description}",
+                    latitude = wp.latitude,
+                    longitude = wp.longitude,
+                    distanceMeters = (wp.distance_from_start_km * 1000.0).toFloat(),
+                    sourceName = wp.weather.source,
+                    sourceTimestampEpochMs = System.currentTimeMillis(),
+                    isVerified = true,
+                    isCached = true,
+                    details = mapOf(
+                        "Sample ID" to sampleId,
+                        "Temperature" to "${wp.weather.temperature_c}°C",
+                        "Precipitation" to "${wp.weather.precipitation_mm} mm (${wp.weather.precipitation_probability_pct}%)",
+                        "Wind Speed" to "${wp.weather.wind_speed_kmh} km/h",
+                        "Relative Humidity" to "${wp.weather.relative_humidity_pct}%",
+                        "Forecast Time" to wp.weather.forecast_valid_at,
+                        "Warning Level" to wp.weather.warning_level
+                    )
+                )
+            )
+        }
+        rawWeatherPoints = fallbackWeatherFeats
+
         // Extract safe havens
         rawMapPoints = fallbackRoute.safe_havens.mapIndexed { idx, sh ->
             val cat = when (sh.category.lowercase()) {
@@ -933,6 +1024,7 @@ class MapViewModel @Inject constructor(
             it.copy(
                 routeLifecycleState = RouteLifecycleState.OFFLINE_CACHED,
                 activeDisasterAlertsCount = rawHazardZones.size,
+                routeWeatherSamples = fallbackSamples,
                 routeOverallHazardScore = fallbackRoute.overall_hazard_score,
                 routeSafetyStatus = fallbackRoute.overall_safety_status,
                 activeDecisionExplanation = fallbackRoute.decision_explanation,
@@ -1412,8 +1504,186 @@ class MapViewModel @Inject constructor(
         onFilterSelected(MapFilterChip.ALL)
     }
 
+    fun inspectPoint(latitude: Double, longitude: Double, radiusKm: Double = 5.0) {
+        selectionGenerationToken++
+        val currentToken = selectionGenerationToken
+        pointContextJob?.cancel()
+
+        val target = com.touristsafety.app.core.model.SelectedMapTarget.ArbitraryPoint(
+            latitude = latitude,
+            longitude = longitude,
+            generationToken = currentToken
+        )
+
+        _uiState.update {
+            it.copy(
+                selectedTarget = target,
+                selectedFeature = null,
+                selectedPointCoordinate = latitude to longitude,
+                pointContextLoading = true,
+                pointContextData = null,
+                pointContextError = null,
+                pointContextGenerationToken = currentToken
+            )
+        }
+
+        val repo = pointContextRepository
+        if (repo != null) {
+            pointContextJob = viewModelScope.launch {
+                val result = repo.getPointContext(latitude, longitude, radiusKm)
+                if (currentToken == selectionGenerationToken) {
+                    result.fold(
+                        onSuccess = { dto ->
+                            _uiState.update {
+                                it.copy(
+                                    pointContextLoading = false,
+                                    pointContextData = dto,
+                                    pointContextError = null
+                                )
+                            }
+                        },
+                        onFailure = { err ->
+                            _uiState.update {
+                                it.copy(
+                                    pointContextLoading = false,
+                                    pointContextData = null,
+                                    pointContextError = err.message ?: "Failed to inspect location"
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+        } else {
+            _uiState.update { it.copy(pointContextLoading = false) }
+        }
+    }
+
+    fun selectTarget(target: com.touristsafety.app.core.model.SelectedMapTarget) {
+        selectionGenerationToken++
+        pointContextJob?.cancel()
+
+        when (target) {
+            is com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather -> {
+                _uiState.update {
+                    it.copy(
+                        selectedTarget = target,
+                        selectedFeature = rawWeatherPoints.firstOrNull { f -> f.id == target.sampleId },
+                        selectedPointCoordinate = target.latitude to target.longitude,
+                        pointContextLoading = false,
+                        pointContextData = null,
+                        pointContextError = null,
+                        pointContextGenerationToken = selectionGenerationToken
+                    )
+                }
+            }
+            is com.touristsafety.app.core.model.SelectedMapTarget.Hazard -> {
+                _uiState.update {
+                    it.copy(
+                        selectedTarget = target,
+                        selectedFeature = target.feature,
+                        selectedPointCoordinate = target.latitude to target.longitude,
+                        pointContextLoading = false,
+                        pointContextData = null,
+                        pointContextError = null,
+                        pointContextGenerationToken = selectionGenerationToken
+                    )
+                }
+            }
+            is com.touristsafety.app.core.model.SelectedMapTarget.HazardPolygon -> {
+                _uiState.update {
+                    it.copy(
+                        selectedTarget = target,
+                        selectedFeature = target.feature,
+                        selectedPointCoordinate = target.latitude to target.longitude,
+                        pointContextLoading = false,
+                        pointContextData = null,
+                        pointContextError = null,
+                        pointContextGenerationToken = selectionGenerationToken
+                    )
+                }
+            }
+            is com.touristsafety.app.core.model.SelectedMapTarget.Facility -> {
+                _uiState.update {
+                    it.copy(
+                        selectedTarget = target,
+                        selectedFeature = target.feature,
+                        selectedPointCoordinate = target.latitude to target.longitude,
+                        pointContextLoading = false,
+                        pointContextData = null,
+                        pointContextError = null,
+                        pointContextGenerationToken = selectionGenerationToken
+                    )
+                }
+            }
+            is com.touristsafety.app.core.model.SelectedMapTarget.ArbitraryPoint -> {
+                inspectPoint(target.latitude, target.longitude)
+            }
+        }
+    }
+
+    fun clearSelection() {
+        selectionGenerationToken++
+        pointContextJob?.cancel()
+        _uiState.update {
+            it.copy(
+                selectedTarget = null,
+                selectedFeature = null,
+                selectedPointCoordinate = null,
+                pointContextLoading = false,
+                pointContextData = null,
+                pointContextError = null
+            )
+        }
+    }
+
     fun selectFeature(feature: UnifiedMapFeature?) {
-        _uiState.update { it.copy(selectedFeature = feature) }
+        if (feature == null) {
+            clearSelection()
+            return
+        }
+        val target: com.touristsafety.app.core.model.SelectedMapTarget = when (feature.category) {
+            MapFeatureCategory.WEATHER_POINT -> {
+                val wpSample = _uiState.value.routeWeatherSamples.firstOrNull { it.sampleId == feature.id }
+                if (wpSample != null) {
+                    wpSample
+                } else {
+                    val tempC = feature.details["Temperature"]?.replace("°C", "")?.toDoubleOrNull() ?: 18.0
+                    val windKmh = feature.details["Wind Speed"]?.replace(" km/h", "")?.toDoubleOrNull() ?: 10.0
+                    com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                        sampleId = feature.id,
+                        sampleIndex = 0,
+                        name = feature.title,
+                        latitude = feature.latitude,
+                        longitude = feature.longitude,
+                        distanceAlongRouteKm = (feature.distanceMeters ?: 0f) / 1000.0,
+                        weather = com.touristsafety.app.core.network.dto.RouteWeatherConditionDto(
+                            temperature_c = tempC,
+                            relative_humidity_pct = 60.0,
+                            precipitation_probability_pct = 10.0,
+                            precipitation_mm = 0.0,
+                            wind_speed_kmh = windKmh,
+                            weather_code = 1,
+                            weather_description = feature.subtitle ?: "Partly cloudy",
+                            warning_level = "NONE",
+                            forecast_valid_at = "Current",
+                            source = feature.sourceName
+                        )
+                    )
+                }
+            }
+            MapFeatureCategory.HAZARD_ZONE, MapFeatureCategory.ACTIVE_FIRE_DETECTION, MapFeatureCategory.FOREST_AREA -> {
+                if (feature.geometryPolygon != null) {
+                    com.touristsafety.app.core.model.SelectedMapTarget.HazardPolygon(feature.id, feature, feature.geometryPolygon)
+                } else {
+                    com.touristsafety.app.core.model.SelectedMapTarget.Hazard(feature.id, feature)
+                }
+            }
+            else -> {
+                com.touristsafety.app.core.model.SelectedMapTarget.Facility(feature.id, feature)
+            }
+        }
+        selectTarget(target)
     }
 
     fun onClusterClicked(cluster: ClusterItem) {
