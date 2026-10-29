@@ -16,6 +16,7 @@ import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 import com.touristsafety.app.core.network.dto.PlannedRouteResponseDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.network.dto.RouteAnalysisResponseDto
+import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 import com.touristsafety.app.core.repository.*
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -180,6 +181,8 @@ class MapViewModel @Inject constructor(
     private var rawHazardZones: List<UnifiedMapFeature> = emptyList()
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
     private var rawWaterwayFeatures: List<UnifiedMapFeature> = emptyList()
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     private var searchJob: Job? = null
     private var currentRouteAnalysisJob: Job? = null
@@ -542,21 +545,43 @@ class MapViewModel @Inject constructor(
         val ringsList = mutableListOf<List<Pair<Double, Double>>>()
         try {
             val geomObj = (jsonElement["geometry"] as? JsonObject) ?: jsonElement
+            val typeStr = (geomObj["type"] as? JsonPrimitive)?.contentOrNull ?: ""
             val coordsArray = geomObj["coordinates"] as? JsonArray
             if (coordsArray != null) {
-                for (ringElem in coordsArray) {
-                    val ring = ringElem as? JsonArray ?: continue
-                    val ringPoints = mutableListOf<Pair<Double, Double>>()
-                    for (ptElem in ring) {
-                        val ptArr = ptElem as? JsonArray ?: continue
-                        if (ptArr.size >= 2) {
-                            val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
-                            val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
-                            ringPoints.add(lat to lon)
+                if (typeStr.equals("MultiPolygon", ignoreCase = true)) {
+                    for (polyElem in coordsArray) {
+                        val polyArr = polyElem as? JsonArray ?: continue
+                        for (ringElem in polyArr) {
+                            val ring = ringElem as? JsonArray ?: continue
+                            val ringPoints = mutableListOf<Pair<Double, Double>>()
+                            for (ptElem in ring) {
+                                val ptArr = ptElem as? JsonArray ?: continue
+                                if (ptArr.size >= 2) {
+                                    val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                    val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                    ringPoints.add(lat to lon)
+                                }
+                            }
+                            if (ringPoints.isNotEmpty()) {
+                                ringsList.add(ringPoints)
+                            }
                         }
                     }
-                    if (ringPoints.isNotEmpty()) {
-                        ringsList.add(ringPoints)
+                } else {
+                    for (ringElem in coordsArray) {
+                        val ring = ringElem as? JsonArray ?: continue
+                        val ringPoints = mutableListOf<Pair<Double, Double>>()
+                        for (ptElem in ring) {
+                            val ptArr = ptElem as? JsonArray ?: continue
+                            if (ptArr.size >= 2) {
+                                val lon = (ptArr[0] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                val lat = (ptArr[1] as? JsonPrimitive)?.doubleOrNull ?: continue
+                                ringPoints.add(lat to lon)
+                            }
+                        }
+                        if (ringPoints.isNotEmpty()) {
+                            ringsList.add(ringPoints)
+                        }
                     }
                 }
             }
@@ -582,8 +607,13 @@ class MapViewModel @Inject constructor(
             try {
                 val pGeom = a.polygon_geojson
                 if (pGeom != null && pGeom is JsonObject) {
+                    val pType = (pGeom["type"] as? JsonPrimitive)?.contentOrNull ?: ""
                     val coords = pGeom["coordinates"] as? JsonArray
-                    val ring = coords?.firstOrNull() as? JsonArray
+                    val ring = if (pType.equals("MultiPolygon", ignoreCase = true)) {
+                        (coords?.firstOrNull() as? JsonArray)?.firstOrNull() as? JsonArray
+                    } else {
+                        coords?.firstOrNull() as? JsonArray
+                    }
                     if (ring != null) {
                         polygonCoords = ring.mapNotNull { ptElem ->
                             val ptArr = ptElem as? JsonArray ?: return@mapNotNull null
@@ -640,8 +670,13 @@ class MapViewModel @Inject constructor(
                         val fType = (props?.get("type") as? JsonPrimitive)?.contentOrNull ?: (props?.get("wood_type") as? JsonPrimitive)?.contentOrNull ?: "woodland"
                         val ringCoords = mutableListOf<Pair<Double, Double>>()
                         if (geom != null) {
+                            val geomType = (geom["type"] as? JsonPrimitive)?.contentOrNull ?: ""
                             val coordsArray = geom["coordinates"] as? JsonArray
-                            val ring = coordsArray?.firstOrNull() as? JsonArray
+                            val ring = if (geomType.equals("MultiPolygon", ignoreCase = true)) {
+                                (coordsArray?.firstOrNull() as? JsonArray)?.firstOrNull() as? JsonArray
+                            } else {
+                                coordsArray?.firstOrNull() as? JsonArray
+                            }
                             ring?.forEach { ptElem ->
                                 val pt = ptElem as? JsonArray ?: return@forEach
                                 if (pt.size >= 2) {
@@ -873,8 +908,11 @@ class MapViewModel @Inject constructor(
         // Extract safe havens
         rawMapPoints = fallbackRoute.safe_havens.mapIndexed { idx, sh ->
             val cat = when (sh.category.lowercase()) {
-                "hospital", "clinic" -> PointCategory.MEDICAL
+                "hospital" -> PointCategory.MEDICAL
+                "clinic" -> PointCategory.CLINIC
                 "police" -> PointCategory.POLICE
+                "fuel", "petrol_pump" -> PointCategory.FUEL_STATION
+                "fire_station", "fire" -> PointCategory.FIRE_STATION
                 "shelter", "mountain_hut" -> PointCategory.SHELTER
                 else -> PointCategory.VISITOR_INFO
             }
@@ -1925,6 +1963,50 @@ class MapViewModel @Inject constructor(
                     distanceKm = state.draftDistanceKm
                 )
                 val savedGeoJson = entity.routeGeoJson ?: routeRepository.buildLineStringGeoJson(state.draftPolyline)
+
+                // Parse corridor coordinates for visual polygon rendering
+                val corridorCoords = try {
+                    if (!entity.corridorGeoJson.isNullOrBlank()) {
+                        val elem = json.parseToJsonElement(entity.corridorGeoJson)
+                        parseGeoJsonPolygonCoordinates(elem)
+                    } else emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+
+                // Hydrate Safe Havens (petrol pumps, clinics, police, shelters) into map points
+                if (!entity.safeHavensJson.isNullOrBlank()) {
+                    try {
+                        val havens = json.decodeFromString<List<SafeHavenInfoDto>>(entity.safeHavensJson)
+                        rawMapPoints = havens.mapIndexed { idx, sh ->
+                            val cat = when (sh.category.lowercase()) {
+                                "hospital" -> PointCategory.MEDICAL
+                                "clinic" -> PointCategory.CLINIC
+                                "police" -> PointCategory.POLICE
+                                "fuel", "petrol_pump" -> PointCategory.FUEL_STATION
+                                "fire_station", "fire" -> PointCategory.FIRE_STATION
+                                "shelter", "mountain_hut" -> PointCategory.SHELTER
+                                else -> PointCategory.VISITOR_INFO
+                            }
+                            MapPoint(
+                                id = "haven_$idx",
+                                name = sh.name,
+                                category = cat,
+                                latitude = sh.latitude,
+                                longitude = sh.longitude,
+                                address = sh.address,
+                                phone = sh.phone,
+                                description = "Verified ${sh.category.replace('_', ' ')} • ${sh.distance_km} km from route",
+                                provenance = sh.source ?: "OpenStreetMap Overpass",
+                                verificationStatus = "verified",
+                                verificationTimestampEpochMs = System.currentTimeMillis()
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MapViewModel", "Failed parsing safe havens from custom route: ${e.message}")
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
                         isSavingDraftRoute = false,
@@ -1936,10 +2018,19 @@ class MapViewModel @Inject constructor(
                         primaryRouteCoordinates = state.draftPolyline,
                         routePrimaryGeoJson = savedGeoJson,
                         corridorGeoJson = entity.corridorGeoJson,
+                        corridorPolygonCoordinates = corridorCoords,
+                        primaryCorridorPolygonCoordinates = corridorCoords,
                         hazardsGeoJson = entity.hazardsGeoJson,
+                        firesGeoJson = entity.firesGeoJson,
+                        facilitiesGeoJson = entity.facilitiesGeoJson,
                         forestsGeoJson = entity.forestsGeoJson,
                         waterwaysGeoJson = entity.waterwaysGeoJson,
                         weatherGeoJson = entity.weatherGeoJson,
+                        terrainSlopeGeoJson = entity.terrainSlopeGeoJson,
+                        cellularSitesGeoJson = entity.cellularSitesGeoJson,
+                        cellularRangeGeoJson = entity.cellularRangeGeoJson,
+                        cellularCoverageGeoJson = entity.cellularCoverageGeoJson,
+                        historicalLandslidesGeoJson = entity.historicalLandslidesGeoJson,
                         routeDistanceKm = entity.distanceKm,
                         routeDurationHours = entity.durationMinutes / 60.0,
                         routeOverallHazardScore = entity.overallHazardScore,

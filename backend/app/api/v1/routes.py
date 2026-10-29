@@ -167,46 +167,6 @@ async def plan_route(
     return analysis
 
 
-@router.post("/{route_id}/analyze", response_model=RouteAnalysisResponse)
-async def analyze_route_corridor(
-    route_id: str,
-    request: Optional[RouteAnalysisRequest] = None,
-    corridor_distance_km: Optional[float] = Query(None, description="Buffer distance on each side in km (e.g. 1, 2, 5, 10)"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Retrieves the selected, persisted route geometry from the backend,
-    constructs a dynamic geographic corridor (following all turns and bends),
-    queries real weather samples, official disaster advisories, active wildfires,
-    and emergency safe havens strictly filtered to the corridor, increments
-    the route version, and returns a unified route-analysis response with MapLibre GeoJSON overlays.
-    """
-    corr_m = None
-    if request:
-        if request.corridor_distance_meters:
-            corr_m = request.corridor_distance_meters
-        elif request.corridor_distance_km:
-            corr_m = request.corridor_distance_km * 1000.0
-    if corr_m is None and corridor_distance_km is not None:
-        corr_m = corridor_distance_km * 1000.0
-
-    analysis = await route_condition_analyzer.analyze_persisted_route(
-        db=db,
-        route_id=route_id,
-        corridor_distance_meters=corr_m,
-    )
-    if not analysis:
-        raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
-
-    try:
-        summary_obj = await route_summary_assistant.generate_grounded_summary_async(analysis.model_dump())
-        analysis.grounded_summary = summary_obj.model_dump()
-    except Exception as e:
-        logger.warning(f"Could not generate grounded route summary: {e}")
-
-    return analysis
-
-
 @router.post("/custom/analyze", response_model=PlannedRouteResponse, status_code=status.HTTP_201_CREATED)
 async def analyze_custom_drawn_route(
     request: CustomRouteAnalysisRequest,
@@ -333,6 +293,46 @@ async def analyze_custom_drawn_route(
     except Exception as e:
         logger.error(f"Failed to persist custom route to database: {e}")
         await db.rollback()
+
+    return analysis
+
+
+@router.post("/{route_id}/analyze", response_model=RouteAnalysisResponse)
+async def analyze_route_corridor(
+    route_id: str,
+    request: Optional[RouteAnalysisRequest] = None,
+    corridor_distance_km: Optional[float] = Query(None, description="Buffer distance on each side in km (e.g. 1, 2, 5, 10)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves the selected, persisted route geometry from the backend,
+    constructs a dynamic geographic corridor (following all turns and bends),
+    queries real weather samples, official disaster advisories, active wildfires,
+    and emergency safe havens strictly filtered to the corridor, increments
+    the route version, and returns a unified route-analysis response with MapLibre GeoJSON overlays.
+    """
+    corr_m = None
+    if request:
+        if request.corridor_distance_meters:
+            corr_m = request.corridor_distance_meters
+        elif request.corridor_distance_km:
+            corr_m = request.corridor_distance_km * 1000.0
+    if corr_m is None and corridor_distance_km is not None:
+        corr_m = corridor_distance_km * 1000.0
+
+    analysis = await route_condition_analyzer.analyze_persisted_route(
+        db=db,
+        route_id=route_id,
+        corridor_distance_meters=corr_m,
+    )
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Route with id '{route_id}' not found")
+
+    try:
+        summary_obj = await route_summary_assistant.generate_grounded_summary_async(analysis.model_dump())
+        analysis.grounded_summary = summary_obj.model_dump()
+    except Exception as e:
+        logger.warning(f"Could not generate grounded route summary: {e}")
 
     return analysis
 

@@ -19,8 +19,8 @@ android {
         applicationId = "com.touristsafety.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -128,4 +128,21 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    doLast {
+        val srcApk = file("${layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
+        if (srcApk.exists()) {
+            val localDebugDir = file("${projectDir}/build/outputs/apk/debug")
+            localDebugDir.mkdirs()
+            srcApk.copyTo(file("${localDebugDir}/app-debug.apk"), overwrite = true)
+            logger.lifecycle("Mirrored fresh debug APK to: ${localDebugDir}/app-debug.apk")
+
+            val rootApk = file("${rootDir}/../app-debug.apk")
+            srcApk.copyTo(rootApk, overwrite = true)
+            logger.lifecycle("Mirrored fresh debug APK to workspace root: ${rootApk.absolutePath}")
+        }
+    }
+}
+
 

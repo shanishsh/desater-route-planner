@@ -84,30 +84,54 @@ class RouteCorridorService:
             quad_segs=16,
         )
 
-        # 4. Project buffered polygon vertices back to WGS84 (lon, lat)
+        # 4. Project buffered polygon/multipolygon vertices back to WGS84 (lon, lat)
         def to_wgs84(x: float, y: float) -> Tuple[float, float]:
             lon = lon0 + math.degrees(x / (EARTH_RADIUS_METERS * cos_lat0))
             lat = lat0 + math.degrees(y / EARTH_RADIUS_METERS)
             return (lon, lat)
 
-        # Extract exterior ring
-        ext_wgs = [to_wgs84(x, y) for x, y in buffered_metric.exterior.coords]
-        rings = [ext_wgs]
+        # Handle both Polygon and MultiPolygon buffered geometries gracefully
+        all_lats: List[float] = []
+        all_lons: List[float] = []
 
-        # Extract any interior rings (holes)
-        for interior in buffered_metric.interiors:
-            int_wgs = [to_wgs84(x, y) for x, y in interior.coords]
-            rings.append(int_wgs)
-
-        polygon_geojson = {
-            "type": "Polygon",
-            "coordinates": rings,
-        }
+        if buffered_metric.geom_type == "Polygon":
+            ext_wgs = [to_wgs84(x, y) for x, y in buffered_metric.exterior.coords]
+            rings = [ext_wgs]
+            for interior in buffered_metric.interiors:
+                rings.append([to_wgs84(x, y) for x, y in interior.coords])
+            polygon_geojson = {
+                "type": "Polygon",
+                "coordinates": rings,
+            }
+            for ring in rings:
+                for pt in ring:
+                    all_lons.append(pt[0])
+                    all_lats.append(pt[1])
+        elif buffered_metric.geom_type == "MultiPolygon":
+            multi_rings: List[List[List[Tuple[float, float]]]] = []
+            for poly in buffered_metric.geoms:
+                ext_wgs = [to_wgs84(x, y) for x, y in poly.exterior.coords]
+                poly_rings = [ext_wgs]
+                for interior in poly.interiors:
+                    poly_rings.append([to_wgs84(x, y) for x, y in interior.coords])
+                multi_rings.append(poly_rings)
+                for ring in poly_rings:
+                    for pt in ring:
+                        all_lons.append(pt[0])
+                        all_lats.append(pt[1])
+            polygon_geojson = {
+                "type": "MultiPolygon",
+                "coordinates": multi_rings,
+            }
+        else:
+            # Fallback for unexpected empty or geometry collection
+            polygon_geojson = {"type": "GeometryCollection", "geometries": []}
 
         # 5. Compute tight bounding box of corridor
-        all_lats = [pt[1] for ring in rings for pt in ring]
-        all_lons = [pt[0] for ring in rings for pt in ring]
-        bbox = (min(all_lats), min(all_lons), max(all_lats), max(all_lons))
+        if all_lats and all_lons:
+            bbox = (min(all_lats), min(all_lons), max(all_lats), max(all_lons))
+        else:
+            bbox = (0.0, 0.0, 0.0, 0.0)
 
         area_sq_km = buffered_metric.area / 1_000_000.0
 

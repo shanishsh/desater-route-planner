@@ -852,4 +852,32 @@ async def test_forest_and_hazard_geometry_fidelity_and_diagnostics(client, test_
     assert diag["forest_polygons_count"] >= 1
 
 
+@pytest.mark.asyncio
+async def test_custom_drawn_route_corridor_analysis(client, test_db):
+    """Verifies that POST /api/v1/routes/custom/analyze correctly calculates corridor,
+    safe havens, and infrastructure layers without being intercepted by /{route_id}."""
+    payload = {
+        "title": "Mussoorie Trek",
+        "drawing_mode": "FREEHAND",
+        "corridor_distance_km": 5.0,
+        "coordinates": [
+            [78.0322, 30.3165],
+            [78.0450, 30.3250],
+            [78.0500, 30.3300]
+        ]
+    }
+    resp = await client.post("/api/v1/routes/custom/analyze", json=payload)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["route_id"].startswith("user-route-")
+    assert data["distance_km"] > 0
+    assert data["verification_status"] == "USER_DRAWN_UNVERIFIED"
+    assert data["corridor_geojson"] is not None
+    assert data["corridor_geojson"]["type"] in ("Polygon", "MultiPolygon")
+    assert "facilities_geojson" in data
+    assert "cellular_sites_geojson" in data
+    assert "waterways_geojson" in data
+
+
+
 

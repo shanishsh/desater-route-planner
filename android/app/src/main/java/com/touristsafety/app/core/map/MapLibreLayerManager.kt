@@ -1131,8 +1131,15 @@ object MapLibreLayerManager {
             try {
                 val rangeSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_RANGE)
                 var rangeJson = state.cellularRangeGeoJson
-                if (rangeJson.isNullOrBlank() && !state.cellularSitesGeoJson.isNullOrBlank()) {
-                    rangeJson = synthesizeCellularRangeGeoJson(state.cellularSitesGeoJson)
+                if (rangeJson.isNullOrBlank()) {
+                    val sitesJson = if (!state.cellularSitesGeoJson.isNullOrBlank()) {
+                        state.cellularSitesGeoJson
+                    } else if (context != null) {
+                        getOrLoadCellTowersBaselineGeoJson(context)
+                    } else cachedCellTowersBaselineGeoJson
+                    if (!sitesJson.isNullOrBlank()) {
+                        rangeJson = synthesizeCellularRangeGeoJson(sitesJson)
+                    }
                 }
                 val finalRangeJson = if (!rangeJson.isNullOrBlank()) {
                     ensureFeatureCollection(rangeJson)
@@ -1145,8 +1152,11 @@ object MapLibreLayerManager {
             // 7e. Update Cellular Sites GeoJSON
             try {
                 val cellSiteSource = style.getSourceAs<GeoJsonSource>(SOURCE_CELLULAR_SITES)
+                val baselineCellSites = if (context != null) getOrLoadCellTowersBaselineGeoJson(context) else cachedCellTowersBaselineGeoJson
                 val cellSiteJson = if (!state.cellularSitesGeoJson.isNullOrBlank()) {
                     ensureFeatureCollection(state.cellularSitesGeoJson)
+                } else if (!baselineCellSites.isNullOrBlank()) {
+                    baselineCellSites
                 } else EMPTY_GEOJSON
                 cellSiteSource?.setGeoJson(cellSiteJson)
             } catch (t: Throwable) {
@@ -1654,6 +1664,53 @@ object MapLibreLayerManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading uttarakhand_verified_trails.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private var cachedCellTowersBaselineGeoJson: String? = null
+
+    private fun getOrLoadCellTowersBaselineGeoJson(context: android.content.Context): String? {
+        if (cachedCellTowersBaselineGeoJson != null) return cachedCellTowersBaselineGeoJson
+        return try {
+            context.assets.open("uttarakhand_cell_towers.json").use { stream ->
+                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                val jsonArray = org.json.JSONArray(text)
+                val featuresArray = org.json.JSONArray()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.optJSONObject(i) ?: continue
+                    val lat = obj.optDouble("latitude")
+                    val lon = obj.optDouble("longitude")
+                    if (lat.isNaN() || lon.isNaN()) continue
+
+                    val geom = org.json.JSONObject()
+                    geom.put("type", "Point")
+                    geom.put("coordinates", org.json.JSONArray().put(lon).put(lat))
+
+                    val props = org.json.JSONObject()
+                    props.put("id", obj.optString("id", "tower_$i"))
+                    props.put("operator", obj.optString("operator", "Mobile Network"))
+                    props.put("radio", obj.optString("radio", "LTE"))
+                    props.put("range_m", obj.optDouble("range_m", 3000.0))
+                    props.put("district", obj.optString("district", ""))
+                    props.put("town", obj.optString("town", ""))
+
+                    val feat = org.json.JSONObject()
+                    feat.put("type", "Feature")
+                    feat.put("id", obj.optString("id", "tower_$i"))
+                    feat.put("geometry", geom)
+                    feat.put("properties", props)
+
+                    featuresArray.put(feat)
+                }
+                val fc = org.json.JSONObject()
+                fc.put("type", "FeatureCollection")
+                fc.put("features", featuresArray)
+                cachedCellTowersBaselineGeoJson = fc.toString()
+                cachedCellTowersBaselineGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_cell_towers.json from assets: ${e.message}", e)
             null
         }
     }
