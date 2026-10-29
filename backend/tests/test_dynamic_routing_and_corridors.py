@@ -7,6 +7,7 @@ import pytest
 from app.services.provider_registry import provider_registry
 from app.services.routing.base import RouteResult, Waypoint, RouteAlternative
 from app.services.routing.osrm_provider import osrm_routing_provider
+from app.services.routing.trail_routing_engine import trail_routing_engine
 
 
 def test_provider_registry_coverage_engine():
@@ -152,6 +153,7 @@ async def test_dynamic_plan_and_coverage_reporting_in_uttarakhand(client, monkey
         )
 
     monkeypatch.setattr(osrm_routing_provider, "calculate_route", mock_calculate)
+    monkeypatch.setattr(trail_routing_engine, "calculate_hiking_route", mock_calculate)
 
     # 1. Valid route within Uttarakhand
     payload = {
@@ -209,6 +211,7 @@ async def test_dynamic_plan_unroutable_coordinates_returns_404(client, monkeypat
         )
 
     monkeypatch.setattr(osrm_routing_provider, "calculate_route", mock_calculate_noroute)
+    monkeypatch.setattr(trail_routing_engine, "calculate_hiking_route", mock_calculate_noroute)
 
     payload = {
         "origin_lat": 30.6534,

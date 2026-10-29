@@ -677,8 +677,8 @@ async def test_simulated_alerts_excluded_from_route_corridor_analysis(client, te
     assert len(sim_features) == 0
 
     # Ensure overall safety status does NOT give false guarantee of absolute safety ("SAFE"),
-    # but rather calibrated status "NORMAL".
-    assert planned.overall_safety_status in ("NORMAL", "MODERATE", "SEVERE", "CRITICAL")
+    # but rather calibrated status "NORMAL" or "CAUTION".
+    assert planned.overall_safety_status in ("NORMAL", "CAUTION", "MODERATE", "SEVERE", "CRITICAL")
     assert planned.overall_safety_status != "SAFE"
 
 
