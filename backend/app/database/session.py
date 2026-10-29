@@ -59,6 +59,9 @@ async def _apply_schema_migrations(conn):
         "CREATE INDEX IF NOT EXISTS ix_sar_incidents_trip_id ON sar_incidents (trip_id)",
         "CREATE TABLE IF NOT EXISTS trekker_checkins (id VARCHAR(64) PRIMARY KEY, trip_id VARCHAR(64) NOT NULL, device_id VARCHAR(128), latitude FLOAT NOT NULL, longitude FLOAT NOT NULL, elevation_m FLOAT DEFAULT 0.0, gps_accuracy_m FLOAT DEFAULT 10.0, battery_pct INTEGER DEFAULT 100, status VARCHAR(50) DEFAULT 'OK', notes TEXT, recorded_at TIMESTAMP WITH TIME ZONE NOT NULL, received_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, next_check_in_due TIMESTAMP WITH TIME ZONE NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
         "CREATE INDEX IF NOT EXISTS ix_trekker_checkins_trip_id ON trekker_checkins (trip_id)",
+        "CREATE INDEX IF NOT EXISTS ix_disaster_alerts_coords ON disaster_alerts (center_latitude, center_longitude)",
+        "CREATE INDEX IF NOT EXISTS ix_planned_routes_endpoints ON planned_routes (origin_lat, origin_lon, destination_lat, destination_lon)",
+        "CREATE INDEX IF NOT EXISTS ix_planned_routes_created_at ON planned_routes (created_at DESC)",
     ]
     for stmt in statements:
         try:

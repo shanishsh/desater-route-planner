@@ -12,6 +12,7 @@ from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.osm_amenities import osm_amenities_client
 from app.clients.nasa_firms import nasa_firms_client
+from app.cache.redis_cache import cache_service
 from app.models.disaster_alert import DisasterAlert
 from app.services.routing.base import RouteResult, haversine_distance_km
 from app.services.terrain.elevation_service import elevation_service
@@ -80,6 +81,8 @@ class RouteConditionAnalyzer:
             sampled_coords.append(route_coords_lat_lon[-1])
 
         # 2. Concurrently fetch DEM Elevation, Forest geometries, NASA FIRMS, and Safe Havens
+        bbox_cache_key = f"{round(min_lat, 2)}_{round(min_lon, 2)}_{round(max_lat, 2)}_{round(max_lon, 2)}"
+
         async def _safe_elev():
             try:
                 return await asyncio.wait_for(
@@ -91,37 +94,64 @@ class RouteConditionAnalyzer:
                 return {"points": []}
 
         async def _safe_forest():
+            c_key = f"forests_bbox:{bbox_cache_key}"
+            try:
+                cached = await cache_service.get(c_key)
+                if cached:
+                    return cached
+            except Exception:
+                pass
             try:
                 res = await asyncio.wait_for(
                     osm_forest_client.fetch_forest_features(min_lat, min_lon, max_lat, max_lon),
-                    timeout=6.0
+                    timeout=5.0
                 )
                 feats = res.get("features", []) if res else []
                 if not feats:
                     feats = osm_forest_client.get_baseline_forests_in_bbox(min_lat, min_lon, max_lat, max_lon)
+                if feats:
+                    await cache_service.set(c_key, feats, ttl_seconds=3600)
                 return feats
             except Exception as e:
                 logger.warning(f"Forest query failed or timed out: {e}")
                 return osm_forest_client.get_baseline_forests_in_bbox(min_lat, min_lon, max_lat, max_lon)
 
         async def _safe_fires():
+            c_key = f"fires_bbox:{bbox_cache_key}"
+            try:
+                cached = await cache_service.get(c_key)
+                if cached:
+                    return cached
+            except Exception:
+                pass
             try:
                 res = await asyncio.wait_for(
                     nasa_firms_client.fetch_active_fires(min_lat, min_lon, max_lat, max_lon),
                     timeout=3.5
                 )
-                return res if isinstance(res, dict) else {"records": res or []}
+                data = res if isinstance(res, dict) else {"records": res or []}
+                if data and data.get("records"):
+                    await cache_service.set(c_key, data, ttl_seconds=600)
+                return data
             except Exception as e:
                 logger.warning(f"FIRMS fire query failed or timed out: {e}")
                 return {"records": []}
 
         async def _safe_amenities():
+            c_key = f"amenities_bbox:{bbox_cache_key}"
+            try:
+                cached = await cache_service.get(c_key)
+                if cached:
+                    return cached
+            except Exception:
+                pass
             try:
                 res = await asyncio.wait_for(
                     osm_amenities_client.fetch_amenities(min_lat, min_lon, max_lat, max_lon),
-                    timeout=12.0
+                    timeout=8.0
                 )
                 if res:
+                    await cache_service.set(c_key, res, ttl_seconds=3600)
                     return res
             except Exception as e:
                 logger.warning(f"Live Overpass amenities query failed or timed out: {e}. Falling back to database...")

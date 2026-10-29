@@ -13,6 +13,7 @@ import com.touristsafety.app.core.repository.DisasterRepository
 import com.touristsafety.app.core.repository.EmergencyRepository
 import com.touristsafety.app.core.repository.ItineraryRepository
 import com.touristsafety.app.core.repository.ProviderStatusRepository
+import com.touristsafety.app.core.repository.RouteRepository
 import com.touristsafety.app.core.repository.WeatherRepository
 import com.touristsafety.app.feature.home.HomeViewModel
 import io.mockk.*
@@ -37,6 +38,7 @@ class HomeViewModelTest {
     private val disasterRepository = mockk<DisasterRepository>(relaxed = true)
     private val connectivityMonitor = mockk<NetworkConnectivityMonitor>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val routeRepository = mockk<RouteRepository>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -49,6 +51,8 @@ class HomeViewModelTest {
         coEvery { connectivityMonitor.probeBackend() } returns Unit
         every { disasterRepository.isSirenPlaying } returns MutableStateFlow(false)
         every { authRepository.getUserEmail() } returns "test@tourist.org"
+        every { routeRepository.activeTripFlow } returns MutableStateFlow(null)
+        every { routeRepository.completedTripsFlow } returns MutableStateFlow(emptyList())
     }
 
     @After
@@ -97,7 +101,8 @@ class HomeViewModelTest {
             providerStatusRepository,
             disasterRepository,
             connectivityMonitor,
-            authRepository
+            authRepository,
+            routeRepository
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -119,7 +124,8 @@ class HomeViewModelTest {
             providerStatusRepository,
             disasterRepository,
             connectivityMonitor,
-            authRepository
+            authRepository,
+            routeRepository
         )
 
         viewModel.stopDisasterSiren()

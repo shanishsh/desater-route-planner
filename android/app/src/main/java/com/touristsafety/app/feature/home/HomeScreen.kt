@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -299,13 +300,15 @@ fun HomeScreen(
                         )
                     }
                     item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            state.recentCompletedTrips.forEach { trip ->
+                            items(
+                                items = state.recentCompletedTrips,
+                                key = { it.tripId },
+                                contentType = { "recent_completed_trek" }
+                            ) { trip ->
                                 Surface(
                                     modifier = Modifier
                                         .width(220.dp)

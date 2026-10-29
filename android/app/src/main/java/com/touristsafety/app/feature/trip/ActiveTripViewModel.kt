@@ -83,6 +83,16 @@ class ActiveTripViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ActiveTripUiState(tripId = tripId))
     val uiState: StateFlow<ActiveTripUiState> = _uiState.asStateFlow()
 
+    // Cached static route metadata to prevent repeated Room queries and JSON parsing on GPS ticks
+    private var cachedRouteId: String? = null
+    private var cachedWaypoints: List<RouteWaypointConditionDto> = emptyList()
+    private var cachedElevPoints: List<ElevationProfilePointDto> = emptyList()
+    private var cachedRouteCoords: List<Pair<Double, Double>> = emptyList()
+    private var cachedDestinationName: String = "Destination"
+    private var cachedTotalDistanceKm: Double = 0.0
+    private var cachedTotalAscentM: Double = 0.0
+    private var cachedMaxElevationM: Double = 0.0
+
     init {
         observeTrip()
         observeTrackPoints()
@@ -104,29 +114,35 @@ class ActiveTripViewModel @Inject constructor(
         viewModelScope.launch {
             routeRepository.activeTripFlow.collect { trip ->
                 if (trip != null && trip.tripId == tripId) {
-                    val route = routeRepository.getRouteById(trip.routeId)
-                    val waypoints = if (route != null) {
-                        try {
-                            json.decodeFromString<List<RouteWaypointConditionDto>>(route.conditionsJson)
-                        } catch (e: Exception) {
-                            emptyList()
+                    // Load static route definition once into memory
+                    if (cachedRouteId != trip.routeId) {
+                        cachedRouteId = trip.routeId
+                        val route = routeRepository.getRouteById(trip.routeId)
+                        if (route != null) {
+                            cachedDestinationName = route.destinationName
+                            cachedTotalDistanceKm = route.distanceKm
+                            cachedTotalAscentM = route.totalAscentM
+                            cachedMaxElevationM = route.maxElevationM
+                            cachedWaypoints = try {
+                                json.decodeFromString<List<RouteWaypointConditionDto>>(route.conditionsJson)
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                            cachedElevPoints = if (route.elevationProfileJson != null) {
+                                try {
+                                    json.decodeFromString<List<ElevationProfilePointDto>>(route.elevationProfileJson)
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            } else emptyList()
+                            cachedRouteCoords = if (route.routeGeoJson != null) {
+                                parseRouteCoordsFromGeoJson(route.routeGeoJson)
+                            } else emptyList()
                         }
-                    } else emptyList()
+                    }
 
-                    val elevPoints = if (route?.elevationProfileJson != null) {
-                        try {
-                            json.decodeFromString<List<ElevationProfilePointDto>>(route.elevationProfileJson)
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                    } else emptyList()
-
-                    val routeCoords = if (route?.routeGeoJson != null) {
-                        parseRouteCoordsFromGeoJson(route.routeGeoJson)
-                    } else emptyList()
-
-                    val nextWp = if (waypoints.isNotEmpty() && trip.currentSegmentIndex < waypoints.size) {
-                        waypoints[minOf(waypoints.size - 1, trip.currentSegmentIndex + 1)]
+                    val nextWp = if (cachedWaypoints.isNotEmpty() && trip.currentSegmentIndex < cachedWaypoints.size) {
+                        cachedWaypoints[minOf(cachedWaypoints.size - 1, trip.currentSegmentIndex + 1)]
                     } else null
 
                     val elapsedFormatted = formatDuration(trip.elapsedDurationSeconds)
@@ -136,7 +152,7 @@ class ActiveTripViewModel @Inject constructor(
                             tripId = trip.tripId,
                             routeId = trip.routeId,
                             status = trip.status,
-                            destinationName = route?.destinationName ?: "Destination",
+                            destinationName = cachedDestinationName,
                             traveledDistanceKm = trip.traveledDistanceMeters / 1000.0,
                             elapsedDurationFormatted = elapsedFormatted,
                             isPaused = trip.isPaused,
@@ -145,11 +161,11 @@ class ActiveTripViewModel @Inject constructor(
                             nearestHazardDistKm = trip.nearestHazardDistKm,
                             nearestHazardTitle = trip.nearestHazardTitle,
                             nextWaypoint = nextWp,
-                            totalDistanceKm = route?.distanceKm ?: 0.0,
-                            routeCoordinates = routeCoords,
-                            elevationProfile = elevPoints,
-                            totalAscentM = route?.totalAscentM ?: 0.0,
-                            maxElevationM = route?.maxElevationM ?: 0.0,
+                            totalDistanceKm = cachedTotalDistanceKm,
+                            routeCoordinates = cachedRouteCoords,
+                            elevationProfile = cachedElevPoints,
+                            totalAscentM = cachedTotalAscentM,
+                            maxElevationM = cachedMaxElevationM,
                             isCompleted = trip.status == "COMPLETED"
                         )
                     }
@@ -161,8 +177,10 @@ class ActiveTripViewModel @Inject constructor(
     private fun observeTrackPoints() {
         viewModelScope.launch {
             trekTrackPointDao.getAllAcceptedPointsFlow(tripId).collect { points ->
-                val coords = points.map { Pair(it.latitude, it.longitude) }
-                _uiState.update { it.copy(traveledTrackCoordinates = coords) }
+                if (points.size != _uiState.value.traveledTrackCoordinates.size) {
+                    val coords = points.map { Pair(it.latitude, it.longitude) }
+                    _uiState.update { it.copy(traveledTrackCoordinates = coords) }
+                }
             }
         }
     }

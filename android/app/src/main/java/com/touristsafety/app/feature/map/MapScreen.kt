@@ -1616,33 +1616,57 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
             android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")
         }
 
-        // Manage lightweight GPS position marker and route endpoints via annotation system only when style is fully loaded
+        // High-performance selective marker update: avoids clearing all annotations and reallocating bitmaps
         try {
-            mapboxMap.clear()
             if (state.isUserLocationAcquired) {
+                val userLatLng = LatLng(state.userLocation.first, state.userLocation.second)
                 val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(state.userLocation.first, state.userLocation.second))
-                        .title("Your Current Location$acc")
-                        .snippet("GPS Location")
-                )
+                val existing = mapboxMap.markers.firstOrNull { it.snippet == "GPS Location" }
+                if (existing != null) {
+                    existing.position = userLatLng
+                    existing.title = "Your Current Location$acc"
+                } else {
+                    mapboxMap.addMarker(
+                        MarkerOptions()
+                            .position(userLatLng)
+                            .title("Your Current Location$acc")
+                            .snippet("GPS Location")
+                    )
+                }
             }
+
             if (state.routeCoordinates.size >= 2) {
                 val startCoord = state.routeCoordinates.first()
                 val destCoord = state.routeCoordinates.last()
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(startCoord.first, startCoord.second))
-                        .title("Route Start")
-                        .snippet(state.routeTitle)
-                )
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(destCoord.first, destCoord.second))
-                        .title("Route Destination")
-                        .snippet(state.routeTitle)
-                )
+                val startLatLng = LatLng(startCoord.first, startCoord.second)
+                val destLatLng = LatLng(destCoord.first, destCoord.second)
+
+                val existingStart = mapboxMap.markers.firstOrNull { it.title == "Route Start" }
+                if (existingStart != null) {
+                    if (existingStart.position != startLatLng) existingStart.position = startLatLng
+                } else {
+                    mapboxMap.addMarker(
+                        MarkerOptions()
+                            .position(startLatLng)
+                            .title("Route Start")
+                            .snippet(state.routeTitle)
+                    )
+                }
+
+                val existingDest = mapboxMap.markers.firstOrNull { it.title == "Route Destination" }
+                if (existingDest != null) {
+                    if (existingDest.position != destLatLng) existingDest.position = destLatLng
+                } else {
+                    mapboxMap.addMarker(
+                        MarkerOptions()
+                            .position(destLatLng)
+                            .title("Route Destination")
+                            .snippet(state.routeTitle)
+                    )
+                }
+            } else {
+                val toRemove = mapboxMap.markers.filter { it.title == "Route Start" || it.title == "Route Destination" }
+                toRemove.forEach { mapboxMap.removeMarker(it) }
             }
         } catch (t: Throwable) {
             android.util.Log.w("MapScreen", "Annotations update failed safely: ${t.message}")

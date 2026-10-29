@@ -62,6 +62,12 @@ class ActiveTripTrackingService : Service() {
     private var pauseStartEpochMs: Long? = null
 
     private var durationTimerJob: Job? = null
+    private var periodicSyncJob: Job? = null
+
+    // High-performance track point buffering to eliminate disk I/O on every GPS point
+    private val pointBuffer = java.util.Collections.synchronizedList(mutableListOf<TrekTrackPointEntity>())
+    private var lastBufferFlushMs: Long = 0L
+    private var lastNotificationUpdateMs: Long = 0L
 
     companion object {
         private const val TAG = "TripTrackingService"
@@ -153,7 +159,39 @@ class ActiveTripTrackingService : Service() {
                 loadTripStateAndResume()
                 startLocationUpdates()
                 startDurationTimer()
+                startPeriodicSync()
                 return START_STICKY
+            }
+        }
+    }
+
+    private fun startPeriodicSync() {
+        periodicSyncJob?.cancel()
+        periodicSyncJob = serviceScope.launch {
+            while (isActive) {
+                delay(30_000L)
+                flushPointBuffer()
+                syncPendingPointsBatch()
+            }
+        }
+    }
+
+    private suspend fun flushPointBuffer() {
+        val toFlush = synchronized(pointBuffer) {
+            if (pointBuffer.isEmpty()) return@synchronized emptyList<TrekTrackPointEntity>()
+            val copy = ArrayList(pointBuffer)
+            pointBuffer.clear()
+            copy
+        }
+        if (toFlush.isNotEmpty()) {
+            try {
+                trekTrackPointDao.insertAll(toFlush)
+                lastBufferFlushMs = System.currentTimeMillis()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed flushing track points to Room: ${t.message}", t)
+                synchronized(pointBuffer) {
+                    pointBuffer.addAll(0, toFlush)
+                }
             }
         }
     }
@@ -179,6 +217,7 @@ class ActiveTripTrackingService : Service() {
             pauseStartEpochMs = System.currentTimeMillis()
             updateNotification("Trek Paused", "Distance accumulation suspended • To $destinationName")
             serviceScope.launch {
+                flushPointBuffer()
                 val existing = activeTripDao.getTripById(currentTripId)
                 if (existing != null) {
                     activeTripDao.insertOrUpdate(
@@ -271,8 +310,8 @@ class ActiveTripTrackingService : Service() {
                 lastAcceptedEpochMs = now
             }
 
-            // Save individual breadcrumb locally in Room
-            trekTrackPointDao.insert(
+            // Buffer breadcrumb in memory to prevent heavy disk I/O on every second
+            pointBuffer.add(
                 TrekTrackPointEntity(
                     tripId = currentTripId,
                     latitude = location.latitude,
@@ -286,14 +325,13 @@ class ActiveTripTrackingService : Service() {
                 )
             )
 
-            // Update ActiveTripEntity
-            updateTripEntityMetrics(location)
+            // Flush buffer in batches of 5 points or every 15 seconds
+            if (pointBuffer.size >= 5 || (now - lastBufferFlushMs) >= 15_000L) {
+                flushPointBuffer()
+            }
 
             // Check hazard proximity
             hazardAlertEngine.evaluatePosition(location.latitude, location.longitude, isInBackground = true)
-
-            // Trigger sync for unsynced points if network is available
-            syncPendingPointsBatch()
         }
     }
 
@@ -311,15 +349,19 @@ class ActiveTripTrackingService : Service() {
         )
         activeTripDao.insertOrUpdate(updated)
 
-        val kmStr = String.format(java.util.Locale.US, "%.2f km", cumulativeDistanceMeters / 1000.0)
-        val timeStr = formatDuration(elapsedSec)
-        val gpsPart = if (latestLocation != null) "GPS: ±${latestLocation.accuracy.toInt()}m" else "GPS Active"
-        val statusPart = if (isPaused) "PAUSED" else "ACTIVE"
+        val now = System.currentTimeMillis()
+        if (now - lastNotificationUpdateMs >= 3_500L || isPaused) {
+            lastNotificationUpdateMs = now
+            val kmStr = String.format(java.util.Locale.US, "%.2f km", cumulativeDistanceMeters / 1000.0)
+            val timeStr = formatDuration(elapsedSec)
+            val gpsPart = if (latestLocation != null) "GPS: ±${latestLocation.accuracy.toInt()}m" else "GPS Active"
+            val statusPart = if (isPaused) "PAUSED" else "ACTIVE"
 
-        updateNotification(
-            title = "$statusPart • $kmStr in $timeStr",
-            content = "$gpsPart • En route to $destinationName"
-        )
+            updateNotification(
+                title = "$statusPart • $kmStr in $timeStr",
+                content = "$gpsPart • En route to $destinationName"
+            )
+        }
     }
 
     private suspend fun syncPendingPointsBatch() {
@@ -407,6 +449,11 @@ class ActiveTripTrackingService : Service() {
         super.onDestroy()
         fusedLocationClient.removeLocationUpdates(locationCallback)
         durationTimerJob?.cancel()
+        periodicSyncJob?.cancel()
+        runBlocking {
+            flushPointBuffer()
+            syncPendingPointsBatch()
+        }
         serviceJob.cancel()
     }
 

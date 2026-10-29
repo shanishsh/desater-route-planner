@@ -24,6 +24,18 @@ object MapLibreLayerManager {
 
     private const val TAG = "MapLibreLayerManager"
 
+    // High-performance GeoJSON change-detection cache to prevent redundant C++ JNI source updates
+    private var lastCorridorGeoJson: String? = null
+    private var lastRoutePrimaryGeoJson: String? = null
+    private var lastRouteSecondaryGeoJson: String? = null
+    private var lastDisasterGeoJson: String? = null
+    private var lastForestGeoJson: String? = null
+    private var lastFireGeoJson: String? = null
+    private var lastHavenGeoJson: String? = null
+    private var lastWeatherGeoJson: String? = null
+    private var lastSlopeGeoJson: String? = null
+    private var lastWaterwayGeoJson: String? = null
+
     // Sources
     const val SOURCE_UTTARAKHAND_MASK = "source-uttarakhand-mask"
     const val SOURCE_UTTARAKHAND_BOUNDARY = "source-uttarakhand-boundary"
@@ -946,7 +958,10 @@ object MapLibreLayerManager {
                 } else {
                     buildCorridorGeoJson(state.corridorPolygonCoordinates)
                 }
-                corridorSource?.setGeoJson(corrJson)
+                if (corrJson != lastCorridorGeoJson) {
+                    corridorSource?.setGeoJson(corrJson)
+                    lastCorridorGeoJson = corrJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating corridor GeoJSON: ${t.message}")
             }
@@ -981,7 +996,10 @@ object MapLibreLayerManager {
                 } else {
                     buildLineStringGeoJson(state.routeCoordinates)
                 }
-                primSource?.setGeoJson(primJson)
+                if (primJson != lastRoutePrimaryGeoJson) {
+                    primSource?.setGeoJson(primJson)
+                    lastRoutePrimaryGeoJson = primJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating primary route GeoJSON: ${t.message}")
             }
@@ -995,7 +1013,10 @@ object MapLibreLayerManager {
                 } else {
                     EMPTY_GEOJSON
                 }
-                secSource?.setGeoJson(secJson)
+                if (secJson != lastRouteSecondaryGeoJson) {
+                    secSource?.setGeoJson(secJson)
+                    lastRouteSecondaryGeoJson = secJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating secondary route GeoJSON: ${t.message}")
             }
@@ -1009,7 +1030,10 @@ object MapLibreLayerManager {
                     val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
                     buildDisasterFeatureCollection(disasterFeatures)
                 }
-                disasterSource?.setGeoJson(disasterJson)
+                if (disasterJson != lastDisasterGeoJson) {
+                    disasterSource?.setGeoJson(disasterJson)
+                    lastDisasterGeoJson = disasterJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating disaster GeoJSON: ${t.message}")
             }
@@ -1033,7 +1057,10 @@ object MapLibreLayerManager {
                 } else {
                     EMPTY_GEOJSON
                 }
-                forestSource?.setGeoJson(forestJson)
+                if (forestJson != lastForestGeoJson) {
+                    forestSource?.setGeoJson(forestJson)
+                    lastForestGeoJson = forestJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating forest GeoJSON: ${t.message}")
             }
@@ -1047,7 +1074,10 @@ object MapLibreLayerManager {
                     val fireFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION }
                     buildPointFeatureCollection(fireFeatures)
                 }
-                fireSource?.setGeoJson(fireJson)
+                if (fireJson != lastFireGeoJson) {
+                    fireSource?.setGeoJson(fireJson)
+                    lastFireGeoJson = fireJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating fire GeoJSON: ${t.message}")
             }
@@ -1069,7 +1099,10 @@ object MapLibreLayerManager {
                     }
                     buildPointFeatureCollection(havenFeatures)
                 }
-                havenSource?.setGeoJson(havenJson)
+                if (havenJson != lastHavenGeoJson) {
+                    havenSource?.setGeoJson(havenJson)
+                    lastHavenGeoJson = havenJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating facilities GeoJSON: ${t.message}")
             }
@@ -1083,7 +1116,10 @@ object MapLibreLayerManager {
                     val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
                     buildPointFeatureCollection(weatherFeatures)
                 }
-                weatherSource?.setGeoJson(weatherJson)
+                if (weatherJson != lastWeatherGeoJson) {
+                    weatherSource?.setGeoJson(weatherJson)
+                    lastWeatherGeoJson = weatherJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating weather GeoJSON: ${t.message}")
             }
@@ -1094,7 +1130,10 @@ object MapLibreLayerManager {
                 val slopeJson = if (!state.terrainSlopeGeoJson.isNullOrBlank()) {
                     ensureFeatureCollection(state.terrainSlopeGeoJson)
                 } else EMPTY_GEOJSON
-                slopeSource?.setGeoJson(slopeJson)
+                if (slopeJson != lastSlopeGeoJson) {
+                    slopeSource?.setGeoJson(slopeJson)
+                    lastSlopeGeoJson = slopeJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating terrain slope GeoJSON: ${t.message}")
             }
@@ -1111,7 +1150,10 @@ object MapLibreLayerManager {
                 } else if (!baselineJson.isNullOrBlank()) {
                     baselineJson
                 } else EMPTY_GEOJSON
-                waterSource?.setGeoJson(waterJson)
+                if (waterJson != lastWaterwayGeoJson) {
+                    waterSource?.setGeoJson(waterJson)
+                    lastWaterwayGeoJson = waterJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating waterways GeoJSON: ${t.message}")
             }

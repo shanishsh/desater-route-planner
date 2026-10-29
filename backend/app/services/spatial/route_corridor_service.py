@@ -77,7 +77,8 @@ class RouteCorridorService:
 
         # 3. Create metric LineString and buffer by exact meters
         line = LineString(metric_pts)
-        buffered_metric = line.buffer(
+        buffer_line = line.simplify(5.0, preserve_topology=True) if len(metric_pts) > 50 else line
+        buffered_metric = buffer_line.buffer(
             clamped_distance,
             cap_style="round",
             join_style="round",
