@@ -28,6 +28,7 @@ import com.touristsafety.app.core.designsystem.components.*
 fun PlanTripScreen(
     onNavigateBack: () -> Unit,
     onNavigateToReview: (String) -> Unit,
+    onNavigateToDrawRoute: () -> Unit = {},
     viewModel: PlanTripViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -38,6 +39,7 @@ fun PlanTripScreen(
         viewModel.eventFlow.collect { event ->
             when (event) {
                 is PlanTripEvent.NavigateToSafetyReview -> onNavigateToReview(event.routeId)
+                is PlanTripEvent.NavigateToDrawRoute -> onNavigateToDrawRoute()
             }
         }
     }
@@ -197,6 +199,51 @@ fun PlanTripScreen(
                             message = state.errorMessage ?: "",
                             onDismiss = { viewModel.clearError() }
                         )
+                        val err = state.errorMessage ?: ""
+                        val isTrailFailure = err.contains("hiking trail", ignoreCase = true) ||
+                                err.contains("Draw my route", ignoreCase = true) ||
+                                err.contains("alpine terrain", ignoreCase = true) ||
+                                err.contains("unmapped", ignoreCase = true)
+
+                        if (isTrailFailure) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Button(
+                                    onClick = { onNavigateToDrawRoute() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("✏️ Switch to 'Draw my route' on Map", fontWeight = FontWeight.Bold)
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.retryWithTravelMode("walking") },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("🚶 Walking / Road", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    if (!state.isPedestrianOnlySelected) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.retryWithTravelMode("driving") },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("🚗 Driving Route", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if (state.errorMessage?.contains("10.0.2.2") == true ||
                             state.errorMessage?.contains("failed to connect") == true ||
                             state.errorMessage?.contains("Failed to connect") == true ||
@@ -250,6 +297,51 @@ fun PlanTripScreen(
                                 selectedLabelColor = ForestGreenPrimary
                             )
                         )
+                    }
+                }
+            }
+
+            // Custom Route / Off-Trail Drawing Mode Entry Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🎨 Draw Custom Route on Map",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Trace your intended hiking or off-trail path freely. Includes multi-hazard corridor scanning and elevation profile.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Button(
+                            onClick = { onNavigateToDrawRoute() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Draw", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }

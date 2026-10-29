@@ -71,7 +71,8 @@ class DisasterRepository @Inject constructor(
                         receivedAtEpochMs = parseIsoDate(dto.received_at),
                         downloadedAtEpochMs = now,
                         isSimulated = dto.is_simulated,
-                        status = dto.status
+                        status = dto.status,
+                        polygonGeoJson = dto.polygon_geojson
                     )
                 }
 

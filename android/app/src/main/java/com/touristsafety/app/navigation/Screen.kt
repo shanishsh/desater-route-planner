@@ -14,7 +14,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     // 4 Primary Navigation Pillars
     data object Home : Screen("home", "Home", AppIcons.Home)
     data object PlanTrip : Screen("plan_trip", "Plan & Routes", AppIcons.PlanTrip)
-    data object Map : Screen("map", "Safety Map", AppIcons.Map)
+    data object Map : Screen("map", "Safety Map", AppIcons.Map) {
+        fun createRoute(startDrawing: Boolean = false) = if (startDrawing) "map?startDrawing=true" else "map"
+    }
     data object Emergency : Screen("emergency", "Assistance", AppIcons.Emergency)
 
     // Secondary & Drill-Down Screens

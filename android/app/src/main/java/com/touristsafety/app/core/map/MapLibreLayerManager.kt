@@ -72,6 +72,7 @@ object MapLibreLayerManager {
     const val LAYER_TERRAIN_SLOPE_LINE = "layer-terrain-slope-line"
 
     const val SOURCE_WATERWAYS = "source-waterways"
+    const val LAYER_WATERWAYS_FILL = "layer-waterways-fill"
     const val LAYER_WATERWAYS_LINE = "layer-waterways-line"
 
     const val SOURCE_HISTORICAL_LANDSLIDES = "source-historical-landslides"
@@ -235,8 +236,15 @@ object MapLibreLayerManager {
                         eq(get("geom_type"), literal("Polygon"))
                     ))
                     setProperties(
-                        fillColor(Color.argb(70, 229, 57, 53)), // Emergency Red #E53935
-                        fillOpacity(0.28f)
+                        fillColor(
+                            match(
+                                get("hazard_category"),
+                                literal("flash_flood"), color(Color.argb(110, 0, 151, 167)), // Flood Inundation Teal #0097A7
+                                literal("flood"), color(Color.argb(110, 0, 151, 167)),
+                                color(Color.argb(70, 229, 57, 53)) // Emergency Red #E53935
+                            )
+                        ),
+                        fillOpacity(0.35f)
                     )
                 }
                 style.addLayer(disasterFill)
@@ -249,7 +257,14 @@ object MapLibreLayerManager {
                         eq(get("geom_type"), literal("Polygon"))
                     ))
                     setProperties(
-                        lineColor(Color.rgb(211, 47, 47)), // #D32F2F
+                        lineColor(
+                            match(
+                                get("hazard_category"),
+                                literal("flash_flood"), color(Color.rgb(0, 121, 107)), // Flood Inundation Dark Teal #00796B
+                                literal("flood"), color(Color.rgb(0, 121, 107)),
+                                color(Color.rgb(211, 47, 47)) // #D32F2F
+                            )
+                        ),
                         lineWidth(2.5f),
                         lineJoin(Property.LINE_JOIN_ROUND),
                         lineCap(Property.LINE_CAP_ROUND)
@@ -433,16 +448,44 @@ object MapLibreLayerManager {
                 style.addLayer(slopeLine)
             }
 
-            // 4c. Authoritative Rivers and Waterways Layer
+            // 4c. Authoritative Rivers, Lakes, Water Channels and Flood Plains
             if (style.getSource(SOURCE_WATERWAYS) == null) {
-                style.addSource(GeoJsonSource(SOURCE_WATERWAYS, EMPTY_GEOJSON))
+                val initialWater = if (context != null) getOrLoadWaterwaysBaselineGeoJson(context) ?: EMPTY_GEOJSON else (cachedWaterwaysBaselineGeoJson ?: EMPTY_GEOJSON)
+                style.addSource(GeoJsonSource(SOURCE_WATERWAYS, initialWater))
+            }
+            if (style.getLayer(LAYER_WATERWAYS_FILL) == null) {
+                val waterFill = FillLayer(LAYER_WATERWAYS_FILL, SOURCE_WATERWAYS).apply {
+                    setFilter(any(
+                        eq(geometryType(), literal("Polygon")),
+                        eq(geometryType(), literal("MultiPolygon")),
+                        eq(get("geom_type"), literal("Polygon"))
+                    ))
+                    setProperties(
+                        fillColor(
+                            match(
+                                get("category"),
+                                literal("flood_inundation_zone"), color(Color.argb(125, 0, 151, 167)), // Flood Inundation Plain #0097A7
+                                literal("lake_reservoir"), color(Color.argb(150, 2, 136, 209)), // Lake / Reservoir Deep Blue #0288D1
+                                color(Color.argb(135, 3, 169, 244)) // River Channel / Riverbed Light Cyan-Blue #03A9F4
+                            )
+                        ),
+                        fillOpacity(0.65f)
+                    )
+                }
+                style.addLayer(waterFill)
             }
             if (style.getLayer(LAYER_WATERWAYS_LINE) == null) {
                 val waterLine = LineLayer(LAYER_WATERWAYS_LINE, SOURCE_WATERWAYS).apply {
                     setProperties(
-                        lineColor(Color.rgb(2, 136, 209)), // River Cyan-Blue #0288D1
+                        lineColor(
+                            match(
+                                get("category"),
+                                literal("flood_inundation_zone"), color(Color.rgb(0, 121, 107)), // Deep Teal outline #00796B
+                                color(Color.rgb(1, 87, 155)) // Deep Water Blue centerline & boundary #01579B
+                            )
+                        ),
                         lineWidth(2.5f),
-                        lineOpacity(0.80f),
+                        lineOpacity(0.85f),
                         lineJoin(Property.LINE_JOIN_ROUND),
                         lineCap(Property.LINE_CAP_ROUND)
                     )
@@ -1059,8 +1102,14 @@ object MapLibreLayerManager {
             // 7c. Update Waterways GeoJSON
             try {
                 val waterSource = style.getSourceAs<GeoJsonSource>(SOURCE_WATERWAYS)
-                val waterJson = if (!state.waterwaysGeoJson.isNullOrBlank()) {
+                val routeWaterHasFeatures = !state.waterwaysGeoJson.isNullOrBlank() &&
+                    !state.waterwaysGeoJson.trim().startsWith("{\"type\":\"FeatureCollection\",\"features\":[]}") &&
+                    !state.waterwaysGeoJson.trim().startsWith("{\"type\": \"FeatureCollection\", \"features\": []}")
+                val baselineJson = if (context != null) getOrLoadWaterwaysBaselineGeoJson(context) else cachedWaterwaysBaselineGeoJson
+                val waterJson = if (routeWaterHasFeatures) {
                     ensureFeatureCollection(state.waterwaysGeoJson)
+                } else if (!baselineJson.isNullOrBlank()) {
+                    baselineJson
                 } else EMPTY_GEOJSON
                 waterSource?.setGeoJson(waterJson)
             } catch (t: Throwable) {
@@ -1275,6 +1324,17 @@ object MapLibreLayerManager {
         style.getLayer(LAYER_CELLULAR_COVERAGE_LINE)?.setProperties(
             visibility(if (cellVis) Property.VISIBLE else Property.NONE)
         )
+
+        // Waterways Visibility (Rivers, Lakes, Flood Inundation Zones)
+        val waterVis = (filterCat == null || filterCat == MapFeatureCategory.WATERWAY) &&
+                (vis[MapFeatureCategory.WATERWAY] != false)
+
+        style.getLayer(LAYER_WATERWAYS_FILL)?.setProperties(
+            visibility(if (waterVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_WATERWAYS_LINE)?.setProperties(
+            visibility(if (waterVis) Property.VISIBLE else Property.NONE)
+        )
     }
 
     /**
@@ -1457,11 +1517,13 @@ object MapLibreLayerManager {
             val safeTitle = escapeJson(feat.title)
             val safeSub = escapeJson(feat.subtitle)
             val safeId = escapeJson(feat.id)
+            val hazardCat = feat.details["hazard_category"] ?: feat.details["Category"]?.lowercase()?.replace(' ', '_') ?: ""
+            val safeHazardCat = escapeJson(hazardCat)
             val ring = feat.geometryPolygon
             if (ring != null && ring.size >= 3) {
                 if (count > 0) sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
-                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Polygon\"")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Polygon\"")
                 sb.append("},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
                 ring.forEachIndexed { pIdx, pt ->
                     if (pIdx > 0) sb.append(",")
@@ -1476,7 +1538,7 @@ object MapLibreLayerManager {
                 // Point hazard advisory
                 if (count > 0) sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
-                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"geom_type\":\"Point\"")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Point\"")
                 sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
                 count++
             }
@@ -1562,6 +1624,22 @@ object MapLibreLayerManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading uttarakhand_forest_reserves.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private var cachedWaterwaysBaselineGeoJson: String? = null
+
+    private fun getOrLoadWaterwaysBaselineGeoJson(context: android.content.Context): String? {
+        if (cachedWaterwaysBaselineGeoJson != null) return cachedWaterwaysBaselineGeoJson
+        return try {
+            context.assets.open("uttarakhand_major_waterways.geojson").use { stream ->
+                val str = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedWaterwaysBaselineGeoJson = ensureFeatureCollection(str)
+                cachedWaterwaysBaselineGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_major_waterways.geojson from assets: ${e.message}", e)
             null
         }
     }

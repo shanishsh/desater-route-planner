@@ -154,9 +154,11 @@ fun MapLayersSheet(
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         LegendBadge(color = Color(0xFF651FFF), label = "Cell Tower & Range")
+                        LegendBadge(color = Color(0xFF0288D1), label = "Rivers & Waterways")
+                        LegendBadge(color = Color(0xFF0097A7), label = "Flood Inundation")
                     }
                 }
             }
@@ -198,13 +200,13 @@ private fun LayerRowItem(
                     imageVector = category.icon,
                     contentDescription = null,
                     tint = category.primaryColor,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Label & Real Status
+            // Details
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -214,57 +216,70 @@ private fun LayerRowItem(
                     )
                     if (count > 0) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.height(18.dp)
                         ) {
                             Text(
-                                text = "$count",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                text = count.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                             )
                         }
                     }
                 }
 
-                // Data Status Indicator Pill
+                // Data Provenance & Status Badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 2.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
-                            .background(if (isVisible) status.color else Color.Gray)
+                            .background(status.color)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = if (isVisible) status.label else "Hidden",
-                        fontSize = 11.sp,
+                        text = status.label,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "•",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        text = getProviderNameForCategory(category),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
             }
 
-            // Layer Switch
+            // Visibility Toggle Switch
             Switch(
                 checked = isVisible,
                 onCheckedChange = { onToggle() },
-                modifier = Modifier.padding(start = 8.dp)
+                modifier = Modifier.scale(0.85f)
             )
         }
     }
 }
 
+private fun Modifier.scale(scale: Float): Modifier = this.then(
+    Modifier.size((52 * scale).dp, (32 * scale).dp)
+)
+
 @Composable
 private fun LegendBadge(color: Color, label: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = 2.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Box(
             modifier = Modifier
@@ -272,8 +287,29 @@ private fun LegendBadge(color: Color, label: String) {
                 .clip(CircleShape)
                 .background(color)
         )
-        Spacer(modifier = Modifier.width(5.dp))
-        Text(text = label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
+private fun getProviderNameForCategory(category: MapFeatureCategory): String {
+    return when (category) {
+        MapFeatureCategory.HOSPITAL -> "UK Health Directory"
+        MapFeatureCategory.CLINIC -> "UK Health Directory"
+        MapFeatureCategory.POLICE_STATION -> "Uttarakhand Police"
+        MapFeatureCategory.FIRE_STATION -> "Uttarakhand Fire Service"
+        MapFeatureCategory.SHELTER -> "DDMA Safe Havens"
+        MapFeatureCategory.PETROL_PUMP -> "HPCL / IOCL / BPCL"
+        MapFeatureCategory.TOURIST_ASSISTANCE -> "Uttarakhand Tourism"
+        MapFeatureCategory.FOREST_AREA -> "OpenStreetMap (ODbL)"
+        MapFeatureCategory.ACTIVE_FIRE_DETECTION -> "NASA FIRMS (VIIRS/MODIS)"
+        MapFeatureCategory.WEATHER_POINT -> "Open-Meteo API"
+        MapFeatureCategory.HAZARD_ZONE -> "USDMA & NDMA CAP"
+        MapFeatureCategory.ROUTE_WAYPOINT -> "Offline Route Engine"
+        MapFeatureCategory.CELL_TOWER -> "OpenCelliD / TARANG Sanchar"
+        MapFeatureCategory.WATERWAY -> "OpenStreetMap / Glacial Lake Atlas"
+    }
+}

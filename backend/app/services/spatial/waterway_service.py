@@ -26,6 +26,32 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return r * c
 
 
+def _extract_coords(geom: Dict[str, Any]) -> List[Tuple[float, float]]:
+    """Extracts (lon, lat) vertex tuples from any GeoJSON geometry type."""
+    g_type = geom.get("type", "")
+    coords = geom.get("coordinates", [])
+    pts: List[Tuple[float, float]] = []
+    if g_type == "LineString":
+        for c in coords:
+            if len(c) >= 2:
+                pts.append((c[0], c[1]))
+    elif g_type in ("MultiLineString", "Polygon"):
+        for ring in coords:
+            for c in ring:
+                if len(c) >= 2:
+                    pts.append((c[0], c[1]))
+    elif g_type == "MultiPolygon":
+        for poly in coords:
+            for ring in poly:
+                for c in ring:
+                    if len(c) >= 2:
+                        pts.append((c[0], c[1]))
+    elif g_type == "Point":
+        if len(coords) >= 2:
+            pts.append((coords[0], coords[1]))
+    return pts
+
+
 class WaterwayService:
     def __init__(self, geojson_path: Optional[str] = None):
         self._geojson_path = geojson_path or os.path.join(
@@ -54,7 +80,8 @@ class WaterwayService:
         corridor_radius_m: float = 3000.0,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
-        Finds river features within corridor_radius_m of route coordinates.
+        Finds river features, lakes, water channels, and flood inundation zones
+        within corridor_radius_m of route coordinates.
         Returns: (waterways_geojson, summary_dict)
         """
         if not self._features or not route_coords:
@@ -63,6 +90,7 @@ class WaterwayService:
                 "nearest_river_name": None,
                 "nearest_distance_m": None,
                 "is_river_gorge_route": False,
+                "flood_zones_detected": [],
             }
 
         # Normalize route points to [(lat, lon)]
@@ -78,15 +106,21 @@ class WaterwayService:
         min_overall_dist_m = float("inf")
         nearest_river_name = None
         detected_names = set()
+        detected_flood_zones = set()
 
         for feat in self._features:
-            line_coords = feat.get("geometry", {}).get("coordinates", [])
+            geom = feat.get("geometry", {})
             props = feat.get("properties", {})
-            river_name = props.get("name", "Unnamed River")
+            river_name = props.get("name", "Unnamed Waterway")
+            is_flood = props.get("is_flood_zone", False) or props.get("category") == "flood_inundation_zone"
 
-            # Calculate minimum distance from river line vertices to route points
+            pts = _extract_coords(geom)
+            if not pts:
+                continue
+
+            # Calculate minimum distance from waterway geometry vertices to route points
             min_dist = float("inf")
-            for r_lon, r_lat in line_coords:
+            for r_lon, r_lat in pts:
                 for pt_lat, pt_lon in route_pts:
                     d = haversine_m(r_lat, r_lon, pt_lat, pt_lon)
                     if d < min_dist:
@@ -94,16 +128,22 @@ class WaterwayService:
 
             if min_dist <= corridor_radius_m:
                 detected_names.add(river_name)
+                if is_flood:
+                    detected_flood_zones.add(river_name)
+
                 enriched = dict(props)
                 enriched["distance_to_route_m"] = round(min_dist, 1)
                 matching_features.append({
                     "type": "Feature",
                     "id": feat.get("id"),
-                    "geometry": feat.get("geometry"),
+                    "geometry": geom,
                     "properties": enriched,
                 })
 
-                if min_dist < min_overall_dist_m:
+                if not is_flood and min_dist < min_overall_dist_m:
+                    min_overall_dist_m = min_dist
+                    nearest_river_name = river_name
+                elif min_dist < min_overall_dist_m and nearest_river_name is None:
                     min_overall_dist_m = min_dist
                     nearest_river_name = river_name
 
@@ -112,6 +152,7 @@ class WaterwayService:
             "nearest_river_name": nearest_river_name,
             "nearest_distance_m": round(min_overall_dist_m, 1) if min_overall_dist_m != float("inf") else None,
             "is_river_gorge_route": min_overall_dist_m <= 500.0 if min_overall_dist_m != float("inf") else False,
+            "flood_zones_detected": sorted(list(detected_flood_zones)),
         }
 
         return {
@@ -120,15 +161,15 @@ class WaterwayService:
         }, summary
 
     def find_waterways_near_point(self, lat: float, lon: float, radius_km: float = 0.06) -> List[Dict[str, Any]]:
-        """Finds river channels passing within radius_km of a specific geographic coordinate."""
+        """Finds water features or flood zones passing within radius_km of a specific geographic coordinate."""
         radius_m = radius_km * 1000.0
         matches = []
         for feat in self._features:
             props = feat.get("properties", {})
             geom = feat.get("geometry", {})
-            coords = geom.get("coordinates", [])
-            for c in coords:
-                if len(c) >= 2 and haversine_m(lat, lon, c[1], c[0]) <= radius_m:
+            pts = _extract_coords(geom)
+            for r_lon, r_lat in pts:
+                if haversine_m(lat, lon, r_lat, r_lon) <= radius_m:
                     matches.append(props)
                     break
         return matches

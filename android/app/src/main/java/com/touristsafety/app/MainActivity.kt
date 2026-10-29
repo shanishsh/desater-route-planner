@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                                                 fontWeight = if (currentRoute == screen.route) FontWeight.Bold else FontWeight.Medium
                                             )
                                         },
-                                        selected = currentRoute == screen.route,
+                                        selected = currentRoute?.substringBefore('?') == screen.route.substringBefore('?'),
                                         colors = NavigationBarItemDefaults.colors(
                                             selectedIconColor = ForestGreenPrimary,
                                             selectedTextColor = ForestGreenPrimary,
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                                         ),
                                         onClick = {
                                             val targetRoute = screen.route
-                                            if (currentRoute != targetRoute) {
+                                            if (currentRoute?.substringBefore('?') != targetRoute.substringBefore('?')) {
                                                 navController.navigate(targetRoute) {
                                                     popUpTo(Screen.Home.route) { saveState = true }
                                                     launchSingleTop = true

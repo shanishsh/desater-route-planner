@@ -177,10 +177,14 @@ class TrailRoutingEngine:
                 dest_lat, dest_lon, dest_name, dest_snap,
             )
 
-        # 3. Case B: Outside primary verified dataset -> Query OSRM walking with strict validation
+        # 3. Case B: Outside primary verified dataset -> Query OSRM walking with connected road network fallback
         logger.info(f"Querying OSRM walking provider for pedestrian route: ({origin_lat},{origin_lon}) to ({dest_lat},{dest_lon})")
+        osrm_res = None
+        last_service_err = None
+
+        # 3a. Attempt dedicated pedestrian / walking profile first
         try:
-            osrm_res = await osrm_routing_provider.calculate_route(
+            res = await osrm_routing_provider.calculate_route(
                 origin_lat=origin_lat,
                 origin_lon=origin_lon,
                 origin_name=origin_name,
@@ -189,16 +193,51 @@ class TrailRoutingEngine:
                 dest_name=dest_name,
                 travel_mode="walking",
             )
-            # Strict OSRM validation: check that distance is plausible compared to haversine
             straight_line_km = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
-            if osrm_res.distance_km < (straight_line_km * 0.9):
-                # OSRM snapped both points to the same road fragment (e.g. 92m segment)
-                logger.warning(
-                    f"OSRM walking returned bogus segment: distance {osrm_res.distance_km}km vs straight-line {straight_line_km:.2f}km"
-                )
-                raise ValueError("OSRM returned invalid disconnected segment")
+            if res.distance_km >= (straight_line_km * 0.85):
+                osrm_res = res
+            else:
+                logger.warning(f"OSRM walking returned bogus segment ({res.distance_km}km vs straight-line {straight_line_km:.2f}km)")
+        except HTTPException as he:
+            if he.status_code == 422:
+                raise
+            if he.status_code in (500, 502, 503, 504, 429):
+                last_service_err = he
+        except Exception as e:
+            logger.info(f"OSRM walking profile failed ({e}), checking connected road network...")
 
-            # Check if connectors to OSRM start/end cross river barriers
+        # 3b. Fallback to connected public road network with pedestrian speed calculation if walking profile had gaps
+        if osrm_res is None:
+            try:
+                drive_res = await osrm_routing_provider.calculate_route(
+                    origin_lat=origin_lat,
+                    origin_lon=origin_lon,
+                    origin_name=origin_name,
+                    dest_lat=dest_lat,
+                    dest_lon=dest_lon,
+                    dest_name=dest_name,
+                    travel_mode="driving",
+                )
+                straight_line_km = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
+                if drive_res.distance_km >= (straight_line_km * 0.85):
+                    # Adapt driving geometry for pedestrian travel
+                    drive_res.travel_mode = "walking"
+                    drive_res.duration_minutes = round((drive_res.distance_km / 3.5) * 60.0, 1)  # 3.5 km/h pedestrian pace
+                    drive_res.duration_seconds = drive_res.duration_minutes * 60.0
+                    drive_res.verification_status = "PARTIALLY_VERIFIED"
+                    drive_res.unverified_reason = "Route follows connected public road network with pedestrian access."
+                    osrm_res = drive_res
+                    logger.info(f"Connected road network pedestrian route found: {drive_res.distance_km} km")
+            except HTTPException as he:
+                if he.status_code == 422:
+                    raise
+                if he.status_code in (500, 502, 503, 504, 429):
+                    last_service_err = he
+            except Exception as e:
+                logger.warning(f"Road network pedestrian fallback also failed: {e}")
+
+        # 3c. If a valid route was found, validate barrier crossings & snap distances
+        if osrm_res is not None:
             coords = osrm_res.geometry_geojson.get("coordinates", [])
             if coords:
                 start_lon, start_lat = coords[0][0], coords[0][1]
@@ -209,13 +248,12 @@ class TrailRoutingEngine:
                         detail=f"Route cannot be verified: {reason}. Walking across natural barriers without trails is prohibited.",
                     )
 
-            # Assign evidence status
-            origin_off_trail_m = haversine_distance_km(origin_lat, origin_lon, coords[0][1], coords[0][0]) * 1000.0
-            dest_off_trail_m = haversine_distance_km(dest_lat, dest_lon, coords[-1][1], coords[-1][0]) * 1000.0
+            origin_off_trail_m = haversine_distance_km(origin_lat, origin_lon, coords[0][1], coords[0][0]) * 1000.0 if coords else 0.0
+            dest_off_trail_m = haversine_distance_km(dest_lat, dest_lon, coords[-1][1], coords[-1][0]) * 1000.0 if coords else 0.0
 
-            if max(origin_off_trail_m, dest_off_trail_m) <= 300.0:
+            if max(origin_off_trail_m, dest_off_trail_m) <= 300.0 and osrm_res.verification_status == "VERIFIED":
                 osrm_res.verification_status = "MAPPED_TRAIL"
-            else:
+            elif osrm_res.verification_status != "PARTIALLY_VERIFIED":
                 osrm_res.verification_status = "PARTIALLY_VERIFIED"
                 osrm_res.unverified_reason = (
                     f"Trail access requires off-trail walk of {int(max(origin_off_trail_m, dest_off_trail_m))}m. "
@@ -224,23 +262,23 @@ class TrailRoutingEngine:
 
             return osrm_res
 
-        except (HTTPException, ValueError) as err:
-            if isinstance(err, HTTPException) and err.status_code == 422:
-                raise
+        # 3d. If both failed due to an upstream service failure (e.g. 503, 429), surface it accurately
+        if last_service_err is not None:
+            raise last_service_err
 
-            # Detail exact failure with actionable user guidance
-            straight_line_km = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
-            detail_msg = (
-                f"No verified connected hiking trail found between '{origin_name}' and '{dest_name}' "
-                f"({straight_line_km:.1f} km apart). The path crosses unmapped alpine terrain, dense forest, or cliffs. "
-                "The system refuses to invent a fake straight line across hazardous terrain. "
-                "You can switch to 'Draw my route' to trace your intended path manually."
-            )
-            logger.info(detail_msg)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail_msg,
-            )
+        # 3e. Genuine lack of connected trails and roads across alpine wilderness
+        straight_line_km = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
+        detail_msg = (
+            f"No verified connected hiking trail found between '{origin_name}' and '{dest_name}' "
+            f"({straight_line_km:.1f} km apart). The path crosses unmapped alpine terrain, dense forest, or cliffs. "
+            "The system refuses to invent a fake straight line across hazardous terrain. "
+            "You can switch to 'Draw my route' to trace your intended path manually."
+        )
+        logger.info(detail_msg)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail_msg,
+        )
 
     def _build_trail_network_route(
         self,

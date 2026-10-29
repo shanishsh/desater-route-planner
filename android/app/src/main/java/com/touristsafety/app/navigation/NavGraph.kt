@@ -3,6 +3,7 @@ package com.touristsafety.app.navigation
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -136,6 +137,9 @@ fun AppNavGraph(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToReview = { routeId ->
                     navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
+                },
+                onNavigateToDrawRoute = {
+                    navController.navigate(Screen.Map.createRoute(startDrawing = true))
                 }
             )
         }
@@ -164,8 +168,22 @@ fun AppNavGraph(
             )
         }
 
-        composable(Screen.Map.route) {
+        composable(
+            route = "map?startDrawing={startDrawing}",
+            arguments = listOf(
+                navArgument("startDrawing") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStackEntry ->
+            val startDrawing = backStackEntry.arguments?.getBoolean("startDrawing") ?: false
             val viewModel: MapViewModel = hiltViewModel()
+            LaunchedEffect(startDrawing) {
+                if (startDrawing) {
+                    viewModel.enterDrawingMode("TRAIL_FOLLOWING")
+                }
+            }
             MapScreen(
                 viewModel = viewModel,
                 onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) }

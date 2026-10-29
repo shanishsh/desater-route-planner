@@ -82,6 +82,11 @@ enum class MapFeatureCategory(
         displayName = "Mobile Network Tower",
         icon = Icons.Default.CellTower,
         primaryColor = Color(0xFF651FFF) // Deep Purple / Indigo
+    ),
+    WATERWAY(
+        displayName = "Rivers & Waterways",
+        icon = Icons.Default.WaterDrop,
+        primaryColor = Color(0xFF0288D1), // River Cyan-Blue
+        isAreaFeature = true
     )
 }
-

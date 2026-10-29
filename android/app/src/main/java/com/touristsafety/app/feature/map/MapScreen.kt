@@ -256,7 +256,9 @@ fun MapScreen(
                             MapLibreLayerManager.LAYER_SAFE_HAVENS_CIRCLE,
                             MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                             MapLibreLayerManager.LAYER_FOREST_FILL,
-                            MapLibreLayerManager.LAYER_FOREST_LINE
+                            MapLibreLayerManager.LAYER_FOREST_LINE,
+                            MapLibreLayerManager.LAYER_WATERWAYS_FILL,
+                            MapLibreLayerManager.LAYER_WATERWAYS_LINE
                         )
                         if (renderedFeatures.isNotEmpty()) {
                             val top = renderedFeatures.first()
@@ -278,7 +280,10 @@ fun MapScreen(
                                 val title = top.getStringProperty("title") ?: top.getStringProperty("name")
                                 if (!title.isNullOrBlank()) {
                                     val catStr = top.getStringProperty("category") ?: "HAZARD_ZONE"
-                                    val category = try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
+                                    val category = when (catStr.lowercase()) {
+                                        "flood_inundation_zone", "lake_reservoir", "river_channel", "waterway", "waterways" -> MapFeatureCategory.WATERWAY
+                                        else -> try { MapFeatureCategory.valueOf(catStr) } catch (e: Exception) { MapFeatureCategory.HAZARD_ZONE }
+                                    }
                                     val dynamicFeature = UnifiedMapFeature(
                                         id = featId ?: "feature-${System.currentTimeMillis()}",
                                         title = title,
@@ -1753,7 +1758,26 @@ fun OfflineVectorCanvasView(
                 }
             }
 
-            // 2. Draw Hazard Zones
+            // 1b. Draw Waterways, River Channels & Flood Inundation polygons
+            features.filter { it.category == MapFeatureCategory.WATERWAY }.forEach { water ->
+                water.geometryPolygon?.let { coords ->
+                    if (coords.size >= 3) {
+                        val path = Path()
+                        coords.forEachIndexed { idx, (lat, lon) ->
+                            val pt = project(lat, lon)
+                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                        }
+                        path.close()
+                        val isFlood = water.details["category"] == "flood_inundation_zone" || water.title.contains("Flood", ignoreCase = true)
+                        val fillColor = if (isFlood) Color(0x440097A7) else Color(0x440288D1)
+                        val strokeColor = if (isFlood) Color(0xFF00796B) else Color(0xFF01579B)
+                        drawPath(path = path, color = fillColor)
+                        drawPath(path = path, color = strokeColor, style = Stroke(width = 2.5f))
+                    }
+                }
+            }
+
+            // 2. Draw Hazard Zones (distinguish Flood Inundation from general hazards)
             features.filter { it.category == MapFeatureCategory.HAZARD_ZONE }.forEach { hazard ->
                 hazard.geometryPolygon?.let { coords ->
                     if (coords.size >= 3) {
@@ -1763,8 +1787,13 @@ fun OfflineVectorCanvasView(
                             if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
                         }
                         path.close()
-                        drawPath(path = path, color = Color(0x33C62828))
-                        drawPath(path = path, color = Color(0xFFE53935), style = Stroke(width = 3f))
+                        val isFloodHazard = hazard.details["Category"]?.contains("FLOOD", ignoreCase = true) == true ||
+                            hazard.details["hazard_category"]?.contains("flood", ignoreCase = true) == true ||
+                            hazard.title.contains("Flood", ignoreCase = true)
+                        val hFillColor = if (isFloodHazard) Color(0x440097A7) else Color(0x33C62828)
+                        val hStrokeColor = if (isFloodHazard) Color(0xFF00796B) else Color(0xFFE53935)
+                        drawPath(path = path, color = hFillColor)
+                        drawPath(path = path, color = hStrokeColor, style = Stroke(width = 3f))
                     }
                 }
             }

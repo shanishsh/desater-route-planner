@@ -17,10 +17,14 @@ import com.touristsafety.app.core.network.dto.PlannedRouteResponseDto
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import com.touristsafety.app.core.network.dto.RouteAnalysisResponseDto
 import com.touristsafety.app.core.repository.*
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.*
@@ -51,7 +55,8 @@ enum class MapFilterChip(val label: String, val category: MapFeatureCategory?) {
     WEATHER("Weather", MapFeatureCategory.WEATHER_POINT),
     DISASTER_ALERTS("Disaster Alerts", MapFeatureCategory.HAZARD_ZONE),
     SHELTERS_ASSISTANCE("Shelters & Info", MapFeatureCategory.SHELTER),
-    CELLULAR("Cell Towers", MapFeatureCategory.CELL_TOWER)
+    CELLULAR("Cell Towers", MapFeatureCategory.CELL_TOWER),
+    WATERWAYS("Rivers & Water", MapFeatureCategory.WATERWAY)
 }
 
 data class MapUiState(
@@ -160,7 +165,8 @@ class MapViewModel @Inject constructor(
     private val connectivityMonitor: NetworkConnectivityMonitor,
     private val deviceLocationRepository: DeviceLocationRepository,
     val trailReportRepository: TrailReportRepository? = null,
-    private val boundaryValidator: UttarakhandBoundaryValidator? = null
+    private val boundaryValidator: UttarakhandBoundaryValidator? = null,
+    @ApplicationContext private val context: Context? = null
 ) : ViewModel() {
 
     val locationState = deviceLocationRepository.locationState
@@ -173,6 +179,7 @@ class MapViewModel @Inject constructor(
     private var rawFireHotspots: List<FireHotspot> = emptyList()
     private var rawHazardZones: List<UnifiedMapFeature> = emptyList()
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
+    private var rawWaterwayFeatures: List<UnifiedMapFeature> = emptyList()
 
     private var searchJob: Job? = null
     private var currentRouteAnalysisJob: Job? = null
@@ -184,6 +191,7 @@ class MapViewModel @Inject constructor(
         observeData()
         requestCurrentLocationFix(recenter = false)
         refreshAllLayers()
+        loadBaselineWaterways()
     }
 
     private fun observeDeviceLocation() {
@@ -392,12 +400,13 @@ class MapViewModel @Inject constructor(
                     val userLoc = _uiState.value.userLocation
                     rawHazardZones = zones.map { z ->
                         val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, z.centerLatitude, z.centerLongitude)
-                        val circleCoords = generateCirclePolygon(z.centerLatitude, z.centerLongitude, z.radiusMeters.toDouble())
+                        val polyCoords = parsePolygonCoordsFromGeoJson(z.polygonGeoJson)
+                            ?: generateCirclePolygon(z.centerLatitude, z.centerLongitude, z.radiusMeters.toDouble())
                         UnifiedMapFeature(
                             id = "hazard_${z.alertId}",
                             category = MapFeatureCategory.HAZARD_ZONE,
                             title = z.title,
-                            subtitle = "Severity: ${z.severity} • Radius: ${(z.radiusMeters / 1000f).toInt()} km",
+                            subtitle = "Severity: ${z.severity} • ${if (z.polygonGeoJson != null) "Inundation Zone" else "Radius: ${(z.radiusMeters / 1000f).toInt()} km"}",
                             latitude = z.centerLatitude,
                             longitude = z.centerLongitude,
                             distanceMeters = dist,
@@ -409,12 +418,13 @@ class MapViewModel @Inject constructor(
                             details = mapOf(
                                 "Severity" to z.severity,
                                 "Category" to z.hazardCategory.replace('_', ' ').uppercase(),
+                                "hazard_category" to z.hazardCategory,
                                 "Affected Radius" to "${z.radiusMeters.toInt()} meters",
                                 "Instructions" to z.requiredProtectiveInstructions,
                                 "Issuing Authority" to z.issuingAuthority,
                                 "Status" to z.status
                             ),
-                            geometryPolygon = circleCoords
+                            geometryPolygon = polyCoords
                         )
                     }
                     _uiState.update { it.copy(activeDisasterAlertsCount = zones.size) }
@@ -1009,6 +1019,12 @@ class MapViewModel @Inject constructor(
         list.addAll(rawHazardZones)
         list.addAll(rawWeatherPoints)
 
+        // 4b. Waterways, River Channels & Flood Inundation Zones
+        rawWaterwayFeatures.forEach { w ->
+            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, w.latitude, w.longitude)
+            list.add(w.copy(distanceMeters = dist))
+        }
+
         // 5. Cellular Sites & Transmission Masts
         _uiState.value.cellularSitesGeoJson?.let { sitesJson ->
             try {
@@ -1088,6 +1104,128 @@ class MapViewModel @Inject constructor(
             )
         }
         updateRouteHazardSequence()
+    }
+
+    private fun loadBaselineWaterways() {
+        val ctx = context ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ctx.assets.open("uttarakhand_major_waterways.geojson").use { stream ->
+                    val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                    val features = parseWaterwaysFromGeoJson(text)
+                    rawWaterwayFeatures = features
+                    withContext(Dispatchers.Main) {
+                        rebuildUnifiedFeatures()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MapViewModel", "Failed to load baseline waterways: ${e.message}")
+            }
+        }
+    }
+
+    private fun parsePolygonCoordsFromGeoJson(polygonGeoJsonStr: String?): List<Pair<Double, Double>>? {
+        if (polygonGeoJsonStr.isNullOrBlank()) return null
+        return try {
+            val json = JSONObject(polygonGeoJsonStr)
+            val geom = if (json.has("geometry")) json.getJSONObject("geometry") else json
+            val coords = geom.getJSONArray("coordinates")
+            val ring = coords.getJSONArray(0)
+            val result = mutableListOf<Pair<Double, Double>>()
+            for (i in 0 until ring.length()) {
+                val pt = ring.getJSONArray(i)
+                val lon = pt.getDouble(0)
+                val lat = pt.getDouble(1)
+                result.add(lat to lon)
+            }
+            if (result.size >= 3) result else null
+        } catch (e: Exception) {
+            Log.w("MapViewModel", "Failed parsing polygon GeoJSON: ${e.message}")
+            null
+        }
+    }
+
+    private fun parseWaterwaysFromGeoJson(geoJsonStr: String): List<UnifiedMapFeature> {
+        val result = mutableListOf<UnifiedMapFeature>()
+        try {
+            val root = JSONObject(geoJsonStr)
+            val feats = root.optJSONArray("features") ?: return emptyList()
+            for (i in 0 until feats.length()) {
+                val fObj = feats.optJSONObject(i) ?: continue
+                val featId = fObj.optString("id", "waterway-$i")
+                val props = fObj.optJSONObject("properties") ?: JSONObject()
+                val geom = fObj.optJSONObject("geometry") ?: continue
+                val geomType = geom.optString("type")
+                val name = props.optString("name", "Unnamed Waterway")
+                val cat = props.optString("category", "river_channel")
+                val isFlood = props.optBoolean("is_flood_zone", false) || cat == "flood_inundation_zone"
+                val surface = props.optString("surface_type", "")
+                val floodRisk = props.optString("flood_risk", "")
+
+                val polygonCoords = if (geomType == "Polygon") {
+                    val coordsArr = geom.optJSONArray("coordinates")
+                    val ring = coordsArr?.optJSONArray(0)
+                    if (ring != null && ring.length() >= 3) {
+                        val pts = mutableListOf<Pair<Double, Double>>()
+                        for (j in 0 until ring.length()) {
+                            val pt = ring.optJSONArray(j) ?: continue
+                            pts.add(pt.optDouble(1) to pt.optDouble(0))
+                        }
+                        pts
+                    } else null
+                } else null
+
+                val centerLat: Double
+                val centerLon: Double
+                if (polygonCoords != null && polygonCoords.isNotEmpty()) {
+                    centerLat = polygonCoords.map { it.first }.average()
+                    centerLon = polygonCoords.map { it.second }.average()
+                } else if (geomType == "LineString") {
+                    val coordsArr = geom.optJSONArray("coordinates")
+                    if (coordsArr != null && coordsArr.length() > 0) {
+                        val midIdx = coordsArr.length() / 2
+                        val midPt = coordsArr.optJSONArray(midIdx)
+                        centerLat = midPt?.optDouble(1) ?: 30.5
+                        centerLon = midPt?.optDouble(0) ?: 79.0
+                    } else continue
+                } else continue
+
+                val sub = when (cat) {
+                    "flood_inundation_zone" -> "High-Risk Flood Plain • Risk: ${floodRisk.uppercase()}"
+                    "lake_reservoir" -> "Himalayan Lake / Reservoir • $surface"
+                    else -> "River Channel / Riverbed • $surface"
+                }
+
+                val detailsMap = mutableMapOf<String, String>()
+                detailsMap["Category"] = if (isFlood) "Flood Inundation Plain" else "River / Waterway"
+                detailsMap["category"] = cat
+                detailsMap["Surface Type"] = surface
+                if (floodRisk.isNotBlank()) detailsMap["Flood Risk"] = floodRisk.uppercase()
+                props.optString("danger_notes", "").takeIf { it.isNotBlank() }?.let { detailsMap["Advisory"] = it }
+                props.optString("historic_event", "").takeIf { it.isNotBlank() }?.let { detailsMap["Historical Surge Event"] = it }
+                props.optString("flow_direction", "").takeIf { it.isNotBlank() }?.let { detailsMap["Flow Direction"] = it }
+
+                result.add(
+                    UnifiedMapFeature(
+                        id = featId,
+                        category = MapFeatureCategory.WATERWAY,
+                        title = name,
+                        subtitle = sub,
+                        latitude = centerLat,
+                        longitude = centerLon,
+                        distanceMeters = null,
+                        sourceName = "OpenStreetMap / Glacial Lake Atlas",
+                        isVerified = true,
+                        isCached = true,
+                        details = detailsMap,
+                        geometryPolygon = polygonCoords
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("MapViewModel", "Error parsing waterways GeoJSON: ${e.message}")
+        }
+        return result
     }
 
     /**
@@ -1170,6 +1308,7 @@ class MapViewModel @Inject constructor(
                 MapFilterChip.DISASTER_ALERTS -> feat.category == MapFeatureCategory.HAZARD_ZONE
                 MapFilterChip.SHELTERS_ASSISTANCE -> feat.category == MapFeatureCategory.SHELTER || feat.category == MapFeatureCategory.TOURIST_ASSISTANCE
                 MapFilterChip.CELLULAR -> feat.category == MapFeatureCategory.CELL_TOWER
+                MapFilterChip.WATERWAYS -> feat.category == MapFeatureCategory.WATERWAY
             }
         }
     }
@@ -1785,20 +1924,34 @@ class MapViewModel @Inject constructor(
                     verificationStatus = "USER_DRAWN_UNVERIFIED",
                     distanceKm = state.draftDistanceKm
                 )
+                val savedGeoJson = entity.routeGeoJson ?: routeRepository.buildLineStringGeoJson(state.draftPolyline)
                 _uiState.update {
                     it.copy(
                         isSavingDraftRoute = false,
                         showSaveDraftDialog = false,
                         isDrawingMode = false,
+                        activeRouteId = entity.routeId,
                         routeTitle = entity.title,
                         routeCoordinates = state.draftPolyline,
+                        primaryRouteCoordinates = state.draftPolyline,
+                        routePrimaryGeoJson = savedGeoJson,
+                        corridorGeoJson = entity.corridorGeoJson,
+                        hazardsGeoJson = entity.hazardsGeoJson,
+                        forestsGeoJson = entity.forestsGeoJson,
+                        waterwaysGeoJson = entity.waterwaysGeoJson,
+                        weatherGeoJson = entity.weatherGeoJson,
                         routeDistanceKm = entity.distanceKm,
-                        routeVerificationStatus = "USER_DRAWN_UNVERIFIED",
+                        routeDurationHours = entity.durationMinutes / 60.0,
+                        routeOverallHazardScore = entity.overallHazardScore,
+                        routeSafetyStatus = entity.overallSafetyStatus,
+                        routeVerificationStatus = entity.verificationStatus,
+                        activeDecisionExplanation = entity.decisionExplanation,
                         draftWaypoints = emptyList(),
                         draftPolyline = emptyList(),
                         draftDistanceKm = 0.0
                     )
                 }
+                rebuildUnifiedFeatures()
                 triggerRouteCorridorAnalysis(entity.routeId)
             } catch (e: Exception) {
                 Log.e("MapViewModel", "Failed to save custom route: ${e.message}", e)

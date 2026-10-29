@@ -19,6 +19,7 @@ data class HazardZoneEntity(
     val receivedAtEpochMs: Long,
     val downloadedAtEpochMs: Long,
     val isSimulated: Boolean,
-    val status: String          // active, updated, cancelled
+    val status: String,         // active, updated, cancelled
+    val polygonGeoJson: String? = null
 )
 

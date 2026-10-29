@@ -55,6 +55,7 @@ data class PlanTripUiState(
 
 sealed interface PlanTripEvent {
     data class NavigateToSafetyReview(val routeId: String) : PlanTripEvent
+    data object NavigateToDrawRoute : PlanTripEvent
 }
 
 @HiltViewModel
@@ -427,6 +428,26 @@ class PlanTripViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(travelMode = mode, errorMessage = null) }
+    }
+
+    fun retryWithTravelMode(mode: String) {
+        val state = _uiState.value
+        if (state.isPedestrianOnlySelected && mode == "driving") {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Motor vehicles are strictly prohibited on pedestrian trek corridors (e.g. Kedarnath trail). Please select Hiking or Walking."
+                )
+            }
+            return
+        }
+        _uiState.update { it.copy(travelMode = mode, errorMessage = null) }
+        planRoute()
+    }
+
+    fun triggerDrawRoute() {
+        viewModelScope.launch {
+            _eventFlow.emit(PlanTripEvent.NavigateToDrawRoute)
+        }
     }
 
     fun planRoute() {

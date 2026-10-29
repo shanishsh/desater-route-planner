@@ -221,7 +221,12 @@ async def analyze_custom_drawn_route(
     import uuid
     from app.services.routing.base import RouteResult, haversine_distance_km, sample_points_along_polyline, Waypoint
 
-    raw_coords = (request.geometry_geojson or {}).get("coordinates", [])
+    raw_coords = []
+    if request.geometry_geojson and isinstance(request.geometry_geojson, dict):
+        raw_coords = request.geometry_geojson.get("coordinates", [])
+    elif request.coordinates:
+        raw_coords = request.coordinates
+
     if not raw_coords or len(raw_coords) < 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -274,7 +279,7 @@ async def analyze_custom_drawn_route(
 
     route_result = RouteResult(
         route_id=route_id,
-        title=request.title or "User-Drawn Route",
+        title=request.title or request.route_name or "User-Drawn Route",
         origin_name=origin_name,
         origin_lat=coords_lat_lon[0][0],
         origin_lon=coords_lat_lon[0][1],

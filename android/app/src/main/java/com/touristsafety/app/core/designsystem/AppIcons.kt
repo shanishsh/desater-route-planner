@@ -29,6 +29,8 @@ object AppIcons {
     val Close: ImageVector = Icons.Default.Close
     val Share: ImageVector = Icons.Default.Share
     val Download: ImageVector = Icons.Default.Download
+    val DrawRoute: ImageVector = Icons.Default.Gesture
+    val TrekRecording: ImageVector = Icons.Default.FiberManualRecord
     val StartTrek: ImageVector = Icons.Default.PlayArrow
     val PauseTrek: ImageVector = Icons.Default.Pause
     val StopTrek: ImageVector = Icons.Default.Stop

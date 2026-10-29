@@ -850,11 +850,90 @@ suspend fun syncTrackPointsBatch(
         verificationStatus: String = "USER_DRAWN_UNVERIFIED",
         distanceKm: Double
     ): PlannedRouteEntity {
-        val routeId = "user-route-" + java.util.UUID.randomUUID().toString()
         val geomJson = buildLineStringGeoJson(coordinates)
         val orig = coordinates.firstOrNull() ?: (0.0 to 0.0)
         val dest = coordinates.lastOrNull() ?: (0.0 to 0.0)
-        val entity = PlannedRouteEntity(
+
+        // 1. Attempt backend analysis for corridor hazard analysis & terrain scoring
+        try {
+            val coordList = coordinates.map { listOf(it.second, it.first) } // [lon, lat]
+            val geomElement = try { json.parseToJsonElement(geomJson) } catch (e: Exception) { null }
+            val requestDto = com.touristsafety.app.core.network.dto.CustomRouteAnalysisRequestDto(
+                coordinates = coordList,
+                geometry_geojson = geomElement,
+                title = title.ifBlank { "User-Drawn Route" },
+                route_name = title.ifBlank { "User-Drawn Route" },
+                description = description,
+                drawing_mode = drawingMode,
+                corridor_distance_km = 5.0
+            )
+            val response = apiService.analyzeCustomRoute(requestDto)
+            if (response.isSuccessful && response.body() != null) {
+                val dto = response.body()!!
+                // Write payload file to disk
+                val file = File(getRoutesDir(), "${dto.route_id}.json")
+                file.writeText(json.encodeToString(dto))
+
+                val entity = PlannedRouteEntity(
+                    routeId = dto.route_id,
+                    title = dto.title.ifBlank { title.ifBlank { "User-Drawn Route" } },
+                    originName = dto.origin_name,
+                    originLat = dto.origin_lat,
+                    originLon = dto.origin_lon,
+                    destinationName = dto.destination_name,
+                    destLat = dto.dest_lat,
+                    destLon = dto.dest_lon,
+                    travelMode = dto.travel_mode,
+                    distanceKm = dto.distance_km,
+                    durationMinutes = dto.duration_minutes,
+                    overallHazardScore = dto.overall_hazard_score,
+                    overallSafetyStatus = dto.overall_safety_status,
+                    highRiskSegmentsCount = dto.high_risk_segments_count,
+                    conditionsJson = "",
+                    alternativesJson = "",
+                    routeGeoJson = dto.geometry_geojson?.toString() ?: geomJson,
+                    elevationProfileJson = null,
+                    safeHavensJson = null,
+                    decisionExplanation = dto.decision_explanation,
+                    corridorGeoJson = dto.corridor_geojson?.toString(),
+                    hazardsGeoJson = dto.hazards_geojson?.toString(),
+                    firesGeoJson = dto.fires_geojson?.toString(),
+                    facilitiesGeoJson = dto.facilities_geojson?.toString(),
+                    forestsGeoJson = dto.forests_geojson?.toString(),
+                    weatherGeoJson = dto.weather_geojson?.toString(),
+                    cellularSitesGeoJson = dto.cellular_sites_geojson?.toString(),
+                    cellularRangeGeoJson = dto.cellular_range_geojson?.toString(),
+                    cellularCoverageGeoJson = dto.cellular_coverage_geojson?.toString(),
+                    waterwaysGeoJson = dto.waterways_geojson?.toString(),
+                    historicalLandslidesGeoJson = dto.historical_landslides_geojson?.toString(),
+                    dataFreshnessJson = null,
+                    providerStatusesJson = null,
+                    analysisLimitationsJson = null,
+                    corridorWidthKm = dto.corridor_distance_km,
+                    totalAscentM = dto.total_ascent_m,
+                    maxElevationM = dto.max_elevation_m,
+                    isSavedOffline = true,
+                    cachedAt = System.currentTimeMillis(),
+                    isUserDrawn = true,
+                    drawingMode = drawingMode,
+                    verificationStatus = if (dto.verification_status.isNotBlank()) dto.verification_status else verificationStatus,
+                    userDescription = description,
+                    proposedConnectorGeoJson = dto.proposed_connector_geojson?.toString(),
+                    updatedAt = System.currentTimeMillis()
+                )
+                plannedRouteDao.insertOrUpdate(entity)
+                activateSavedRoute(entity)
+                return entity
+            } else {
+                Log.w("RouteRepository", "Backend custom route analysis returned code ${response.code()}")
+            }
+        } catch (e: Exception) {
+            Log.w("RouteRepository", "Custom route online analysis skipped or failed: ${e.message}")
+        }
+
+        // 2. Offline / local fallback
+        val routeId = "user-route-" + java.util.UUID.randomUUID().toString()
+        val localEntity = PlannedRouteEntity(
             routeId = routeId,
             title = title.ifBlank { "User-Drawn Route" },
             originName = "Drawn Start",
@@ -877,9 +956,9 @@ suspend fun syncTrackPointsBatch(
             userDescription = description,
             updatedAt = System.currentTimeMillis()
         )
-        plannedRouteDao.insertOrUpdate(entity)
-        activateSavedRoute(entity)
-        return entity
+        plannedRouteDao.insertOrUpdate(localEntity)
+        activateSavedRoute(localEntity)
+        return localEntity
     }
 
     suspend fun deleteCustomRoute(routeId: String) {
@@ -896,7 +975,7 @@ suspend fun syncTrackPointsBatch(
         }
     }
 
-    private fun buildLineStringGeoJson(coords: List<Pair<Double, Double>>): String {
+    fun buildLineStringGeoJson(coords: List<Pair<Double, Double>>): String {
         val sb = StringBuilder()
         sb.append("{\"type\":\"LineString\",\"coordinates\":[")
         coords.forEachIndexed { i, (lat, lon) ->

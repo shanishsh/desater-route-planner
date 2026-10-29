@@ -478,8 +478,10 @@ data class TrackPointsSyncResponseDto(
 
 @Serializable
 data class CustomRouteAnalysisRequestDto(
-    val coordinates: List<List<Double>>,
-    val route_name: String = "Custom Trek",
+    val coordinates: List<List<Double>>? = null,
+    val geometry_geojson: JsonElement? = null,
+    val title: String? = null,
+    val route_name: String? = null,
     val corridor_distance_km: Double = 5.0,
     val drawing_mode: String = "FREEHAND",
     val description: String? = null
