@@ -1,10 +1,11 @@
 """Active Trip Tracking and Progress Monitoring API."""
 import math
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.database.session import get_db
 from app.models.planned_route import PlannedRoute, ActiveTrip
 from app.services.routing.base import haversine_distance_km
@@ -14,6 +15,7 @@ from app.schemas.route_plan import (
     TripProgressRequest,
     TripProgressResponse,
     TripStatusResponse,
+    TripSummaryResponse,
     RouteWaypointCondition,
     TrackPointsSyncRequest,
     TrackPointsSyncResponse,
@@ -38,6 +40,48 @@ def _parse_waypoints(conditions_data: list) -> list:
                 except Exception:
                     pass
     return waypoints
+
+
+@router.get("", response_model=List[TripSummaryResponse])
+async def list_trips(
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieves all tracked trips with associated route summaries (active and completed)."""
+    stmt = (
+        select(ActiveTrip)
+        .options(selectinload(ActiveTrip.route))
+        .order_by(ActiveTrip.started_at.desc())
+        .limit(min(limit, 100))
+    )
+    if status:
+        stmt = stmt.where(ActiveTrip.status == status.upper())
+
+    result = await db.execute(stmt)
+    trips = result.scalars().all()
+
+    summaries = []
+    for t in trips:
+        r = t.route
+        summaries.append(
+            TripSummaryResponse(
+                trip_id=t.id,
+                route_id=t.route_id,
+                status=t.status,
+                started_at=t.started_at.isoformat() if t.started_at else "",
+                completed_at=t.completed_at.isoformat() if t.completed_at else None,
+                route_title=r.title if r else None,
+                origin_name=r.origin_name if r else None,
+                destination_name=r.destination_name if r else None,
+                travel_mode=r.travel_mode if r else None,
+                distance_km=r.total_distance_km if r else None,
+                last_latitude=t.last_latitude,
+                last_longitude=t.last_longitude,
+                progress_pct=t.progress_pct,
+            )
+        )
+    return summaries
 
 
 @router.post("/start", response_model=StartTripResponse, status_code=status.HTTP_201_CREATED)

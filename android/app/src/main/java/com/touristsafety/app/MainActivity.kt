@@ -3,18 +3,23 @@ package com.touristsafety.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.compose.ui.text.font.FontWeight
 import com.touristsafety.app.core.auth.TokenManager
 import com.touristsafety.app.core.designsystem.ForestGreenPrimary
 import com.touristsafety.app.core.designsystem.SageContainer
 import com.touristsafety.app.core.designsystem.TouristSafetyTheme
+import com.touristsafety.app.core.repository.RouteRepository
 import com.touristsafety.app.core.sync.SyncManager
 import com.touristsafety.app.navigation.AppNavGraph
 import com.touristsafety.app.navigation.Screen
@@ -29,6 +34,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var tokenManager: TokenManager
+
+    @Inject
+    lateinit var routeRepository: RouteRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,11 +68,13 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
+                val activeTrip by routeRepository.activeTripFlow.collectAsState(initial = null)
 
                 val isFullScreen = currentRoute == null ||
                         currentRoute in Screen.fullScreenRoutes ||
                         currentRoute.startsWith("route_safety_review") ||
-                        currentRoute.startsWith("active_trip")
+                        currentRoute.startsWith("active_trip") ||
+                        currentRoute.startsWith("completed_trek_detail")
 
                 val startDestination = remember {
                     try {
@@ -87,10 +97,48 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (!isFullScreen) {
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 6.dp
-                            ) {
+                            Column {
+                                activeTrip?.let { trip ->
+                                    if (currentRoute?.startsWith("active_trip") != true) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId))
+                                                },
+                                            color = ForestGreenPrimary,
+                                            contentColor = Color.White
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("●", color = Color(0xFF69F0AE), fontSize = 14.sp)
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = trip.routeTitle.ifBlank { "Trek in Progress" },
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "${String.format(java.util.Locale.US, "%.1f km", trip.traveledDistanceMeters / 1000.0)} • Tap to resume HUD",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                NavigationBar(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    tonalElevation = 6.dp
+                                ) {
                                 Screen.bottomNavScreens.filterNotNull().forEach { screen ->
                                     NavigationBarItem(
                                         icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -124,6 +172,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                }
                 ) { paddingValues ->
                     AppNavGraph(
                         navController = navController,

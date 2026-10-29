@@ -548,7 +548,9 @@ class PlanTripViewModel @Inject constructor(
                                 "Connected to emulator host on a physical phone. Reset to Live Cloud (Render). Please tap 'Scan Route' again."
                             } else if (err.message?.contains("boundary") == true ||
                                 err.message?.contains("outside") == true ||
-                                err.message?.contains("prohibited") == true) {
+                                err.message?.contains("prohibited") == true ||
+                                err.message?.contains("hiking trail") == true ||
+                                err.message?.contains("Draw my route") == true) {
                                 "Route scan failed: ${err.message}"
                             } else {
                                 "Route scan failed: ${err.message}. Please check connection or retry."

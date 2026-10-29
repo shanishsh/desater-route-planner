@@ -505,3 +505,20 @@ class TrackPointsSyncResponse(BaseModel):
     is_off_route: bool = False
     message: str
 
+
+class TripSummaryResponse(BaseModel):
+    trip_id: str
+    route_id: str
+    status: str
+    started_at: str
+    completed_at: Optional[str] = None
+    route_title: Optional[str] = None
+    origin_name: Optional[str] = None
+    destination_name: Optional[str] = None
+    travel_mode: Optional[str] = None
+    distance_km: Optional[float] = None
+    last_latitude: Optional[float] = None
+    last_longitude: Optional[float] = None
+    progress_pct: float = 0.0
+
+

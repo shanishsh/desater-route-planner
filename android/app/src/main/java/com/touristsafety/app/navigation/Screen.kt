@@ -11,12 +11,13 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     data object Register : Screen("register", "Register", Icons.Default.PersonAdd)
     data object PermissionOnboarding : Screen("permission_onboarding", "Permissions", Icons.Default.Security)
 
-    // 4 Primary Navigation Pillars
+    // 5 Primary Navigation Pillars
     data object Home : Screen("home", "Home", AppIcons.Home)
     data object PlanTrip : Screen("plan_trip", "Plan & Routes", AppIcons.PlanTrip)
     data object Map : Screen("map", "Safety Map", AppIcons.Map) {
         fun createRoute(startDrawing: Boolean = false) = if (startDrawing) "map?startDrawing=true" else "map"
     }
+    data object TrekHistory : Screen("trek_history", "Trek History", Icons.Default.History)
     data object Emergency : Screen("emergency", "Assistance", AppIcons.Emergency)
 
     // Secondary & Drill-Down Screens
@@ -30,10 +31,13 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     data object ActiveTrip : Screen("active_trip/{tripId}", "Active Trip", Icons.Default.Navigation) {
         fun createRoute(tripId: String) = "active_trip/$tripId"
     }
+    data object CompletedTrekDetail : Screen("completed_trek_detail/{tripId}", "Trek Summary", Icons.Default.CheckCircle) {
+        fun createRoute(tripId: String) = "completed_trek_detail/$tripId"
+    }
 
     companion object {
         val bottomNavScreens: List<Screen>
-            get() = listOf(Home, PlanTrip, Map, Emergency)
+            get() = listOf(Home, PlanTrip, Map, TrekHistory, Emergency)
 
         val fullScreenRoutes: Set<String>
             get() = setOf(
@@ -42,7 +46,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
                 Register.route,
                 PermissionOnboarding.route,
                 "route_safety_review/{routeId}",
-                "active_trip/{tripId}"
+                "active_trip/{tripId}",
+                "completed_trek_detail/{tripId}"
             )
     }
 }

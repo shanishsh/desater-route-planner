@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.touristsafety.app.core.database.dao.ActiveTripDao
 import com.touristsafety.app.core.database.dao.PlannedRouteDao
+import com.touristsafety.app.core.database.dao.TrekTrackPointDao
 import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import com.touristsafety.app.core.database.entity.PlannedRouteEntity
+import com.touristsafety.app.core.database.entity.TrekTrackPointEntity
 import com.touristsafety.app.core.network.ApiService
 import com.touristsafety.app.core.network.dto.*
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,7 +23,8 @@ class RouteRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val apiService: ApiService,
     private val plannedRouteDao: PlannedRouteDao,
-    private val activeTripDao: ActiveTripDao
+    private val activeTripDao: ActiveTripDao,
+    private val trekTrackPointDao: TrekTrackPointDao
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
 
@@ -149,6 +152,13 @@ class RouteRepository @Inject constructor(
             emit(emptyList())
         }
     val activeTripFlow: Flow<ActiveTripEntity?> = activeTripDao.getActiveTripFlow()
+    val completedTripsFlow: Flow<List<ActiveTripEntity>> = activeTripDao.getCompletedTripsFlow()
+
+    suspend fun getTrackPointsForTrip(tripId: String): List<TrekTrackPointEntity> =
+        trekTrackPointDao.getAllPointsForTrip(tripId)
+
+    suspend fun getTripById(tripId: String): ActiveTripEntity? =
+        activeTripDao.getTripById(tripId)
 
     private val _activeRouteFlow = MutableStateFlow<PlannedRouteResponseDto?>(null)
     val activeRouteFlow: StateFlow<PlannedRouteResponseDto?> = _activeRouteFlow.asStateFlow()
@@ -574,6 +584,10 @@ class RouteRepository @Inject constructor(
     }
 
     suspend fun startTrip(routeId: String, deviceId: String? = null): Result<StartTripResponseDto> {
+        val routeEntity = plannedRouteDao.getRouteById(routeId)
+        val title = routeEntity?.title ?: "Expedition Route"
+        val orig = routeEntity?.originName ?: ""
+        val dest = routeEntity?.destinationName ?: ""
         return try {
             val response = apiService.startTrip(StartTripRequestDto(route_id = routeId, device_id = deviceId))
             if (response.isSuccessful && response.body() != null) {
@@ -584,7 +598,10 @@ class RouteRepository @Inject constructor(
                         routeId = dto.route_id,
                         status = dto.status,
                         startedAt = dto.started_at,
-                        lastSyncedAt = System.currentTimeMillis()
+                        lastSyncedAt = System.currentTimeMillis(),
+                        routeTitle = title,
+                        originName = orig,
+                        destinationName = dest
                     )
                 )
                 Result.success(dto)
@@ -598,7 +615,10 @@ class RouteRepository @Inject constructor(
                     startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
                         .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
                         .format(java.util.Date()),
-                    lastSyncedAt = System.currentTimeMillis()
+                    lastSyncedAt = System.currentTimeMillis(),
+                    routeTitle = title,
+                    originName = orig,
+                    destinationName = dest
                 )
                 activeTripDao.insertOrUpdate(entity)
                 Result.success(
@@ -621,7 +641,10 @@ class RouteRepository @Inject constructor(
                 startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
                     .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
                     .format(java.util.Date()),
-                lastSyncedAt = System.currentTimeMillis()
+                lastSyncedAt = System.currentTimeMillis(),
+                routeTitle = title,
+                originName = orig,
+                destinationName = dest
             )
             activeTripDao.insertOrUpdate(entity)
             Result.success(
@@ -745,10 +768,20 @@ suspend fun syncTrackPointsBatch(
 
     suspend fun stopTrip(tripId: String): Result<Unit> {
         return try {
-            apiService.stopTrip(tripId)
-            activeTripDao.completeTrip(tripId)
+            try { apiService.stopTrip(tripId) } catch (_: Exception) {}
+            val existing = activeTripDao.getTripById(tripId)
+            val points = trekTrackPointDao.getAllPointsForTrip(tripId)
+            val now = System.currentTimeMillis()
+            activeTripDao.completeTripWithMetrics(
+                tripId = tripId,
+                completedAt = now,
+                distanceMeters = existing?.traveledDistanceMeters ?: 0.0,
+                durationSeconds = existing?.elapsedDurationSeconds ?: 0L,
+                pointsCount = points.size
+            )
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e("RouteRepository", "Error stopping trip $tripId: ${e.message}", e)
             activeTripDao.completeTrip(tripId)
             Result.success(Unit)
         }

@@ -89,7 +89,7 @@ async def plan_route(
 
     # 3. Calculate genuine route geometry and alternatives via configured routing provider
     t_mode = (request.travel_mode or "driving").lower()
-    if t_mode in ("hiking", "walking"):
+    if t_mode == "hiking":
         route_result = await trail_routing_engine.calculate_hiking_route(
             origin_lat=request.origin_lat,
             origin_lon=request.origin_lon,
@@ -98,6 +98,52 @@ async def plan_route(
             dest_lon=request.destination_lon,
             dest_name=request.destination_name,
         )
+    elif t_mode == "walking":
+        # Check if points are on a known verified Himalayan trail first
+        origin_snap = trail_routing_engine.find_nearest_trail(request.origin_lat, request.origin_lon, max_dist_km=1.5)
+        dest_snap = trail_routing_engine.find_nearest_trail(request.destination_lat, request.destination_lon, max_dist_km=1.5)
+        if (
+            origin_snap
+            and dest_snap
+            and origin_snap["trail_feature"]["id"] == dest_snap["trail_feature"]["id"]
+        ):
+            route_result = await trail_routing_engine.calculate_hiking_route(
+                origin_lat=request.origin_lat,
+                origin_lon=request.origin_lon,
+                origin_name=request.origin_name or "Current Location",
+                dest_lat=request.destination_lat,
+                dest_lon=request.destination_lon,
+                dest_name=request.destination_name,
+            )
+        else:
+            # Pedestrian routing along connected walking and road networks
+            try:
+                route_result = await osrm_routing_provider.calculate_route(
+                    origin_lat=request.origin_lat,
+                    origin_lon=request.origin_lon,
+                    origin_name=request.origin_name or "Current Location",
+                    dest_lat=request.destination_lat,
+                    dest_lon=request.destination_lon,
+                    dest_name=request.destination_name,
+                    travel_mode="walking",
+                )
+            except Exception:
+                # Connected road network fallback with pedestrian pace calculation
+                drive_res = await osrm_routing_provider.calculate_route(
+                    origin_lat=request.origin_lat,
+                    origin_lon=request.origin_lon,
+                    origin_name=request.origin_name or "Current Location",
+                    dest_lat=request.destination_lat,
+                    dest_lon=request.destination_lon,
+                    dest_name=request.destination_name,
+                    travel_mode="driving",
+                )
+                drive_res.travel_mode = "walking"
+                drive_res.duration_minutes = round((drive_res.distance_km / 3.5) * 60.0, 1)
+                drive_res.duration_seconds = drive_res.duration_minutes * 60.0
+                drive_res.verification_status = "PARTIALLY_VERIFIED"
+                drive_res.unverified_reason = "Route follows connected public road network with pedestrian access."
+                route_result = drive_res
     else:
         route_result = await osrm_routing_provider.calculate_route(
             origin_lat=request.origin_lat,

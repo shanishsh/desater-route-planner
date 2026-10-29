@@ -1832,6 +1832,23 @@ object MapLibreLayerManager {
         source.setGeoJson(sb.toString())
     }
 
+    fun updatePrimaryRoute(style: Style, coordinates: List<Pair<Double, Double>>) {
+        if (!style.isFullyLoaded) return
+        val source = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY) ?: return
+        if (coordinates.size < 2) {
+            source.setGeoJson(EMPTY_GEOJSON)
+            return
+        }
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+        coordinates.forEachIndexed { idx, (lat, lon) ->
+            if (idx > 0) sb.append(",")
+            sb.append("[").append(lon).append(",").append(lat).append("]")
+        }
+        sb.append("]}}]}")
+        source.setGeoJson(sb.toString())
+    }
+
     fun updateTrekCurrentPosition(style: Style, lat: Double, lon: Double, accuracyMeters: Float) {
         if (!style.isFullyLoaded) return
         val source = style.getSourceAs<GeoJsonSource>(SOURCE_TREK_CURRENT_POS) ?: return

@@ -43,6 +43,8 @@ import org.maplibre.android.maps.Style
 @Composable
 fun ActiveTripScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToHistory: () -> Unit = onNavigateBack,
+    onNavigateToCompletedTrekDetail: (String) -> Unit = {},
     viewModel: ActiveTripViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -52,6 +54,7 @@ fun ActiveTripScreen(
     var isMapStyleReady by remember { mutableStateOf(false) }
 
     var showEndTrekDialog by remember { mutableStateOf(false) }
+    var showTrekSummaryDialog by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
 
     // MapView instance lifecycle
@@ -184,7 +187,7 @@ fun ActiveTripScreen(
                     onClick = {
                         showEndTrekDialog = false
                         viewModel.endTrip(context)
-                        onNavigateBack()
+                        showTrekSummaryDialog = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
                 ) {
@@ -194,6 +197,77 @@ fun ActiveTripScreen(
             dismissButton = {
                 TextButton(onClick = { showEndTrekDialog = false }) {
                     Text("Continue Trekking")
+                }
+            }
+        )
+    }
+
+    // Post-Trek Summary Dialog
+    if (showTrekSummaryDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showTrekSummaryDialog = false
+                onNavigateBack()
+            },
+            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(36.dp)) },
+            title = { Text("Trek Completed!", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = state.destinationName.ifBlank { "Expedition Route" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Your trek tracking session is successfully finished and saved to your local database.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(String.format(java.util.Locale.US, "%.2f km", state.traveledDistanceKm), fontWeight = FontWeight.Bold, color = ForestGreenPrimary, fontSize = 16.sp)
+                            Text("Distance", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(state.elapsedDurationFormatted, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
+                            Text("Time", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${state.traveledTrackCoordinates.size}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
+                            Text("GPS Points", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTrekSummaryDialog = false
+                        if (state.tripId.isNotBlank()) {
+                            onNavigateToCompletedTrekDetail(state.tripId)
+                        } else {
+                            onNavigateToHistory()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("View in Trek History", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showTrekSummaryDialog = false
+                        onNavigateBack()
+                    }
+                ) {
+                    Text("Return Home")
                 }
             }
         )

@@ -20,5 +20,10 @@ data class ActiveTripEntity(
     val traveledDistanceMeters: Double = 0.0,
     val elapsedDurationSeconds: Long = 0L,
     val isPaused: Boolean = false,
-    val pausedAtEpochMs: Long? = null
+    val pausedAtEpochMs: Long? = null,
+    val completedAtEpochMs: Long? = null,
+    val routeTitle: String = "",
+    val originName: String = "",
+    val destinationName: String = "",
+    val recordedPointsCount: Int = 0
 )

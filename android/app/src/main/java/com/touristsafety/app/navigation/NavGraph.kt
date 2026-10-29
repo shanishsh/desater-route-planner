@@ -21,6 +21,9 @@ import com.touristsafety.app.feature.disaster.DisasterSafetyScreen
 import com.touristsafety.app.feature.disaster.DisasterSafetyViewModel
 import com.touristsafety.app.feature.emergency.EmergencyScreen
 import com.touristsafety.app.feature.emergency.EmergencyViewModel
+import com.touristsafety.app.feature.history.CompletedTrekDetailScreen
+import com.touristsafety.app.feature.history.TrekHistoryScreen
+import com.touristsafety.app.feature.history.TrekHistoryViewModel
 import com.touristsafety.app.feature.home.HomeScreen
 import com.touristsafety.app.feature.home.HomeViewModel
 import com.touristsafety.app.feature.map.MapScreen
@@ -128,6 +131,18 @@ fun AppNavGraph(
                     navController.navigate(Screen.Welcome.route) {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onNavigateToActiveTrip = { tripId ->
+                    navController.navigate(Screen.ActiveTrip.createRoute(tripId))
+                },
+                onNavigateToCompletedTrekDetail = { tripId ->
+                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+                },
+                onNavigateToDrawRoute = {
+                    navController.navigate(Screen.Map.createRoute(startDrawing = true))
+                },
+                onNavigateToHistory = {
+                    navController.navigate(Screen.TrekHistory.route)
                 }
             )
         }
@@ -164,7 +179,39 @@ fun AppNavGraph(
             arguments = listOf(navArgument("tripId") { type = NavType.StringType })
         ) {
             ActiveTripScreen(
-                onNavigateBack = { navController.navigate(Screen.Home.route) }
+                onNavigateBack = { navController.navigate(Screen.Home.route) },
+                onNavigateToHistory = { navController.navigate(Screen.TrekHistory.route) },
+                onNavigateToCompletedTrekDetail = { tripId ->
+                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+                }
+            )
+        }
+
+        composable(Screen.TrekHistory.route) {
+            val viewModel: TrekHistoryViewModel = hiltViewModel()
+            TrekHistoryScreen(
+                viewModel = viewModel,
+                onNavigateToCompletedTrekDetail = { tripId ->
+                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+                },
+                onNavigateToPlanTrip = {
+                    navController.navigate(Screen.PlanTrip.route)
+                },
+                onNavigateToReview = { routeId ->
+                    navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
+                },
+                onNavigateToMap = {
+                    navController.navigate(Screen.Map.route)
+                }
+            )
+        }
+
+        composable(
+            route = Screen.CompletedTrekDetail.route,
+            arguments = listOf(navArgument("tripId") { type = NavType.StringType })
+        ) {
+            CompletedTrekDetailScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

@@ -272,7 +272,7 @@ class TrailRoutingEngine:
             f"No verified connected hiking trail found between '{origin_name}' and '{dest_name}' "
             f"({straight_line_km:.1f} km apart). The path crosses unmapped alpine terrain, dense forest, or cliffs. "
             "The system refuses to invent a fake straight line across hazardous terrain. "
-            "You can switch to 'Draw my route' to trace your intended path manually."
+            "You can switch to 'Draw my route' to trace your intended path manually, or select 'Walking' or 'Driving' mode for road networks."
         )
         logger.info(detail_msg)
         raise HTTPException(

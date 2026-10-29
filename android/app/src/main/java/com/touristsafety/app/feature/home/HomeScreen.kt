@@ -42,6 +42,10 @@ fun HomeScreen(
     onNavigateToProviders: () -> Unit = {},
     onNavigateToPlanTrip: () -> Unit = {},
     onNavigateToWelcome: () -> Unit = {},
+    onNavigateToActiveTrip: (String) -> Unit = {},
+    onNavigateToCompletedTrekDetail: (String) -> Unit = {},
+    onNavigateToDrawRoute: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -189,13 +193,152 @@ fun HomeScreen(
                     }
                 }
 
-                // 2. Active Trek Resumption Banner
-                state.selectedItinerary?.let { itinerary ->
+                // 2. Active Ongoing Trek HUD Banner (High Priority)
+                state.activeTrip?.let { active ->
                     item {
-                        ActiveTrekResumptionCard(
-                            itinerary = itinerary,
-                            onExploreMap = onNavigateToMap
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToActiveTrip(active.tripId) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = ForestGreenPrimary.copy(alpha = 0.12f)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ForestGreenPrimary)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(ForestGreenPrimary)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "LIVE TREK IN PROGRESS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ForestGreenPrimary
+                                        )
+                                    }
+                                    if (active.isPaused) {
+                                        Text(
+                                            "PAUSED",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WarningAmber
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = active.routeTitle.ifBlank { "Active Monitored Trek" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                if (active.originName.isNotBlank() && active.destinationName.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${active.originName} → ${active.destinationName}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val distKm = active.traveledDistanceMeters / 1000.0
+                                    val hrs = active.elapsedDurationSeconds / 3600
+                                    val mins = (active.elapsedDurationSeconds % 3600) / 60
+                                    val timeStr = if (hrs > 0) "${hrs}h ${mins}m" else "${mins} min"
+
+                                    Text(
+                                        text = "${String.format(Locale.US, "%.2f km", distKm)} traveled • $timeStr",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Button(
+                                        onClick = { onNavigateToActiveTrip(active.tripId) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(AppIcons.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Resume HUD", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Recently Completed Treks (if available)
+                if (state.recentCompletedTrips.isNotEmpty()) {
+                    item {
+                        AppSectionHeader(
+                            title = "Recent Completed Treks (${state.recentCompletedTrips.size})",
+                            subtitle = "Review recorded GPS tracks, distance, and duration",
+                            actionLabel = "View All",
+                            onActionClick = onNavigateToHistory
                         )
+                    }
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            state.recentCompletedTrips.forEach { trip ->
+                                Surface(
+                                    modifier = Modifier
+                                        .width(220.dp)
+                                        .clickable { onNavigateToCompletedTrekDetail(trip.tripId) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("COMPLETED", style = MaterialTheme.typography.labelSmall, color = ForestGreenPrimary, fontWeight = FontWeight.Bold)
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = trip.routeTitle.ifBlank { "Completed Trek" },
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val distKm = trip.traveledDistanceMeters / 1000.0
+                                        val mins = trip.elapsedDurationSeconds / 60
+                                        Text(
+                                            text = "${String.format(Locale.US, "%.1f km", distKm)} • $mins mins",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -216,6 +359,32 @@ fun HomeScreen(
                         onActionClick = onNavigateToPlanTrip
                     )
                     VerifiedTrailQuickStarts(onSelectTrail = onNavigateToPlanTrip)
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onNavigateToDrawRoute,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Draw Route", style = MaterialTheme.typography.labelMedium)
+                        }
+                        OutlinedButton(
+                            onClick = onNavigateToHistory,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Trek History", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                 }
 
                 // 5. Live Safety Advisories

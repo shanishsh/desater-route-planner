@@ -1,5 +1,6 @@
 package com.touristsafety.app.feature.home
 
+import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import com.touristsafety.app.core.model.Alert
 import com.touristsafety.app.core.model.Itinerary
 import com.touristsafety.app.core.model.Weather
@@ -7,6 +8,8 @@ import com.touristsafety.app.core.model.Weather
 data class HomeUiState(
     val isLoading: Boolean = true,
     val isOffline: Boolean = false,
+    val activeTrip: ActiveTripEntity? = null,
+    val recentCompletedTrips: List<ActiveTripEntity> = emptyList(),
     val selectedItinerary: Itinerary? = null,
     val weather: Weather? = null,
     val alerts: List<Alert> = emptyList(),

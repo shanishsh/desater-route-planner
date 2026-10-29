@@ -66,6 +66,16 @@ object DatabaseModule {
         }
     }
 
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `active_trips` ADD COLUMN `completedAtEpochMs` INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE `active_trips` ADD COLUMN `routeTitle` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `active_trips` ADD COLUMN `originName` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `active_trips` ADD COLUMN `destinationName` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `active_trips` ADD COLUMN `recordedPointsCount` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -74,7 +84,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             "tourist_safety.db"
         )
-            .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+            .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()

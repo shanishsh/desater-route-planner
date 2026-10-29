@@ -20,7 +20,8 @@ class HomeViewModel @Inject constructor(
     private val providerStatusRepository: ProviderStatusRepository,
     private val disasterRepository: DisasterRepository,
     private val connectivityMonitor: NetworkConnectivityMonitor,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val routeRepository: RouteRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -68,6 +69,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             alertRepository.getAlerts().collect { alerts ->
                 _uiState.update { it.copy(alerts = alerts) }
+            }
+        }
+
+        viewModelScope.launch {
+            routeRepository.activeTripFlow.collect { active ->
+                _uiState.update { it.copy(activeTrip = active) }
+            }
+        }
+
+        viewModelScope.launch {
+            routeRepository.completedTripsFlow.collect { completed ->
+                _uiState.update { it.copy(recentCompletedTrips = completed.take(5)) }
             }
         }
     }
