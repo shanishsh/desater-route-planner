@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.crash.CrashReporter
 import com.touristsafety.app.core.map.BasemapManager
 import com.touristsafety.app.core.map.BasemapMode
@@ -815,7 +816,7 @@ fun MapScreen(
             if (state.isOfflineMode) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = ExpressiveShapes.pill,
                     color = Color(0xFF263238).copy(alpha = 0.95f),
                     border = BorderStroke(1.dp, Color(0xFF78909C)),
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -985,7 +986,7 @@ fun MapScreen(
         } else if (!state.isDrawingMode && !state.isRecordingTrek) {
             // 3-Mode Entry Card when exploring the map without active route
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = ExpressiveShapes.largeIncreased,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 shadowElevation = 6.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
@@ -1001,7 +1002,7 @@ fun MapScreen(
                 ) {
                     // Mode 1: Find Trail Route
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ExpressiveShapes.mediumIncreased,
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.weight(1f).clickable { onNavigateToPlanTrip() }
                     ) {
@@ -1017,7 +1018,7 @@ fun MapScreen(
 
                     // Mode 2: Draw My Route
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ExpressiveShapes.mediumIncreased,
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         modifier = Modifier.weight(1f).clickable { viewModel.enterDrawingMode("TRAIL_FOLLOWING") }
                     ) {
@@ -1033,7 +1034,7 @@ fun MapScreen(
 
                     // Mode 3: Record My Trek
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ExpressiveShapes.mediumIncreased,
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         modifier = Modifier.weight(1f).clickable { viewModel.startLiveTrekRecording() }
                     ) {
@@ -1527,7 +1528,7 @@ private fun TopSearchCard(
     onChangeDestination: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = ExpressiveShapes.largeIncreased,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
         shadowElevation = 4.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
@@ -1536,17 +1537,17 @@ private fun TopSearchCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 5.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(
                 modifier = Modifier
@@ -1560,7 +1561,7 @@ private fun TopSearchCard(
                 )
                 Text(
                     text = routeTitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
                 )

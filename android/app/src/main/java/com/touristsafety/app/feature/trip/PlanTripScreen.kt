@@ -1,5 +1,9 @@
 package com.touristsafety.app.feature.trip
 
+import android.content.res.Configuration
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,14 +21,143 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
+import com.touristsafety.app.core.network.dto.PlaceSearchResultDto
 
-@OptIn(ExperimentalMaterial3Api::class)
+data class VerifiedCorridor(
+    val label: String,
+    val originName: String,
+    val originLat: Double,
+    val originLon: Double,
+    val destName: String,
+    val destLat: Double,
+    val destLon: Double,
+    val mode: String,
+    val isPedestrianOnly: Boolean
+)
+
+val defaultVerifiedCorridors = listOf(
+    VerifiedCorridor(
+        label = "Kedarnath Trek (Foot)",
+        originName = "Gaurikund Roadhead",
+        originLat = 30.6534,
+        originLon = 79.0268,
+        destName = "Kedarnath Temple",
+        destLat = 30.7339,
+        destLon = 79.0669,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Tungnath – Chandrashila",
+        originName = "Chopta Roadhead",
+        originLat = 30.4870,
+        originLon = 79.2170,
+        destName = "Tungnath Temple",
+        destLat = 30.4883,
+        destLon = 79.2174,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Valley of Flowers",
+        originName = "Govindghat Base",
+        originLat = 30.6247,
+        originLon = 79.5606,
+        destName = "Valley of Flowers Entry",
+        destLat = 30.7258,
+        destLon = 79.5936,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Hemkund Sahib",
+        originName = "Ghangaria Camp",
+        originLat = 30.7011,
+        originLon = 79.5852,
+        destName = "Hemkund Sahib Gurudwara",
+        destLat = 30.7001,
+        destLon = 79.6083,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Har Ki Dun",
+        originName = "Sankri Base",
+        originLat = 31.0772,
+        originLon = 78.1802,
+        destName = "Har Ki Dun Valley",
+        destLat = 31.1444,
+        destLon = 78.4116,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Gaumukh – Tapovan",
+        originName = "Gangotri Temple",
+        originLat = 30.9947,
+        originLon = 78.9398,
+        destName = "Gaumukh Glacier",
+        destLat = 30.9255,
+        destLon = 79.0805,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Gaurikund Base (NH 107)",
+        originName = "Rudraprayag Junction",
+        originLat = 30.2844,
+        originLon = 78.9806,
+        destName = "Gaurikund",
+        destLat = 30.6534,
+        destLon = 79.0268,
+        mode = "driving",
+        isPedestrianOnly = false
+    ),
+    VerifiedCorridor(
+        label = "Mussoorie Hills",
+        originName = "Dehradun Clock Tower",
+        originLat = 30.3165,
+        originLon = 78.0322,
+        destName = "Mussoorie Mall Road",
+        destLat = 30.4598,
+        destLon = 78.0700,
+        mode = "driving",
+        isPedestrianOnly = false
+    ),
+    VerifiedCorridor(
+        label = "Devprayag Confluence",
+        originName = "Rishikesh",
+        originLat = 30.0869,
+        originLon = 78.2676,
+        destName = "Devprayag Sangam",
+        destLat = 30.1459,
+        destLon = 78.5989,
+        mode = "driving",
+        isPedestrianOnly = false
+    ),
+    VerifiedCorridor(
+        label = "Haridwar – Rishikesh",
+        originName = "Haridwar",
+        originLat = 29.9457,
+        originLon = 78.1642,
+        destName = "Rishikesh",
+        destLat = 30.0869,
+        destLon = 78.2676,
+        mode = "driving",
+        isPedestrianOnly = false
+    )
+)
+
+/**
+ * Stateful PlanTripScreen coordinating lifecycle flows, navigation events, and dialogs.
+ */
 @Composable
 fun PlanTripScreen(
     onNavigateBack: () -> Unit,
@@ -33,8 +166,6 @@ fun PlanTripScreen(
     viewModel: PlanTripViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var showRecentOriginMenu by remember { mutableStateOf(false) }
-    var showRecentDestMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.eventFlow.collect { event ->
@@ -45,135 +176,107 @@ fun PlanTripScreen(
         }
     }
 
-    data class VerifiedCorridor(
-        val label: String,
-        val originName: String,
-        val originLat: Double,
-        val originLon: Double,
-        val destName: String,
-        val destLat: Double,
-        val destLon: Double,
-        val mode: String,
-        val isPedestrianOnly: Boolean
+    PlanTripContent(
+        state = state,
+        verifiedCorridors = defaultVerifiedCorridors,
+        onNavigateBack = onNavigateBack,
+        onNavigateToDrawRoute = onNavigateToDrawRoute,
+        onClearError = { viewModel.clearError() },
+        onRetryWithTravelMode = { mode -> viewModel.retryWithTravelMode(mode) },
+        onSwitchToRenderAndRetry = { viewModel.switchToRenderAndRetry() },
+        onSelectCorridor = { corridor ->
+            viewModel.selectVerifiedCorridor(
+                originName = corridor.originName,
+                originLat = corridor.originLat,
+                originLon = corridor.originLon,
+                destName = corridor.destName,
+                destLat = corridor.destLat,
+                destLon = corridor.destLon,
+                mode = corridor.mode,
+                isPedestrianOnly = corridor.isPedestrianOnly
+            )
+        },
+        onOriginQueryChanged = { viewModel.onOriginQueryChanged(it) },
+        onSelectOrigin = { viewModel.selectOrigin(it) },
+        onUseCurrentLocation = { viewModel.useCurrentLocation() },
+        onOpenOriginMapPicker = { viewModel.openMapPicker(MapPickerTarget.ORIGIN) },
+        onSelectRecentOriginLocation = { viewModel.selectRecentLocation(it, isOrigin = true) },
+        onDestinationQueryChanged = { viewModel.onDestinationQueryChanged(it) },
+        onSelectDestination = { viewModel.selectDestination(it) },
+        onOpenDestMapPicker = { viewModel.openMapPicker(MapPickerTarget.DESTINATION) },
+        onSelectRecentDestLocation = { viewModel.selectRecentLocation(it, isOrigin = false) },
+        onSetTravelMode = { viewModel.setTravelMode(it) },
+        onSetCorridorDistanceKm = { viewModel.setCorridorDistanceKm(it) },
+        onPlanRoute = { viewModel.planRoute() }
     )
 
-    val verifiedCorridors = listOf(
-        VerifiedCorridor(
-            label = "Kedarnath Trek (Foot)",
-            originName = "Gaurikund Roadhead",
-            originLat = 30.6534,
-            originLon = 79.0268,
-            destName = "Kedarnath Temple",
-            destLat = 30.7339,
-            destLon = 79.0669,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Tungnath – Chandrashila",
-            originName = "Chopta Roadhead",
-            originLat = 30.4870,
-            originLon = 79.2170,
-            destName = "Tungnath Temple",
-            destLat = 30.4883,
-            destLon = 79.2174,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Valley of Flowers",
-            originName = "Govindghat Base",
-            originLat = 30.6247,
-            originLon = 79.5606,
-            destName = "Valley of Flowers Entry",
-            destLat = 30.7258,
-            destLon = 79.5936,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Hemkund Sahib",
-            originName = "Ghangaria Camp",
-            originLat = 30.7011,
-            originLon = 79.5852,
-            destName = "Hemkund Sahib Gurudwara",
-            destLat = 30.7001,
-            destLon = 79.6083,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Har Ki Dun",
-            originName = "Sankri Base",
-            originLat = 31.0772,
-            originLon = 78.1802,
-            destName = "Har Ki Dun Valley",
-            destLat = 31.1444,
-            destLon = 78.4116,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Gaumukh – Tapovan",
-            originName = "Gangotri Temple",
-            originLat = 30.9947,
-            originLon = 78.9398,
-            destName = "Gaumukh Glacier",
-            destLat = 30.9255,
-            destLon = 79.0805,
-            mode = "hiking",
-            isPedestrianOnly = true
-        ),
-        VerifiedCorridor(
-            label = "Gaurikund Base (NH 107)",
-            originName = "Rudraprayag Junction",
-            originLat = 30.2844,
-            originLon = 78.9806,
-            destName = "Gaurikund",
-            destLat = 30.6534,
-            destLon = 79.0268,
-            mode = "driving",
-            isPedestrianOnly = false
-        ),
-        VerifiedCorridor(
-            label = "Mussoorie Hills",
-            originName = "Dehradun Clock Tower",
-            originLat = 30.3165,
-            originLon = 78.0322,
-            destName = "Mussoorie Mall Road",
-            destLat = 30.4598,
-            destLon = 78.0700,
-            mode = "driving",
-            isPedestrianOnly = false
-        ),
-        VerifiedCorridor(
-            label = "Devprayag Confluence",
-            originName = "Rishikesh",
-            originLat = 30.0869,
-            originLon = 78.2676,
-            destName = "Devprayag Sangam",
-            destLat = 30.1459,
-            destLon = 78.5989,
-            mode = "driving",
-            isPedestrianOnly = false
-        ),
-        VerifiedCorridor(
-            label = "Haridwar – Rishikesh",
-            originName = "Haridwar",
-            originLat = 29.9457,
-            originLon = 78.1642,
-            destName = "Rishikesh",
-            destLat = 30.0869,
-            destLon = 78.2676,
-            mode = "driving",
-            isPedestrianOnly = false
+    // Map Location Picker Dialog
+    if (state.isMapPickerOpen) {
+        val isOrigin = state.mapPickerTarget == MapPickerTarget.ORIGIN
+        MapLocationPickerDialog(
+            title = if (isOrigin) "Select Starting Point on Map" else "Select Destination on Map",
+            initialLat = if (isOrigin) (state.originLat ?: state.deviceGpsLat) else state.destinationLat,
+            initialLon = if (isOrigin) (state.originLon ?: state.deviceGpsLon) else state.destinationLon,
+            currentGpsLat = state.deviceGpsLat,
+            currentGpsLon = state.deviceGpsLon,
+            onRefreshGpsLocation = { viewModel.useCurrentLocation() },
+            boundaryValidator = viewModel.boundaryValidator,
+            onConfirmLocation = { lat, lon, name ->
+                viewModel.onLocationConfirmedFromMap(lat, lon, name)
+            },
+            onDismiss = {
+                viewModel.closeMapPicker()
+            },
+            reverseGeocode = { lat, lon ->
+                viewModel.reverseGeocode(lat, lon)
+            }
         )
-    )
+    }
+}
+
+/**
+ * Pure stateless PlanTripContent implementing Material 3 Expressive UI, physics springs,
+ * and primitive key list optimization.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlanTripContent(
+    state: PlanTripUiState,
+    verifiedCorridors: List<VerifiedCorridor>,
+    onNavigateBack: () -> Unit,
+    onNavigateToDrawRoute: () -> Unit,
+    onClearError: () -> Unit,
+    onRetryWithTravelMode: (String) -> Unit,
+    onSwitchToRenderAndRetry: () -> Unit,
+    onSelectCorridor: (VerifiedCorridor) -> Unit,
+    onOriginQueryChanged: (String) -> Unit,
+    onSelectOrigin: (PlaceSearchResultDto) -> Unit,
+    onUseCurrentLocation: () -> Unit,
+    onOpenOriginMapPicker: () -> Unit,
+    onSelectRecentOriginLocation: (PlaceSearchResultDto) -> Unit,
+    onDestinationQueryChanged: (String) -> Unit,
+    onSelectDestination: (PlaceSearchResultDto) -> Unit,
+    onOpenDestMapPicker: () -> Unit,
+    onSelectRecentDestLocation: (PlaceSearchResultDto) -> Unit,
+    onSetTravelMode: (String) -> Unit,
+    onSetCorridorDistanceKm: (Double) -> Unit,
+    onPlanRoute: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showRecentOriginMenu by remember { mutableStateOf(false) }
+    var showRecentDestMenu by remember { mutableStateOf(false) }
 
     Scaffold(
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Plan Route & Safety", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        "Plan Route & Safety",
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(AppIcons.Back, contentDescription = "Back")
@@ -194,11 +297,11 @@ fun PlanTripScreen(
         ) {
             // Dismissible error banner
             if (state.errorMessage != null) {
-                item {
+                item(key = "error_banner", contentType = "error") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppErrorBanner(
                             message = state.errorMessage ?: "",
-                            onDismiss = { viewModel.clearError() }
+                            onDismiss = onClearError
                         )
                         val err = state.errorMessage ?: ""
                         val isTrailFailure = err.contains("hiking trail", ignoreCase = true) ||
@@ -212,10 +315,10 @@ fun PlanTripScreen(
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Button(
-                                    onClick = { onNavigateToDrawRoute() },
+                                    onClick = onNavigateToDrawRoute,
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = ExpressiveShapes.pill
                                 ) {
                                     Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -226,17 +329,17 @@ fun PlanTripScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     OutlinedButton(
-                                        onClick = { viewModel.retryWithTravelMode("walking") },
+                                        onClick = { onRetryWithTravelMode("walking") },
                                         modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = ExpressiveShapes.pill
                                     ) {
                                         Text("🚶 Walking / Road", style = MaterialTheme.typography.labelMedium)
                                     }
                                     if (!state.isPedestrianOnlySelected) {
                                         OutlinedButton(
-                                            onClick = { viewModel.retryWithTravelMode("driving") },
+                                            onClick = { onRetryWithTravelMode("driving") },
                                             modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(8.dp)
+                                            shape = ExpressiveShapes.pill
                                         ) {
                                             Text("🚗 Driving Route", style = MaterialTheme.typography.labelMedium)
                                         }
@@ -250,8 +353,9 @@ fun PlanTripScreen(
                             state.errorMessage?.contains("Failed to connect") == true ||
                             state.errorMessage?.contains("Connection refused") == true) {
                             Button(
-                                onClick = { viewModel.switchToRenderAndRetry() },
+                                onClick = onSwitchToRenderAndRetry,
                                 modifier = Modifier.fillMaxWidth(),
+                                shape = ExpressiveShapes.pill,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Text("☁️ Switch to Live Cloud (Render) & Retry", fontWeight = FontWeight.Bold)
@@ -262,7 +366,7 @@ fun PlanTripScreen(
             }
 
             // Presets row
-            item {
+            item(key = "verified_presets", contentType = "presets") {
                 AppSectionHeader(
                     title = "Verified Trail Presets",
                     subtitle = "Tap a route to automatically load coordinates and recommended travel mode"
@@ -271,23 +375,17 @@ fun PlanTripScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(verifiedCorridors) { corridor ->
+                    items(
+                        items = verifiedCorridors,
+                        key = { it.label },
+                        contentType = { "corridor_chip" }
+                    ) { corridor ->
                         val isSelected = state.destinationName == corridor.destName && state.originName == corridor.originName
                         FilterChip(
                             selected = isSelected,
-                            onClick = {
-                                viewModel.selectVerifiedCorridor(
-                                    originName = corridor.originName,
-                                    originLat = corridor.originLat,
-                                    originLon = corridor.originLon,
-                                    destName = corridor.destName,
-                                    destLat = corridor.destLat,
-                                    destLon = corridor.destLon,
-                                    mode = corridor.mode,
-                                    isPedestrianOnly = corridor.isPedestrianOnly
-                                )
-                            },
+                            onClick = { onSelectCorridor(corridor) },
                             label = { Text(corridor.label, style = MaterialTheme.typography.labelMedium) },
+                            shape = ExpressiveShapes.pill,
                             leadingIcon = {
                                 if (isSelected) {
                                     Icon(AppIcons.Check, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -303,70 +401,70 @@ fun PlanTripScreen(
             }
 
             // Custom Route / Off-Trail Drawing Mode Entry Card
-            item {
+            item(key = "custom_route_card", contentType = "custom_route") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = ExpressiveShapes.largeIncreased,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     )
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "🎨 Draw Custom Route on Map",
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.titleMediumEmphasized,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Trace your intended hiking or off-trail path freely. Includes multi-hazard corridor scanning and elevation profile.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Button(
-                            onClick = { onNavigateToDrawRoute() },
+                            onClick = onNavigateToDrawRoute,
                             colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            shape = ExpressiveShapes.pill,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Draw", style = MaterialTheme.typography.labelMedium)
+                            Text("Draw", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
             // Route Input Card (Origin & Destination)
-            item {
+            item(key = "route_inputs", contentType = "inputs") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = ExpressiveShapes.largeIncreased,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     tonalElevation = 1.dp
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         // Origin Field
                         Text(
                             text = "Starting Point (Origin)",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMediumEmphasized,
                             fontWeight = FontWeight.Bold,
                             color = ForestGreenPrimary
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
                             value = state.originName,
-                            onValueChange = { viewModel.onOriginQueryChanged(it) },
+                            onValueChange = onOriginQueryChanged,
                             placeholder = { Text("Search location or enter coordinates") },
                             leadingIcon = {
                                 Icon(Icons.Default.Place, contentDescription = null, tint = ForestGreenPrimary)
@@ -374,12 +472,12 @@ fun PlanTripScreen(
                             trailingIcon = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (state.originName.isNotEmpty()) {
-                                        IconButton(onClick = { viewModel.onOriginQueryChanged("") }) {
+                                        IconButton(onClick = { onOriginQueryChanged("") }) {
                                             Icon(AppIcons.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                                         }
                                     }
                                     IconButton(
-                                        onClick = { viewModel.useCurrentLocation() },
+                                        onClick = onUseCurrentLocation,
                                         enabled = !state.isLocating
                                     ) {
                                         if (state.isLocating) {
@@ -388,7 +486,7 @@ fun PlanTripScreen(
                                             Icon(AppIcons.MyLocation, contentDescription = "Use GPS", tint = ForestGreenPrimary)
                                         }
                                     }
-                                    IconButton(onClick = { viewModel.openMapPicker(MapPickerTarget.ORIGIN) }) {
+                                    IconButton(onClick = onOpenOriginMapPicker) {
                                         Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = ForestGreenPrimary)
                                     }
                                     if (state.recentLocations.isNotEmpty()) {
@@ -412,7 +510,7 @@ fun PlanTripScreen(
                                                         }
                                                     },
                                                     onClick = {
-                                                        viewModel.selectRecentLocation(recent, isOrigin = true)
+                                                        onSelectRecentOriginLocation(recent)
                                                         showRecentOriginMenu = false
                                                     }
                                                 )
@@ -422,7 +520,7 @@ fun PlanTripScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = ExpressiveShapes.mediumIncreased,
                             singleLine = true
                         )
 
@@ -430,7 +528,7 @@ fun PlanTripScreen(
                         if (state.originSuggestions.isNotEmpty()) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ExpressiveShapes.mediumIncreased,
                                 shadowElevation = 3.dp
                             ) {
                                 Column {
@@ -438,7 +536,7 @@ fun PlanTripScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable { viewModel.selectOrigin(place) }
+                                                .clickable { onSelectOrigin(place) }
                                                 .padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -455,19 +553,19 @@ fun PlanTripScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         // Destination Field
                         Text(
                             text = "Destination",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMediumEmphasized,
                             fontWeight = FontWeight.Bold,
                             color = EmergencyRed
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
                             value = state.destinationName,
-                            onValueChange = { viewModel.onDestinationQueryChanged(it) },
+                            onValueChange = onDestinationQueryChanged,
                             placeholder = { Text("Search summit, temple, town or landmark") },
                             leadingIcon = {
                                 Icon(Icons.Default.Flag, contentDescription = null, tint = EmergencyRed)
@@ -475,11 +573,11 @@ fun PlanTripScreen(
                             trailingIcon = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (state.destinationName.isNotEmpty()) {
-                                        IconButton(onClick = { viewModel.onDestinationQueryChanged("") }) {
+                                        IconButton(onClick = { onDestinationQueryChanged("") }) {
                                             Icon(AppIcons.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                    IconButton(onClick = { viewModel.openMapPicker(MapPickerTarget.DESTINATION) }) {
+                                    IconButton(onClick = onOpenDestMapPicker) {
                                         Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = ForestGreenPrimary)
                                     }
                                     if (state.recentLocations.isNotEmpty()) {
@@ -503,7 +601,7 @@ fun PlanTripScreen(
                                                         }
                                                     },
                                                     onClick = {
-                                                        viewModel.selectRecentLocation(recent, isOrigin = false)
+                                                        onSelectRecentDestLocation(recent)
                                                         showRecentDestMenu = false
                                                     }
                                                 )
@@ -513,7 +611,7 @@ fun PlanTripScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = ExpressiveShapes.mediumIncreased,
                             singleLine = true
                         )
 
@@ -521,7 +619,7 @@ fun PlanTripScreen(
                         if (state.destSuggestions.isNotEmpty()) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ExpressiveShapes.mediumIncreased,
                                 shadowElevation = 3.dp
                             ) {
                                 Column {
@@ -529,7 +627,7 @@ fun PlanTripScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable { viewModel.selectDestination(place) }
+                                                .clickable { onSelectDestination(place) }
                                                 .padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -550,18 +648,18 @@ fun PlanTripScreen(
             }
 
             // Travel Mode Segmented Row
-            item {
+            item(key = "travel_mode", contentType = "mode") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Travel Mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("Travel Mode", style = MaterialTheme.typography.titleMediumEmphasized, fontWeight = FontWeight.Bold)
                     if (state.isPedestrianOnlySelected) {
                         AppStatusBadge(label = "Foot Trail Only", isWarning = true)
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -575,9 +673,9 @@ fun PlanTripScreen(
                         val isDrivingDisabled = mode == "driving" && state.isPedestrianOnlySelected
                         val isSelected = state.travelMode == mode
                         OutlinedButton(
-                            onClick = { viewModel.setTravelMode(mode) },
+                            onClick = { onSetTravelMode(mode) },
                             modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ExpressiveShapes.pill,
                             enabled = !isDrivingDisabled,
                             colors = if (isSelected) {
                                 ButtonDefaults.outlinedButtonColors(
@@ -608,21 +706,21 @@ fun PlanTripScreen(
             }
 
             // Corridor Buffer Width Selector
-            item {
+            item(key = "corridor_buffer", contentType = "buffer") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Safety Corridor Buffer", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("Safety Corridor Buffer", style = MaterialTheme.typography.titleMediumEmphasized, fontWeight = FontWeight.Bold)
                     Text(
                         "${state.corridorDistanceKm.toInt()} km search radius",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMediumEmphasized,
                         color = ForestGreenPrimary,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -632,7 +730,8 @@ fun PlanTripScreen(
                         val isSelected = state.corridorDistanceKm == km
                         FilterChip(
                             selected = isSelected,
-                            onClick = { viewModel.setCorridorDistanceKm(km) },
+                            onClick = { onSetCorridorDistanceKm(km) },
+                            shape = ExpressiveShapes.pill,
                             label = { Text("${km.toInt()} km${if (km == 5.0) " (Def)" else ""}", fontSize = 12.sp) },
                             modifier = Modifier.weight(1f),
                             colors = FilterChipDefaults.filterChipColors(
@@ -645,34 +744,34 @@ fun PlanTripScreen(
             }
 
             // Calculate Action Area
-            item {
+            item(key = "action_area", contentType = "action") {
                 Spacer(modifier = Modifier.height(8.dp))
                 if (state.isPlanning) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
+                        shape = ExpressiveShapes.largeIncreased,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                            modifier = Modifier.padding(20.dp).fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(36.dp),
                                 color = ForestGreenPrimary,
                                 strokeWidth = 3.dp
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             Text(
-                                state.planningPhase,
-                                style = MaterialTheme.typography.bodyMedium,
+                                state.planningPhase.ifBlank { "Scanning Route & Safety Radar..." },
+                                style = MaterialTheme.typography.titleMediumEmphasized,
                                 fontWeight = FontWeight.Bold,
                                 color = ForestGreenPrimary
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 "Correlating weather, fire and disaster hazards along trail...",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -681,35 +780,117 @@ fun PlanTripScreen(
                     AppPrimaryButton(
                         text = "Scan & Evaluate Route Safety",
                         icon = AppIcons.StartTrek,
-                        onClick = { viewModel.planRoute() },
+                        shape = ExpressiveShapes.pill,
+                        onClick = onPlanRoute,
                         enabled = state.destinationName.isNotBlank() && state.originName.isNotBlank()
                     )
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
+}
 
-    // Map Location Picker Dialog
-    if (state.isMapPickerOpen) {
-        val isOrigin = state.mapPickerTarget == MapPickerTarget.ORIGIN
-        MapLocationPickerDialog(
-            title = if (isOrigin) "Select Starting Point on Map" else "Select Destination on Map",
-            initialLat = if (isOrigin) (state.originLat ?: state.deviceGpsLat) else state.destinationLat,
-            initialLon = if (isOrigin) (state.originLon ?: state.deviceGpsLon) else state.destinationLon,
-            currentGpsLat = state.deviceGpsLat,
-            currentGpsLon = state.deviceGpsLon,
-            onRefreshGpsLocation = { viewModel.useCurrentLocation() },
-            boundaryValidator = viewModel.boundaryValidator,
-            onConfirmLocation = { lat, lon, name ->
-                viewModel.onLocationConfirmedFromMap(lat, lon, name)
-            },
-            onDismiss = {
-                viewModel.closeMapPicker()
-            },
-            reverseGeocode = { lat, lon ->
-                viewModel.reverseGeocode(lat, lon)
-            }
+@Preview(name = "Phone - Light", showBackground = true)
+@Composable
+private fun PlanTripPreviewLight() {
+    TouristSafetyTheme {
+        PlanTripContent(
+            state = PlanTripUiState(
+                originName = "Gaurikund Base",
+                destinationName = "Kedarnath Temple",
+                travelMode = "hiking",
+                corridorDistanceKm = 5.0
+            ),
+            verifiedCorridors = defaultVerifiedCorridors,
+            onNavigateBack = {},
+            onNavigateToDrawRoute = {},
+            onClearError = {},
+            onRetryWithTravelMode = {},
+            onSwitchToRenderAndRetry = {},
+            onSelectCorridor = {},
+            onOriginQueryChanged = {},
+            onSelectOrigin = {},
+            onUseCurrentLocation = {},
+            onOpenOriginMapPicker = {},
+            onSelectRecentOriginLocation = {},
+            onDestinationQueryChanged = {},
+            onSelectDestination = {},
+            onOpenDestMapPicker = {},
+            onSelectRecentDestLocation = {},
+            onSetTravelMode = {},
+            onSetCorridorDistanceKm = {},
+            onPlanRoute = {}
+        )
+    }
+}
+
+@Preview(name = "Phone - Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
+@Composable
+private fun PlanTripPreviewDark() {
+    TouristSafetyTheme {
+        PlanTripContent(
+            state = PlanTripUiState(
+                originName = "Gaurikund Base",
+                destinationName = "Kedarnath Temple",
+                travelMode = "hiking",
+                corridorDistanceKm = 5.0
+            ),
+            verifiedCorridors = defaultVerifiedCorridors,
+            onNavigateBack = {},
+            onNavigateToDrawRoute = {},
+            onClearError = {},
+            onRetryWithTravelMode = {},
+            onSwitchToRenderAndRetry = {},
+            onSelectCorridor = {},
+            onOriginQueryChanged = {},
+            onSelectOrigin = {},
+            onUseCurrentLocation = {},
+            onOpenOriginMapPicker = {},
+            onSelectRecentOriginLocation = {},
+            onDestinationQueryChanged = {},
+            onSelectDestination = {},
+            onOpenDestMapPicker = {},
+            onSelectRecentDestLocation = {},
+            onSetTravelMode = {},
+            onSetCorridorDistanceKm = {},
+            onPlanRoute = {}
+        )
+    }
+}
+
+@Preview(name = "Phone - Scanning State", showBackground = true)
+@Composable
+private fun PlanTripPreviewScanning() {
+    TouristSafetyTheme {
+        PlanTripContent(
+            state = PlanTripUiState(
+                originName = "Govindghat",
+                destinationName = "Valley of Flowers",
+                travelMode = "hiking",
+                corridorDistanceKm = 5.0,
+                isPlanning = true,
+                planningPhase = "Scanning NASA FIRMS fire anomalies..."
+            ),
+            verifiedCorridors = defaultVerifiedCorridors,
+            onNavigateBack = {},
+            onNavigateToDrawRoute = {},
+            onClearError = {},
+            onRetryWithTravelMode = {},
+            onSwitchToRenderAndRetry = {},
+            onSelectCorridor = {},
+            onOriginQueryChanged = {},
+            onSelectOrigin = {},
+            onUseCurrentLocation = {},
+            onOpenOriginMapPicker = {},
+            onSelectRecentOriginLocation = {},
+            onDestinationQueryChanged = {},
+            onSelectDestination = {},
+            onOpenDestMapPicker = {},
+            onSelectRecentDestLocation = {},
+            onSetTravelMode = {},
+            onSetCorridorDistanceKm = {},
+            onPlanRoute = {}
         )
     }
 }

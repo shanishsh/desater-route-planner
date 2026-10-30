@@ -82,3 +82,31 @@ val TouristSafetyTypography = Typography(
     )
 )
 
+/**
+ * Material 3 Expressive Emphasized Typography Tokens.
+ *
+ * Applied selectively to hero headers, focal metrics, active tabs, and primary CTAs
+ * to establish a clear visual hierarchy without flattening body copy.
+ */
+val Typography.displayLargeEmphasized: TextStyle
+    get() = displayLarge.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
+
+val Typography.headlineLargeEmphasized: TextStyle
+    get() = headlineMedium.copy(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+
+val Typography.headlineMediumEmphasized: TextStyle
+    get() = headlineMedium.copy(fontWeight = FontWeight.Bold)
+
+val Typography.titleLargeEmphasized: TextStyle
+    get() = titleLarge.copy(fontWeight = FontWeight.Bold)
+
+val Typography.titleMediumEmphasized: TextStyle
+    get() = titleMedium.copy(fontWeight = FontWeight.Bold)
+
+val Typography.labelLargeEmphasized: TextStyle
+    get() = labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.25.sp)
+
+val Typography.labelMediumEmphasized: TextStyle
+    get() = labelMedium.copy(fontWeight = FontWeight.Bold)
+
+

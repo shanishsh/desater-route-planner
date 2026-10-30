@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Shape
+import com.touristsafety.app.core.designsystem.ExpressiveShapes
 import com.touristsafety.app.core.designsystem.ForestGreenPrimary
 import com.touristsafety.app.core.designsystem.SageContainer
 import com.touristsafety.app.core.designsystem.OnSageContainer
@@ -27,7 +29,8 @@ fun AppPrimaryButton(
     isLoading: Boolean = false,
     enabled: Boolean = true,
     containerColor: Color = ForestGreenPrimary,
-    contentColor: Color = Color.White
+    contentColor: Color = Color.White,
+    shape: Shape = ExpressiveShapes.pill
 ) {
     Button(
         onClick = onClick,
@@ -35,7 +38,7 @@ fun AppPrimaryButton(
             .fillMaxWidth()
             .heightIn(min = 48.dp),
         enabled = enabled && !isLoading,
-        shape = RoundedCornerShape(10.dp),
+        shape = shape,
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = contentColor,

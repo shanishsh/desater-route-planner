@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.touristsafety.app.core.designsystem.ExpressiveShapes
 import com.touristsafety.app.core.model.Weather
 import com.touristsafety.app.core.network.dto.RouteAlternativeDto
 import java.util.Locale
@@ -54,7 +55,7 @@ fun RouteSummaryCard(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
         shadowElevation = 6.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
