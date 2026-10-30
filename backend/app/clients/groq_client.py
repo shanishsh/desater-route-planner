@@ -29,6 +29,7 @@ class GroqClient:
         temperature: float = 0.2,
         max_tokens: int = 500,
         model: Optional[str] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """Calls Groq chat completions API with circuit breaker protection."""
         if not self.is_configured():
@@ -45,12 +46,14 @@ class GroqClient:
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model or settings.GROQ_MODEL,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if response_format:
+            payload["response_format"] = response_format
 
         try:
             response = await self.client.post(url, headers=headers, json=payload)

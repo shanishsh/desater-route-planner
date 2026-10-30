@@ -38,21 +38,27 @@ class LiveSafetyAssistantService:
         if request.trigger_event and request.trigger_event.hazard_id:
             valid_hazard_ids.add(request.trigger_event.hazard_id)
 
+        valid_facility_ids = {f.id for f in request.nearby_facilities}
+        valid_alternative_titles = {a.title for a in request.verified_alternatives}
+        is_weather_stale = request.current_weather.is_stale if request.current_weather else False
+        weather_age_mins = request.current_weather.observation_age_minutes if request.current_weather else None
+
         try:
             system_prompt = (
                 "You are the Uttarakhand Mountain Trek Safety Assistant. "
                 "Analyze the provided live trek context and return a JSON object with strict safety advice. "
                 "CRITICAL INSTRUCTIONS:\n"
-                "1. NEVER state that any mountain trail is '100% safe' or risk-free.\n"
+                "1. NEVER state that any mountain trail is '100% safe', 'completely safe', or risk-free.\n"
                 "2. Reference ONLY the exact hazard IDs provided. Do not invent hazards or facilities.\n"
-                "3. If verified_alternatives is empty, explicitly state that NO verified alternative trail is available.\n"
-                "4. Approved safety guidance rules:\n"
+                "3. If verified_alternatives is empty, explicitly state that NO verified alternative trail is available. Under NO circumstances invent trails or bypass routes.\n"
+                "4. If current_weather is marked is_stale=True or observation_age_minutes > 180, explicitly note in data_limitations that weather observations are aged and conditions may have changed.\n"
+                "5. Approved safety guidance rules:\n"
                 "   - Landslide/Rockfall: Do not cross moving debris; seek high, stable ground away from runout chutes.\n"
                 "   - Thunderstorm: Descend from exposed ridges/summits immediately; avoid isolated trees and metal fences.\n"
                 "   - Flash flood: Do not attempt to ford swollen rivers; seek high ground immediately.\n"
                 "   - Route deviation: If off-route (>80m), stop immediately and backtrack to the last verified marker.\n"
-                "5. Spoken message MUST be concise (under 30 words), clear, and direct for a walking trekker.\n"
-                "6. Output MUST be ONLY valid JSON matching this structure:\n"
+                "6. Spoken message MUST be concise (under 30 words), clear, and direct for a walking trekker.\n"
+                "7. Output MUST be ONLY valid JSON matching this structure:\n"
                 "{\n"
                 '  "summary": "Short 1-2 sentence overview",\n'
                 '  "what_happened": "Specific condition or event description",\n'
@@ -61,6 +67,7 @@ class LiveSafetyAssistantService:
                 '  "what_to_avoid": "Dangerous actions to avoid",\n'
                 '  "verified_alternatives": ["alternative names if provided, else empty"],\n'
                 '  "referenced_hazard_ids": ["exact hazard IDs cited"],\n'
+                '  "referenced_facility_ids": ["exact facility IDs cited if applicable"],\n'
                 '  "data_limitations": ["any stale or missing data notes"],\n'
                 '  "spoken_message": "Under 30 words spoken guidance"\n'
                 "}"
@@ -76,10 +83,18 @@ class LiveSafetyAssistantService:
                 messages=messages,
                 temperature=0.1,
                 max_tokens=650,
+                response_format={"type": "json_object"},
             )
 
             if ai_raw:
-                parsed = self._extract_and_validate_json(ai_raw, valid_hazard_ids)
+                parsed = self._extract_and_validate_json(
+                    ai_text=ai_raw,
+                    valid_hazard_ids=valid_hazard_ids,
+                    valid_facility_ids=valid_facility_ids,
+                    valid_alternative_titles=valid_alternative_titles,
+                    is_weather_stale=is_weather_stale,
+                    weather_age_mins=weather_age_mins,
+                )
                 if parsed:
                     return LiveSafetyAssistantResponse(
                         event_id=request.trigger_event.event_id if request.trigger_event else None,
@@ -91,6 +106,7 @@ class LiveSafetyAssistantService:
                         what_to_avoid=parsed.get("what_to_avoid") or fallback_response.what_to_avoid,
                         verified_alternatives=parsed.get("verified_alternatives") or fallback_response.verified_alternatives,
                         referenced_hazard_ids=parsed.get("referenced_hazard_ids") or fallback_response.referenced_hazard_ids,
+                        referenced_facility_ids=parsed.get("referenced_facility_ids") or [],
                         referenced_weather_ids=[],
                         data_limitations=parsed.get("data_limitations") or fallback_response.data_limitations,
                         spoken_message=parsed.get("spoken_message") or fallback_response.spoken_message,
@@ -116,6 +132,10 @@ class LiveSafetyAssistantService:
             return fallback_response
 
         valid_hazard_ids = {h.id for h in request.upcoming_hazards + request.nearby_hazards}
+        valid_facility_ids = {f.id for f in request.nearby_facilities}
+        valid_alternative_titles = {a.title for a in request.verified_alternatives}
+        is_weather_stale = request.current_weather.is_stale if request.current_weather else False
+        weather_age_mins = request.current_weather.observation_age_minutes if request.current_weather else None
 
         try:
             system_prompt = (
@@ -123,10 +143,11 @@ class LiveSafetyAssistantService:
                 "Answer the trekker's question strictly grounded in the provided live trek context. "
                 "RULES:\n"
                 "1. Base answers ONLY on provided hazards, route progress, weather, and facilities.\n"
-                "2. If the user asks for alternatives and none exist in verified_alternatives, clearly state that none are verified.\n"
-                "3. Never declare the trail completely safe.\n"
-                "4. Spoken message must be under 30 words.\n"
-                "5. Output ONLY valid JSON with keys: summary, what_happened, why_relevant, recommended_action, what_to_avoid, verified_alternatives, referenced_hazard_ids, data_limitations, spoken_message."
+                "2. If the user asks for alternatives and none exist in verified_alternatives, clearly state that NO verified alternative trail is available. Under NO circumstances invent paths.\n"
+                "3. If current_weather is marked is_stale=True or observation_age_minutes > 180, explicitly note in data_limitations that weather observations are aged and conditions may have changed.\n"
+                "4. Never declare the trail completely safe or 100% safe.\n"
+                "5. Spoken message must be under 30 words.\n"
+                "6. Output ONLY valid JSON with keys: summary, what_happened, why_relevant, recommended_action, what_to_avoid, verified_alternatives, referenced_hazard_ids, referenced_facility_ids, data_limitations, spoken_message."
             )
 
             user_prompt = (
@@ -144,10 +165,18 @@ class LiveSafetyAssistantService:
                 messages=messages,
                 temperature=0.15,
                 max_tokens=650,
+                response_format={"type": "json_object"},
             )
 
             if ai_raw:
-                parsed = self._extract_and_validate_json(ai_raw, valid_hazard_ids)
+                parsed = self._extract_and_validate_json(
+                    ai_text=ai_raw,
+                    valid_hazard_ids=valid_hazard_ids,
+                    valid_facility_ids=valid_facility_ids,
+                    valid_alternative_titles=valid_alternative_titles,
+                    is_weather_stale=is_weather_stale,
+                    weather_age_mins=weather_age_mins,
+                )
                 if parsed:
                     return LiveSafetyAssistantResponse(
                         event_id=None,
@@ -159,6 +188,7 @@ class LiveSafetyAssistantService:
                         what_to_avoid=parsed.get("what_to_avoid") or fallback_response.what_to_avoid,
                         verified_alternatives=parsed.get("verified_alternatives") or fallback_response.verified_alternatives,
                         referenced_hazard_ids=parsed.get("referenced_hazard_ids") or fallback_response.referenced_hazard_ids,
+                        referenced_facility_ids=parsed.get("referenced_facility_ids") or [],
                         referenced_weather_ids=[],
                         data_limitations=parsed.get("data_limitations") or fallback_response.data_limitations,
                         spoken_message=parsed.get("spoken_message") or fallback_response.spoken_message,
@@ -270,8 +300,8 @@ class LiveSafetyAssistantService:
         limitations = list(request.stale_sources)
         if request.connectivity_status in ("OFFLINE", "DEAD_ZONE_LIKELY"):
             limitations.append("Cellular offline: displaying local cached hazard and weather data.")
-        if w and w.is_stale:
-            limitations.append("Weather forecast observations are older than 2 hours.")
+        if w and (w.is_stale or (w.observation_age_minutes and w.observation_age_minutes > 180)):
+            limitations.append("Weather forecast observations are older than 3 hours; mountain conditions may differ.")
 
         return LiveSafetyAssistantResponse(
             event_id=ev.event_id if ev else None,
@@ -316,7 +346,7 @@ class LiveSafetyAssistantService:
             avoid = "Never remain on exposed ridgelines during sudden convective cloud buildups."
             ref_ids = []
 
-        elif "next hazard" in q or "hazard" in q or "danger" in q:
+        elif any(k in q for k in ("next hazard", "hazard", "danger", "cross", "stream", "river", "flood", "water")):
             if hazards:
                 first = hazards[0]
                 dist_str = f"{(first.distance_ahead_m or 0.0) / 1000.0:.1f} km"
@@ -404,36 +434,82 @@ class LiveSafetyAssistantService:
         self,
         ai_text: str,
         valid_hazard_ids: Set[str],
+        valid_facility_ids: Optional[Set[str]] = None,
+        valid_alternative_titles: Optional[Set[str]] = None,
+        is_weather_stale: bool = False,
+        weather_age_mins: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Parses LLM output, extracting JSON and enforcing citation grounding."""
-        # Find JSON object bounds
-        match = re.search(r"\{.*\}", ai_text, re.DOTALL)
-        if not match:
+        """Parses LLM output, extracting JSON and enforcing citation grounding and safety rules."""
+        if not ai_text or not ai_text.strip():
             return None
 
+        data: Optional[Dict[str, Any]] = None
         try:
-            data = json.loads(match.group(0))
-            if not isinstance(data, dict):
-                return None
-
-            # Enforce citation grounding on referenced hazard IDs
-            raw_cites = data.get("referenced_hazard_ids") or []
-            if isinstance(raw_cites, list):
-                # Filter out any hallucinated IDs
-                grounded_cites = [cid for cid in raw_cites if str(cid) in valid_hazard_ids]
-                data["referenced_hazard_ids"] = grounded_cites
-
-            # Prohibit '100% safe' or risk-free language
-            for field in ("summary", "what_happened", "recommended_action", "spoken_message"):
-                val = data.get(field, "")
-                if isinstance(val, str) and ("100% safe" in val.lower() or "completely safe" in val.lower()):
-                    data[field] = val.replace("100% safe", "currently clear of reported warnings").replace(
-                        "completely safe", "clear of known warnings"
-                    )
-
-            return data
+            # First try direct parse (works when json_object mode is on)
+            data = json.loads(ai_text.strip())
         except Exception:
+            # Fallback to regex object extractor
+            match = re.search(r"\{.*\}", ai_text, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group(0))
+                except Exception:
+                    data = None
+
+        if not isinstance(data, dict):
             return None
+
+        # 1. Enforce citation grounding on referenced hazard IDs
+        raw_hazard_cites = data.get("referenced_hazard_ids") or []
+        if isinstance(raw_hazard_cites, list):
+            data["referenced_hazard_ids"] = [cid for cid in raw_hazard_cites if str(cid) in valid_hazard_ids]
+        else:
+            data["referenced_hazard_ids"] = []
+
+        # 2. Enforce citation grounding on referenced facility IDs
+        raw_facility_cites = data.get("referenced_facility_ids") or []
+        if isinstance(raw_facility_cites, list) and valid_facility_ids:
+            data["referenced_facility_ids"] = [fid for fid in raw_facility_cites if str(fid) in valid_facility_ids]
+        else:
+            data["referenced_facility_ids"] = []
+
+        # 3. Enforce verified alternatives grounding
+        if not valid_alternative_titles:
+            data["verified_alternatives"] = ["No verified alternative trail available"]
+        else:
+            raw_alts = data.get("verified_alternatives") or []
+            if isinstance(raw_alts, list):
+                valid_alts = [a for a in raw_alts if str(a) in valid_alternative_titles]
+                data["verified_alternatives"] = valid_alts if valid_alts else ["No verified alternative trail available"]
+            else:
+                data["verified_alternatives"] = ["No verified alternative trail available"]
+
+        # 4. Enforce weather staleness limitation
+        limitations = data.get("data_limitations")
+        if not isinstance(limitations, list):
+            limitations = []
+        if is_weather_stale or (weather_age_mins and weather_age_mins > 180):
+            if not any("weather" in str(l).lower() for l in limitations):
+                limitations.append("Weather forecast observations are older than 3 hours; mountain conditions may differ.")
+        data["data_limitations"] = limitations
+
+        # 5. Prohibit '100% safe' or risk-free language across all text fields
+        for field in ("summary", "what_happened", "why_relevant", "recommended_action", "what_to_avoid", "spoken_message"):
+            val = data.get(field, "")
+            if isinstance(val, str):
+                for forbidden in ("100% safe", "completely safe", "safe to proceed without risk", "guaranteed safe", "entirely safe", "zero risk"):
+                    if forbidden in val.lower():
+                        val = re.sub(re.escape(forbidden), "currently clear of reported warnings; maintain standard trail vigilance", val, flags=re.IGNORECASE)
+                data[field] = val
+
+        # 6. Concise spoken message constraint (under 30 words)
+        spoken = data.get("spoken_message", "")
+        if isinstance(spoken, str) and spoken.strip():
+            words = spoken.split()
+            if len(words) > 30:
+                data["spoken_message"] = " ".join(words[:30])
+
+        return data
 
 
 live_safety_assistant_service = LiveSafetyAssistantService()

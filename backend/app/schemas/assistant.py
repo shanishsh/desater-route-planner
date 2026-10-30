@@ -41,6 +41,8 @@ class WeatherContextDto(BaseModel):
     wind_speed_kmh: Optional[float] = None
     thunderstorm_probability_pct: Optional[int] = None
     retrieved_at: Optional[str] = None
+    observation_age_minutes: Optional[int] = None
+    valid_until: Optional[str] = None
     is_stale: bool = False
 
 
@@ -117,6 +119,7 @@ class LiveSafetyAssistantResponse(BaseModel):
     verified_alternatives: List[str] = Field(default_factory=list)
     referenced_hazard_ids: List[str] = Field(default_factory=list)
     referenced_weather_ids: List[str] = Field(default_factory=list)
+    referenced_facility_ids: List[str] = Field(default_factory=list)
     data_limitations: List[str] = Field(default_factory=list)
     spoken_message: str
     additional_explanation: Optional[str] = None

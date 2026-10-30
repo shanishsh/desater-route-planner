@@ -78,7 +78,25 @@ class LiveTrekContextEngine @Inject constructor(
         private const val WEATHER_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
         private const val FACILITIES_REFRESH_DISTANCE_METERS = 1000.0
         private const val TYPICAL_HIKING_SPEED_KMH = 3.5
+        private val cachedLocalBaselineFeatures = mutableListOf<UnifiedMapFeature>()
+        private var isBaselineFeaturesLoaded = false
+        private val baselineLock = Any()
     }
+
+    private data class PrecomputedHazardRouteInfo(
+        val featureId: String,
+        val feature: UnifiedMapFeature,
+        val categoryType: HazardCategoryType,
+        val entryChainageMeters: Double,
+        val exitChainageMeters: Double,
+        val crossTrackDistanceMeters: Double,
+        val isDirectIntersection: Boolean,
+        val isPolygon: Boolean,
+        val physicalRadiusMeters: Double
+    )
+
+    private val precomputedHazardMap = mutableMapOf<String, PrecomputedHazardRouteInfo>()
+    private val spokenEventIds = mutableSetOf<String>()
 
     private val engineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -134,6 +152,9 @@ class LiveTrekContextEngine @Inject constructor(
     init {
         loadCellTowersFromAssets()
         observeNetworkState()
+        engineScope.launch(Dispatchers.IO) {
+            loadAllLocalFeatures()
+        }
     }
 
     private fun loadCellTowersFromAssets() {
@@ -310,6 +331,8 @@ class LiveTrekContextEngine @Inject constructor(
             } else {
                 loadAllLocalFeatures()
             }
+            spokenEventIds.clear()
+            precomputeHazardRouteIntersections(monitoredFeatures)
 
             _liveContext.update {
                 it.copy(
@@ -342,6 +365,8 @@ class LiveTrekContextEngine @Inject constructor(
 
     fun stopTrekSession() {
         deterministicDecisionEngine.reset()
+        spokenEventIds.clear()
+        synchronized(precomputedHazardMap) { precomputedHazardMap.clear() }
         trekVoiceAssistant.stopSpeaking()
         safetyAlertPlayer.stopSafetyAlert()
         engineScope.launch {
@@ -361,6 +386,7 @@ class LiveTrekContextEngine @Inject constructor(
     fun updateMonitoredFeatures(features: List<UnifiedMapFeature>) {
         if (features.isNotEmpty()) {
             monitoredFeatures = features
+            precomputeHazardRouteIntersections(features)
             // Re-evaluate hazard classification immediately with existing location
             lastAcceptedLat?.let { lat ->
                 lastAcceptedLon?.let { lon ->
@@ -513,6 +539,68 @@ class LiveTrekContextEngine @Inject constructor(
         evaluateSafetyAndAssistant(progressMetrics, categorized, now)
     }
 
+    private fun precomputeHazardRouteIntersections(features: List<UnifiedMapFeature>) {
+        if (routePoints.size < 2 || cumDistances.isEmpty()) {
+            synchronized(precomputedHazardMap) {
+                precomputedHazardMap.clear()
+            }
+            return
+        }
+
+        val map = mutableMapOf<String, PrecomputedHazardRouteInfo>()
+        for (feat in features) {
+            val catType = HazardCategoryType.fromFeature(feat)
+            val physicalRadiusMeters = when (catType) {
+                HazardCategoryType.LANDSLIDE -> 600.0
+                HazardCategoryType.FLOODING, HazardCategoryType.HEAVY_RAIN -> 1500.0
+                HazardCategoryType.WILDFIRE -> 2500.0
+                else -> 1000.0
+            }
+
+            val polygon = feat.geometryPolygon
+            if (polygon != null && polygon.size >= 3) {
+                val polyEval = RouteMatchingEngine.evaluatePolygonAgainstRoute(
+                    polygon, routePoints, cumDistances
+                )
+                if (polyEval != null) {
+                    map[feat.id] = PrecomputedHazardRouteInfo(
+                        featureId = feat.id,
+                        feature = feat,
+                        categoryType = catType,
+                        entryChainageMeters = polyEval.entryChainageMeters,
+                        exitChainageMeters = polyEval.exitChainageMeters,
+                        crossTrackDistanceMeters = polyEval.minCrossTrackMeters,
+                        isDirectIntersection = polyEval.isDirectIntersection,
+                        isPolygon = true,
+                        physicalRadiusMeters = physicalRadiusMeters
+                    )
+                }
+            } else {
+                val proj = RouteMatchingEngine.projectPointOntoRoute(
+                    feat.latitude, feat.longitude, routePoints, cumDistances
+                )
+                if (proj != null) {
+                    map[feat.id] = PrecomputedHazardRouteInfo(
+                        featureId = feat.id,
+                        feature = feat,
+                        categoryType = catType,
+                        entryChainageMeters = proj.chainageMeters,
+                        exitChainageMeters = proj.chainageMeters,
+                        crossTrackDistanceMeters = proj.crossTrackDistanceMeters,
+                        isDirectIntersection = proj.crossTrackDistanceMeters <= 80.0,
+                        isPolygon = false,
+                        physicalRadiusMeters = physicalRadiusMeters
+                    )
+                }
+            }
+        }
+
+        synchronized(precomputedHazardMap) {
+            precomputedHazardMap.clear()
+            precomputedHazardMap.putAll(map)
+        }
+    }
+
     private fun reclassifyHazards(
         userLat: Double,
         userLon: Double,
@@ -530,11 +618,14 @@ class LiveTrekContextEngine @Inject constructor(
         val speed = if (speedKmh > 0.5) speedKmh else TYPICAL_HIKING_SPEED_KMH
         val metersPerMinute = (speed * 1000.0) / 60.0
 
-        for (feat in features) {
-            val catType = HazardCategoryType.fromFeature(feat)
+        if (precomputedHazardMap.isEmpty() && features.isNotEmpty() && routePoints.size >= 2) {
+            precomputeHazardRouteIntersections(features)
+        }
 
-            // Determine physical relevance radius based on category
-            val physicalRadiusMeters = when (catType) {
+        for (feat in features) {
+            val pre = synchronized(precomputedHazardMap) { precomputedHazardMap[feat.id] }
+            val catType = pre?.categoryType ?: HazardCategoryType.fromFeature(feat)
+            val physicalRadiusMeters = pre?.physicalRadiusMeters ?: when (catType) {
                 HazardCategoryType.LANDSLIDE -> 600.0
                 HazardCategoryType.FLOODING, HazardCategoryType.HEAVY_RAIN -> 1500.0
                 HazardCategoryType.WILDFIRE -> 2500.0
@@ -545,17 +636,10 @@ class LiveTrekContextEngine @Inject constructor(
                 userLat, userLon, feat.latitude, feat.longitude
             )
 
-            val polygon = feat.geometryPolygon
-
-            if (polygon != null && polygon.size >= 3 && routePoints.size >= 2) {
-                // Polygon hazard
-                val polyEval = RouteMatchingEngine.evaluatePolygonAgainstRoute(
-                    polygon, routePoints, cumDistances
-                )
-
-                if (polyEval != null && polyEval.isDirectIntersection) {
-                    val entryDist = polyEval.entryChainageMeters
-                    val exitDist = polyEval.exitChainageMeters
+            if (pre != null && pre.isPolygon) {
+                if (pre.isDirectIntersection) {
+                    val entryDist = pre.entryChainageMeters
+                    val exitDist = pre.exitChainageMeters
 
                     val item = RouteOrderedHazardItem(
                         sequenceNumber = 0,
@@ -591,7 +675,7 @@ class LiveTrekContextEngine @Inject constructor(
                             sequenceLabel = "",
                             feature = feat,
                             distanceAlongRouteMeters = chainageMeters,
-                            crossTrackDistanceMeters = polyEval?.minCrossTrackMeters ?: distToUserMeters,
+                            crossTrackDistanceMeters = pre.crossTrackDistanceMeters,
                             intersectionType = RouteIntersectionType.CORRIDOR_NEARBY,
                             trekStatus = HazardTrekStatus.NEARBY,
                             categoryType = catType,
@@ -602,19 +686,15 @@ class LiveTrekContextEngine @Inject constructor(
                         )
                     )
                 }
-            } else {
-                // Point hazard
-                val proj = if (routePoints.size >= 2) {
-                    RouteMatchingEngine.projectPointOntoRoute(feat.latitude, feat.longitude, routePoints, cumDistances)
-                } else null
-
+            } else if (pre != null) {
+                // Point hazard (precomputed)
                 val item = RouteOrderedHazardItem(
                     sequenceNumber = 0,
                     sequenceLabel = "",
                     feature = feat,
-                    distanceAlongRouteMeters = proj?.chainageMeters ?: 0.0,
-                    crossTrackDistanceMeters = proj?.crossTrackDistanceMeters ?: distToUserMeters,
-                    intersectionType = if ((proj?.crossTrackDistanceMeters ?: 999.0) <= 80.0) RouteIntersectionType.DIRECT_INTERSECTION else RouteIntersectionType.CORRIDOR_NEARBY,
+                    distanceAlongRouteMeters = pre.entryChainageMeters,
+                    crossTrackDistanceMeters = pre.crossTrackDistanceMeters,
+                    intersectionType = if (pre.isDirectIntersection) RouteIntersectionType.DIRECT_INTERSECTION else RouteIntersectionType.CORRIDOR_NEARBY,
                     categoryType = catType,
                     severity = feat.details["Severity"] ?: "WARNING",
                     observationTimeText = feat.subtitle
@@ -624,8 +704,8 @@ class LiveTrekContextEngine @Inject constructor(
                     nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, distanceCurrentLocationMeters = distToUserMeters, estimatedMinutesAhead = 0))
                 } else if (isOffRoute) {
                     uncertain.add(item.copy(trekStatus = HazardTrekStatus.UNCERTAIN))
-                } else if (proj != null && proj.crossTrackDistanceMeters <= 120.0) {
-                    val delta = proj.chainageMeters - chainageMeters
+                } else if (pre.crossTrackDistanceMeters <= 120.0) {
+                    val delta = pre.entryChainageMeters - chainageMeters
                     if (delta < -100.0) {
                         passed.add(item.copy(trekStatus = HazardTrekStatus.PASSED))
                     } else if (delta > 30.0) {
@@ -639,8 +719,28 @@ class LiveTrekContextEngine @Inject constructor(
                     } else {
                         nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, distanceCurrentLocationMeters = distToUserMeters, estimatedMinutesAhead = 0))
                     }
-                } else if (proj != null && proj.crossTrackDistanceMeters <= 2000.0) {
+                } else if (pre.crossTrackDistanceMeters <= 2000.0) {
                     offRoute.add(item.copy(trekStatus = HazardTrekStatus.UNCERTAIN, intersectionType = RouteIntersectionType.CORRIDOR_NEARBY))
+                }
+            } else {
+                // Fallback for hazards without precomputed route projection
+                if (distToUserMeters <= physicalRadiusMeters) {
+                    nearby.add(
+                        RouteOrderedHazardItem(
+                            sequenceNumber = 0,
+                            sequenceLabel = "",
+                            feature = feat,
+                            distanceAlongRouteMeters = chainageMeters,
+                            crossTrackDistanceMeters = distToUserMeters,
+                            intersectionType = RouteIntersectionType.CORRIDOR_NEARBY,
+                            trekStatus = HazardTrekStatus.NEARBY,
+                            categoryType = catType,
+                            distanceAheadMeters = 0.0,
+                            distanceCurrentLocationMeters = distToUserMeters,
+                            estimatedMinutesAhead = 0,
+                            severity = feat.details["Severity"] ?: "WARNING"
+                        )
+                    )
                 }
             }
         }
@@ -768,12 +868,16 @@ class LiveTrekContextEngine @Inject constructor(
                 _liveContext.update { it.copy(activeSafetyEvent = safetyEvent) }
             }
 
+            var deterministicSpoken = false
             if (safetyEvent.requiresVoiceAlert && _liveContext.value.isVoiceGuidanceEnabled) {
-                trekVoiceAssistant.speakSafetyAlert(
-                    text = safetyEvent.deterministicSpokenText,
-                    isCritical = safetyEvent.requiresImmediateAlarm,
-                    now = now
-                )
+                if (spokenEventIds.add(safetyEvent.eventId)) {
+                    trekVoiceAssistant.speakSafetyAlert(
+                        text = safetyEvent.deterministicSpokenText,
+                        isCritical = safetyEvent.requiresImmediateAlarm,
+                        now = now
+                    )
+                    deterministicSpoken = true
+                }
             }
 
             // Asynchronously dispatch for grounded AI explanation
@@ -784,12 +888,14 @@ class LiveTrekContextEngine @Inject constructor(
                     val aiResponse = assistantRepository.getSafetyGuidance(reqDto, safetyEvent)
                     if (_liveContext.value.contextGenerationId == genId) {
                         _liveContext.update { it.copy(assistantGuidance = aiResponse) }
-                        if (aiResponse.is_ai_generated && aiResponse.spoken_message.isNotBlank() && _liveContext.value.isVoiceGuidanceEnabled) {
-                            trekVoiceAssistant.speakSafetyAlert(
-                                text = aiResponse.spoken_message,
-                                isCritical = safetyEvent.requiresImmediateAlarm,
-                                now = System.currentTimeMillis()
-                            )
+                        if (!deterministicSpoken && aiResponse.is_ai_generated && aiResponse.spoken_message.isNotBlank() && _liveContext.value.isVoiceGuidanceEnabled) {
+                            if (spokenEventIds.add(safetyEvent.eventId)) {
+                                trekVoiceAssistant.speakSafetyAlert(
+                                    text = aiResponse.spoken_message,
+                                    isCritical = safetyEvent.requiresImmediateAlarm,
+                                    now = System.currentTimeMillis()
+                                )
+                            }
                         }
                     }
                 } catch (t: Throwable) {
@@ -987,6 +1093,12 @@ class LiveTrekContextEngine @Inject constructor(
     }
 
     private fun loadAllLocalFeatures(): List<UnifiedMapFeature> {
+        synchronized(baselineLock) {
+            if (isBaselineFeaturesLoaded && cachedLocalBaselineFeatures.isNotEmpty()) {
+                return cachedLocalBaselineFeatures.toList()
+            }
+        }
+
         val list = mutableListOf<UnifiedMapFeature>()
         try {
             // Load baseline hazard zones from asset
@@ -1003,6 +1115,12 @@ class LiveTrekContextEngine @Inject constructor(
                 list.addAll(parseFeaturesFromGeoJson(text, MapFeatureCategory.HAZARD_ZONE))
             }
         } catch (_: Exception) {}
+
+        synchronized(baselineLock) {
+            cachedLocalBaselineFeatures.clear()
+            cachedLocalBaselineFeatures.addAll(list)
+            isBaselineFeaturesLoaded = true
+        }
 
         return list
     }

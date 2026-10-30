@@ -61,6 +61,7 @@ fun ActiveTripScreen(
     var showLayersSheet by remember { mutableStateOf(false) }
     var isSafetyAssistantExpanded by remember { mutableStateOf(false) }
     var assistantInputText by remember { mutableStateOf("") }
+    var isFollowModeEnabled by remember { mutableStateOf(true) }
 
     // MapView instance lifecycle
     val mapView = remember {
@@ -68,6 +69,11 @@ fun ActiveTripScreen(
             onCreate(null)
             getMapAsync { map ->
                 maplibreMapInstance = map
+                map.addOnCameraMoveStartedListener { reason ->
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                        isFollowModeEnabled = false
+                    }
+                }
                 try {
                     // Restrict camera to Uttarakhand territory
                     val bounds = LatLngBounds.Builder()
@@ -128,35 +134,56 @@ fun ActiveTripScreen(
         }
     }
 
-    // Reactively update traveled track, user puck, upcoming hazard sequence, and layer visibility
-    LaunchedEffect(
-        state.traveledTrackCoordinates,
-        state.currentLatitude,
-        state.currentLongitude,
-        state.gpsAccuracyMeters,
-        state.layerVisibility,
-        state.upcomingHazards,
-        isMapStyleReady
-    ) {
+    // 1. Update Current Trekker Puck & Accuracy Halo
+    LaunchedEffect(state.currentLatitude, state.currentLongitude, state.gpsAccuracyMeters, isMapStyleReady) {
         if (isMapStyleReady) {
             maplibreMapInstance?.let { map ->
                 val style = map.style
                 if (style?.isFullyLoaded == true) {
-                    // 1. Update Traveled Track Line
-                    MapLibreLayerManager.updateTraveledTrack(style, state.traveledTrackCoordinates)
-
-                    // 2. Update Current Trekker Puck & Accuracy Halo
                     val lat = state.currentLatitude
                     val lon = state.currentLongitude
                     val acc = state.gpsAccuracyMeters ?: 15.0f
                     if (lat != null && lon != null) {
                         MapLibreLayerManager.updateTrekCurrentPosition(style, lat, lon, acc)
                     }
+                }
+            }
+        }
+    }
 
-                    // 3. Update Route Hazard Sequence (Upcoming hazards #01, #02...)
+    // 2. Incrementally Update Traveled Track Line (only on new coordinate appended)
+    LaunchedEffect(state.traveledTrackCoordinates.size, isMapStyleReady) {
+        if (isMapStyleReady) {
+            maplibreMapInstance?.let { map ->
+                val style = map.style
+                if (style?.isFullyLoaded == true) {
+                    MapLibreLayerManager.updateTraveledTrack(style, state.traveledTrackCoordinates)
+                }
+            }
+        }
+    }
+
+    // 3. Update Route Hazard Sequence (only when hazard order or identity changes)
+    val upcomingHazardKeys = remember(state.upcomingHazards) {
+        state.upcomingHazards.map { "${it.feature.id}_${it.sequenceNumber}_${it.distanceAheadMeters}" }
+    }
+    LaunchedEffect(upcomingHazardKeys, isMapStyleReady) {
+        if (isMapStyleReady) {
+            maplibreMapInstance?.let { map ->
+                val style = map.style
+                if (style?.isFullyLoaded == true) {
                     MapLibreLayerManager.updateRouteHazardSequence(style, state.upcomingHazards)
+                }
+            }
+        }
+    }
 
-                    // 4. Update Category Layer Visibilities
+    // 4. Update Category Layer Visibilities
+    LaunchedEffect(state.layerVisibility, isMapStyleReady) {
+        if (isMapStyleReady) {
+            maplibreMapInstance?.let { map ->
+                val style = map.style
+                if (style?.isFullyLoaded == true) {
                     state.layerVisibility.forEach { (category, visible) ->
                         MapLibreLayerManager.setLayerCategoryVisibility(style, category, visible)
                     }
@@ -165,15 +192,15 @@ fun ActiveTripScreen(
         }
     }
 
-    // Recenter camera when first location arrives or on request
-    LaunchedEffect(state.currentLatitude, state.currentLongitude) {
+    // 5. Camera follow mode: smoothly center on user position without hijacking user zoom or pan
+    LaunchedEffect(state.currentLatitude, state.currentLongitude, isFollowModeEnabled, isMapStyleReady) {
         val lat = state.currentLatitude
         val lon = state.currentLongitude
-        if (lat != null && lon != null && isMapStyleReady) {
+        if (isFollowModeEnabled && lat != null && lon != null && isMapStyleReady) {
             maplibreMapInstance?.let { map ->
                 if (map.style?.isFullyLoaded == true) {
                     val target = LatLng(lat, lon)
-                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 14.5), 1000)
+                    map.animateCamera(CameraUpdateFactory.newLatLng(target), 800)
                 }
             }
         }
@@ -643,6 +670,7 @@ fun ActiveTripScreen(
                 // Recenter Camera FAB
                 FloatingActionButton(
                     onClick = {
+                        isFollowModeEnabled = true
                         val lat = state.currentLatitude
                         val lon = state.currentLongitude
                         if (lat != null && lon != null) {
@@ -652,8 +680,8 @@ fun ActiveTripScreen(
                             )
                         }
                     },
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = ForestGreenPrimary,
+                    containerColor = if (isFollowModeEnabled) ForestGreenPrimary else MaterialTheme.colorScheme.surface,
+                    contentColor = if (isFollowModeEnabled) Color.White else ForestGreenPrimary,
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(AppIcons.MyLocation, contentDescription = "Recenter Map")
