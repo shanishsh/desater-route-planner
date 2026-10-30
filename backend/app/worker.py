@@ -1,6 +1,7 @@
 """Background worker entrypoint using ARQ or standalone async periodic runner."""
 import asyncio
 import logging
+import time
 from arq.connections import RedisSettings
 from app.config import settings
 from app.jobs.scheduled_tasks import refresh_active_weather, evaluate_alert_freshness, ingest_disaster_alerts
@@ -30,25 +31,59 @@ class WorkerSettings:
 
 
 async def run_standalone_loop():
-    """Runs a standalone periodic background loop when ARQ CLI is not used."""
+    """Runs a standalone periodic background loop when ARQ CLI is not used, with decoupled task cadences."""
     setup_logging(settings.LOG_LEVEL)
-    logger.info("Starting standalone periodic worker loop...")
+    logger.info("Starting standalone periodic worker loop with decoupled cadences...")
     ctx = {}
     await startup(ctx)
+
+    # Cadence intervals in seconds
+    outbox_interval = getattr(settings, "OUTBOX_POLL_INTERVAL_SECONDS", 2.0)
+    weather_interval = 900.0   # 15 minutes
+    freshness_interval = 300.0  # 5 minutes
+    ingest_interval = 600.0    # 10 minutes
+
+    last_weather_run = 0.0
+    last_freshness_run = 0.0
+    last_ingest_run = 0.0
+
     try:
         while True:
+            now = time.time()
             try:
+                # 1. High-frequency transactional outbox processor
                 await process_outbox_events()
-                await refresh_active_weather(ctx)
-                await evaluate_alert_freshness(ctx)
-                await ingest_disaster_alerts(ctx)
             except Exception as e:
-                logger.error(f"Error in background task cycle: {e}")
-            await asyncio.sleep(settings.OUTBOX_POLL_INTERVAL_SECONDS)
+                logger.error("Error processing transactional outbox: %s", e)
+
+            # 2. Moderate-frequency alert freshness evaluator
+            if now - last_freshness_run >= freshness_interval:
+                try:
+                    await evaluate_alert_freshness(ctx)
+                    last_freshness_run = now
+                except Exception as e:
+                    logger.error("Error evaluating alert freshness: %s", e)
+
+            # 3. Scheduled disaster alerts ingestion
+            if now - last_ingest_run >= ingest_interval:
+                try:
+                    await ingest_disaster_alerts(ctx)
+                    last_ingest_run = now
+                except Exception as e:
+                    logger.error("Error ingesting disaster alerts: %s", e)
+
+            # 4. Scheduled active route weather refresh
+            if now - last_weather_run >= weather_interval:
+                try:
+                    await refresh_active_weather(ctx)
+                    last_weather_run = now
+                except Exception as e:
+                    logger.error("Error refreshing active weather: %s", e)
+
+            await asyncio.sleep(outbox_interval)
     except (asyncio.CancelledError, KeyboardInterrupt):
         await shutdown(ctx)
 
 
 if __name__ == "__main__":
     asyncio.run(run_standalone_loop())
-

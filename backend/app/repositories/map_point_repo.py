@@ -6,7 +6,7 @@ from app.models.map_point import MapPoint
 
 
 class MapPointRepository:
-    """Async repository for MapPoints with spatial bounding box queries."""
+    """Async repository for MapPoints with spatial bounding box queries and batch operations."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -79,40 +79,81 @@ class MapPointRepository:
         return point
 
     async def upsert_points(self, points: List[MapPoint]) -> int:
+        """
+        Batch upserts points with bulk pre-fetching to eliminate N+1 roundtrips.
+        """
         if not points:
             return 0
-        inserted = 0
-        for pt in points:
-            # Check by osm_id or by close coordinates + name
-            existing = None
-            if pt.osm_id:
-                stmt = select(MapPoint).where(MapPoint.osm_id == pt.osm_id)
-                res = await self.session.execute(stmt)
-                existing = res.scalar_one_or_none()
-            if not existing:
-                stmt = select(MapPoint).where(
-                    and_(
-                        MapPoint.category == pt.category,
-                        MapPoint.latitude.between(pt.latitude - 0.0005, pt.latitude + 0.0005),
-                        MapPoint.longitude.between(pt.longitude - 0.0005, pt.longitude + 0.0005),
-                    )
+
+        # 1. Bulk pre-fetch by osm_id
+        osm_ids = [pt.osm_id for pt in points if pt.osm_id]
+        existing_by_osm = {}
+        if osm_ids:
+            # Query in chunks of 500 if necessary
+            chunk_size = 500
+            for i in range(0, len(osm_ids), chunk_size):
+                chunk = osm_ids[i:i + chunk_size]
+                res = await self.session.execute(
+                    select(MapPoint).where(MapPoint.osm_id.in_(chunk))
                 )
-                res = await self.session.execute(stmt)
-                existing = res.scalar_one_or_none()
+                for existing in res.scalars().all():
+                    existing_by_osm[existing.osm_id] = existing
+
+        # 2. Bulk pre-fetch candidate points by bounding box for spatial deduplication
+        min_lat = min(pt.latitude for pt in points) - 0.001
+        max_lat = max(pt.latitude for pt in points) + 0.001
+        min_lon = min(pt.longitude for pt in points) - 0.001
+        max_lon = max(pt.longitude for pt in points) + 0.001
+
+        geo_res = await self.session.execute(
+            select(MapPoint).where(
+                MapPoint.latitude.between(min_lat, max_lat),
+                MapPoint.longitude.between(min_lon, max_lon)
+            )
+        )
+        existing_geo_candidates = list(geo_res.scalars().all())
+
+        inserted = 0
+        new_points = []
+
+        for pt in points:
+            existing = None
+            if pt.osm_id and pt.osm_id in existing_by_osm:
+                existing = existing_by_osm[pt.osm_id]
+
+            if not existing:
+                # Fast in-memory check against geo candidates
+                for cand in existing_geo_candidates:
+                    if (cand.category == pt.category and
+                        abs(cand.latitude - pt.latitude) <= 0.0005 and
+                        abs(cand.longitude - pt.longitude) <= 0.0005):
+                        existing = cand
+                        break
 
             if existing:
                 existing.name = pt.name
                 existing.category = pt.category
-                existing.address = pt.address or existing.address
-                existing.phone = pt.phone or existing.phone
-                existing.description = pt.description or existing.description
-                existing.verification_status = pt.verification_status
-                existing.verification_timestamp = pt.verification_timestamp
-                existing.provenance = pt.provenance
+                if pt.address is not None:
+                    existing.address = pt.address
+                if pt.phone is not None:
+                    existing.phone = pt.phone
+                if pt.description is not None:
+                    existing.description = pt.description
+                if pt.verification_status is not None:
+                    existing.verification_status = pt.verification_status
+                if pt.verification_timestamp is not None:
+                    existing.verification_timestamp = pt.verification_timestamp
+                if pt.provenance is not None:
+                    existing.provenance = pt.provenance
             else:
-                self.session.add(pt)
+                new_points.append(pt)
+                existing_geo_candidates.append(pt)
+                if pt.osm_id:
+                    existing_by_osm[pt.osm_id] = pt
                 inserted += 1
+
+        if new_points:
+            self.session.add_all(new_points)
 
         await self.session.commit()
         return inserted
-

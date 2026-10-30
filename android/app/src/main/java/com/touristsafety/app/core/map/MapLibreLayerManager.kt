@@ -37,6 +37,24 @@ object MapLibreLayerManager {
     private var lastWaterwayGeoJson: String? = null
     private var lastSelectedPointGeoJson: String? = null
 
+    /**
+     * Clears all GeoJSON change-detection hashes.
+     * Called whenever a new MapLibre Style instance is loaded to ensure all layers are re-populated.
+     */
+    fun resetDirtyCache() {
+        lastCorridorGeoJson = null
+        lastRoutePrimaryGeoJson = null
+        lastRouteSecondaryGeoJson = null
+        lastDisasterGeoJson = null
+        lastForestGeoJson = null
+        lastFireGeoJson = null
+        lastHavenGeoJson = null
+        lastWeatherGeoJson = null
+        lastSlopeGeoJson = null
+        lastWaterwayGeoJson = null
+        lastSelectedPointGeoJson = null
+    }
+
     // Sources
     const val SOURCE_UTTARAKHAND_MASK = "source-uttarakhand-mask"
     const val SOURCE_UTTARAKHAND_BOUNDARY = "source-uttarakhand-boundary"
@@ -62,6 +80,7 @@ object MapLibreLayerManager {
     const val LAYER_DISASTER_POINTS_CIRCLE = "layer-disaster-points-circle"
     const val LAYER_DISASTER_POINTS_SYMBOL = "layer-disaster-points-symbol"
     const val LAYER_ROUTE_SECONDARY_LINE = "layer-route-secondary-line"
+    const val LAYER_ROUTE_PRIMARY_CASING = "layer-route-primary-casing"
     const val LAYER_ROUTE_PRIMARY_LINE = "layer-route-primary-line"
     const val LAYER_ACTIVE_FIRES_CIRCLE = "layer-active-fires-circle"
     const val LAYER_ACTIVE_FIRES_SYMBOL = "layer-active-fires-symbol"
@@ -137,7 +156,11 @@ object MapLibreLayerManager {
      * Initializes all vector GeoJSON sources and style layers in exact bottom-to-top z-order.
      * Safe to call multiple times; existing sources and layers are preserved.
      */
-    fun setupSourcesAndLayers(style: Style, context: android.content.Context? = null) {
+    fun setupSourcesAndLayers(
+        style: Style,
+        context: android.content.Context? = null,
+        isSatellite: Boolean = false
+    ) {
         if (!style.isFullyLoaded) {
             Log.d(TAG, "Style not fully loaded yet; deferring source/layer creation.")
             return
@@ -159,14 +182,20 @@ object MapLibreLayerManager {
                         style.addSource(GeoJsonSource(SOURCE_UTTARAKHAND_MASK, maskJson))
                     }
                 }
-                if (style.getLayer(LAYER_UTTARAKHAND_MASK_FILL) == null && style.getSource(SOURCE_UTTARAKHAND_MASK) != null) {
+                val existingMask = style.getLayer(LAYER_UTTARAKHAND_MASK_FILL) as? FillLayer
+                if (existingMask == null && style.getSource(SOURCE_UTTARAKHAND_MASK) != null) {
                     val maskFill = FillLayer(LAYER_UTTARAKHAND_MASK_FILL, SOURCE_UTTARAKHAND_MASK).apply {
                         setProperties(
-                            fillColor(Color.parseColor("#EAE8E3")), // Neutral tone matching base map
-                            fillOpacity(1.0f) // 100% opacity hides all out-of-state tiles
+                            fillColor(if (isSatellite) Color.parseColor("#0B131E") else Color.parseColor("#EAE8E3")),
+                            fillOpacity(if (isSatellite) 0.60f else 1.0f)
                         )
                     }
                     style.addLayer(maskFill)
+                } else if (existingMask != null) {
+                    existingMask.setProperties(
+                        fillColor(if (isSatellite) Color.parseColor("#0B131E") else Color.parseColor("#EAE8E3")),
+                        fillOpacity(if (isSatellite) 0.60f else 1.0f)
+                    )
                 }
 
                 if (style.getSource(SOURCE_UTTARAKHAND_BOUNDARY) == null) {
@@ -338,6 +367,27 @@ object MapLibreLayerManager {
 
             if (style.getSource(SOURCE_ROUTE_PRIMARY) == null) {
                 style.addSource(GeoJsonSource(SOURCE_ROUTE_PRIMARY, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_ROUTE_PRIMARY_CASING) == null) {
+                val primCasing = LineLayer(LAYER_ROUTE_PRIMARY_CASING, SOURCE_ROUTE_PRIMARY).apply {
+                    setProperties(
+                        lineColor(Color.WHITE),
+                        lineWidth(if (isSatellite) 8.5f else 0.0f),
+                        lineOpacity(if (isSatellite) 0.90f else 0.0f),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                        lineCap(Property.LINE_CAP_ROUND)
+                    )
+                }
+                if (style.getLayer(LAYER_ROUTE_PRIMARY_LINE) != null) {
+                    style.addLayerBelow(primCasing, LAYER_ROUTE_PRIMARY_LINE)
+                } else {
+                    style.addLayer(primCasing)
+                }
+            } else {
+                (style.getLayer(LAYER_ROUTE_PRIMARY_CASING) as? LineLayer)?.setProperties(
+                    lineWidth(if (isSatellite) 8.5f else 0.0f),
+                    lineOpacity(if (isSatellite) 0.90f else 0.0f)
+                )
             }
             if (style.getLayer(LAYER_ROUTE_PRIMARY_LINE) == null) {
                 val primLine = LineLayer(LAYER_ROUTE_PRIMARY_LINE, SOURCE_ROUTE_PRIMARY).apply {
@@ -942,9 +992,14 @@ object MapLibreLayerManager {
     /**
      * Updates all GeoJSON sources with the latest state data without destroying layers.
      */
-    fun updateData(style: Style, state: MapUiState, context: android.content.Context? = null) {
+    fun updateData(
+        style: Style,
+        state: MapUiState,
+        context: android.content.Context? = null,
+        isSatellite: Boolean = state.basemapMode.isSatellite
+    ) {
         if (!style.isFullyLoaded) return
-        setupSourcesAndLayers(style, context)
+        setupSourcesAndLayers(style, context, isSatellite)
 
         Log.d(TAG, "MapLibre updateData: allFeatures=${state.allFeatures.size}, " +
                 "hazardsGeoJson=${!state.hazardsGeoJson.isNullOrBlank()}, " +
@@ -1638,16 +1693,24 @@ object MapLibreLayerManager {
      * Ensures any raw GeoJSON string (e.g. LineString or Polygon) is wrapped into a valid FeatureCollection
      * so that MapLibre GeoJsonSource can parse and render it without runtime schema errors.
      */
-    fun ensureFeatureCollection(rawJson: String): String {
+    fun ensureFeatureCollection(rawJson: String?): String {
+        if (rawJson.isNullOrBlank() || rawJson.trim() == "{}" || rawJson.trim() == "null") {
+            return "{\"type\":\"FeatureCollection\",\"features\":[]}"
+        }
         val trimmed = rawJson.trim()
-        if (trimmed.startsWith("{\"type\":\"FeatureCollection\"") || trimmed.startsWith("{\"type\": \"FeatureCollection\"")) {
-            return trimmed
+        return try {
+            val root = org.json.JSONObject(trimmed)
+            val type = root.optString("type")
+            if (type.equals("FeatureCollection", ignoreCase = true)) {
+                trimmed
+            } else if (type.equals("Feature", ignoreCase = true)) {
+                "{\"type\":\"FeatureCollection\",\"features\":[$trimmed]}"
+            } else {
+                "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":$trimmed}]}"
+            }
+        } catch (_: Exception) {
+            "{\"type\":\"FeatureCollection\",\"features\":[]}"
         }
-        if (trimmed.startsWith("{\"type\":\"Feature\"") || trimmed.startsWith("{\"type\": \"Feature\"")) {
-            return "{\"type\":\"FeatureCollection\",\"features\":[$trimmed]}"
-        }
-        // Bare Geometry (LineString, Polygon, MultiPolygon)
-        return "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":$trimmed}]}"
     }
 
     private var cachedMaskGeoJson: String? = null

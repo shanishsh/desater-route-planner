@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.touristsafety.app.core.crash.CrashReporter
+import com.touristsafety.app.core.map.BasemapManager
+import com.touristsafety.app.core.map.BasemapMode
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
@@ -76,6 +78,21 @@ fun MapScreen(
     var showReportConditionSheet by remember { mutableStateOf(false) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
     val animationController = remember { HazardAnimationController() }
+    val basemapManager = remember {
+        BasemapManager(
+            onStyleLoadStarted = {
+                baseMapStatus = BaseMapStatus.STYLE_LOADING
+            },
+            onStyleLoadSuccess = { _, _ ->
+                baseMapStatus = BaseMapStatus.READY
+                styleErrorMessage = null
+            },
+            onStyleLoadFailed = { _, error ->
+                baseMapStatus = BaseMapStatus.FAILED
+                styleErrorMessage = error
+            }
+        )
+    }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -192,7 +209,8 @@ fun MapScreen(
             try {
                 maplibreMapInstance = mapboxMap
 
-                mapboxMap.setStyle(Style.Builder().fromUri(currentStyleUrl)) { style ->
+                val initialStyleBuilder = MapConfig.createStyleBuilder(state.basemapMode)
+                mapboxMap.setStyle(initialStyleBuilder) { style ->
                     try {
                         android.util.Log.i("MapScreen", "Base style loaded successfully: $currentStyleUrl")
                         baseMapStatus = BaseMapStatus.READY
@@ -355,6 +373,30 @@ fun MapScreen(
                                 viewModel.selectFeature(clickedPoly)
                                 return@addOnMapClickListener true
                             }
+                            val polyName = topPoly.getStringProperty("name") ?: topPoly.getStringProperty("title")
+                            if (!polyName.isNullOrBlank()) {
+                                val catStr = topPoly.getStringProperty("category") ?: ""
+                                val isWaterway = catStr.contains("water") || catStr.contains("river") || catStr.contains("flood") || catStr.contains("lake")
+                                val desc = topPoly.getStringProperty("description")
+                                    ?: topPoly.getStringProperty("wood_type")
+                                    ?: topPoly.getStringProperty("basin")
+                                    ?: topPoly.getStringProperty("source")
+                                    ?: "Environmental Map Feature"
+                                val syntheticFeature = com.touristsafety.app.core.model.UnifiedMapFeature(
+                                    id = polyId ?: "poly_${System.currentTimeMillis()}",
+                                    category = if (isWaterway) com.touristsafety.app.core.model.MapFeatureCategory.WATERWAY else com.touristsafety.app.core.model.MapFeatureCategory.FOREST_AREA,
+                                    title = polyName,
+                                    subtitle = desc,
+                                    latitude = latLng.latitude,
+                                    longitude = latLng.longitude,
+                                    details = mapOf(
+                                        "description" to desc,
+                                        "severity" to (topPoly.getStringProperty("flood_risk") ?: "INFO")
+                                    )
+                                )
+                                viewModel.selectFeature(syntheticFeature)
+                                return@addOnMapClickListener true
+                            }
                         }
 
                         // 4. Priority 4: Empty Map Area -> Universal Map Tap Point Inspection
@@ -461,6 +503,14 @@ fun MapScreen(
                     map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, state.zoomLevel))
                 }
             }
+        }
+    }
+
+    // Seamlessly transition basemap mode while preserving camera, trek recording, and drawing state
+    LaunchedEffect(state.basemapMode) {
+        val map = maplibreMapInstance ?: return@LaunchedEffect
+        if (basemapManager.currentMode != state.basemapMode) {
+            basemapManager.switchBasemap(map, state.basemapMode, state, context)
         }
     }
 
@@ -779,12 +829,53 @@ fun MapScreen(
                         )
                     }
                 }
+
+                if (state.basemapMode.isSatellite) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Satellite imagery requires internet. Cached trails are on Streets & Trails.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Revert",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.clickable {
+                                    viewModel.setBasemapMode(BasemapMode.STREETS_TRAILS)
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
 
         // 3. FLOATING MAP CONTROLS (Right Column)
         FloatingMapControls(
             isOffline = state.isOfflineMode,
+            currentBasemapMode = state.basemapMode,
             isDrawing = state.isDrawingMode,
             isRecording = state.isRecordingTrek,
             onRecenter = {
@@ -806,6 +897,7 @@ fun MapScreen(
                     )
                 }
             },
+            onOpenBasemapSelector = { viewModel.toggleBasemapSelector(true) },
             onOpenLayers = { viewModel.toggleLayersSheet(true) },
             onToggleOffline = {
                 userToggledCanvas = !userToggledCanvas
@@ -1314,11 +1406,12 @@ fun MapScreen(
                 .align(Alignment.BottomStart)
                 .padding(start = 12.dp, bottom = attributionBottomPadding)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color.White.copy(alpha = 0.85f))
+                .background(Color.White.copy(alpha = 0.88f))
+                .clickable { viewModel.toggleBasemapSelector(true) }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             Text(
-                text = "© OpenStreetMap contributors • NASA FIRMS • DDMA",
+                text = "${state.basemapMode.displayName} • ${state.basemapMode.attribution} • NASA FIRMS • DDMA",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.DarkGray,
                 fontSize = 9.sp
@@ -1326,6 +1419,16 @@ fun MapScreen(
         }
 
         // 5. BOTTOM SHEETS & DIALOGS
+
+        // Basemap Style Selector Dialog
+        if (state.showBasemapSelector) {
+            BasemapSelectorDialog(
+                currentMode = state.basemapMode,
+                isOffline = state.isOfflineMode,
+                onSelectMode = { viewModel.setBasemapMode(it) },
+                onDismiss = { viewModel.toggleBasemapSelector(false) }
+            )
+        }
 
         // A. Selected Target / Feature Detail Bottom Sheet
         if (state.selectedTarget != null) {
@@ -1350,7 +1453,9 @@ fun MapScreen(
                 onToggleLayer = { viewModel.toggleLayer(it) },
                 onShowAll = { viewModel.showAllLayers() },
                 onResetDefaults = { viewModel.resetLayerDefaults() },
-                onDismiss = { viewModel.toggleLayersSheet(false) }
+                onDismiss = { viewModel.toggleLayersSheet(false) },
+                currentBasemapMode = state.basemapMode,
+                onSelectBasemapMode = { viewModel.setBasemapMode(it) }
             )
         }
 
@@ -1566,10 +1671,12 @@ private fun FilterChipsRow(
 @Composable
 private fun FloatingMapControls(
     isOffline: Boolean,
+    currentBasemapMode: BasemapMode = BasemapMode.STREETS_TRAILS,
     isDrawing: Boolean = false,
     isRecording: Boolean = false,
     onRecenter: () -> Unit,
     onFitRoute: () -> Unit,
+    onOpenBasemapSelector: () -> Unit = {},
     onOpenLayers: () -> Unit,
     onToggleOffline: () -> Unit,
     onReportTrailCondition: () -> Unit = {},
@@ -1627,6 +1734,29 @@ private fun FloatingMapControls(
         }
 
         FloatingActionButton(
+            onClick = onOpenBasemapSelector,
+            modifier = Modifier.size(42.dp),
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = when (currentBasemapMode) {
+                BasemapMode.STREETS_TRAILS -> Color(0xFF2E7D32)
+                BasemapMode.SATELLITE -> Color(0xFF1565C0)
+                BasemapMode.HYBRID -> Color(0xFFF57C00)
+            },
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(
+                imageVector = when (currentBasemapMode) {
+                    BasemapMode.STREETS_TRAILS -> Icons.Default.Terrain
+                    BasemapMode.SATELLITE -> Icons.Default.SatelliteAlt
+                    BasemapMode.HYBRID -> Icons.Default.Map
+                },
+                contentDescription = "Basemap Mode (${currentBasemapMode.displayName})",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        FloatingActionButton(
             onClick = onOpenLayers,
             modifier = Modifier.size(42.dp),
             shape = CircleShape,
@@ -1680,8 +1810,8 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
         }
 
         try {
-            MapLibreLayerManager.setupSourcesAndLayers(style, context)
-            MapLibreLayerManager.updateData(style, state, context)
+            MapLibreLayerManager.setupSourcesAndLayers(style, context, isSatellite = state.basemapMode.isSatellite)
+            MapLibreLayerManager.updateData(style, state, context, isSatellite = state.basemapMode.isSatellite)
         } catch (t: Throwable) {
             android.util.Log.e("MapScreen", "Vector layers update failed safely: ${t.message}")
         }

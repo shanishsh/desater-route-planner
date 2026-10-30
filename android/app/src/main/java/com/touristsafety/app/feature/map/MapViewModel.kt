@@ -157,7 +157,9 @@ data class MapUiState(
     val pointContextData: com.touristsafety.app.core.network.dto.PointContextDto? = null,
     val pointContextError: String? = null,
     val pointContextGenerationToken: Long = 0L,
-    val routeWeatherSamples: List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather> = emptyList()
+    val routeWeatherSamples: List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather> = emptyList(),
+    val basemapMode: com.touristsafety.app.core.map.BasemapMode = com.touristsafety.app.core.map.BasemapMode.STREETS_TRAILS,
+    val showBasemapSelector: Boolean = false
 )
 
 @HiltViewModel
@@ -1758,6 +1760,14 @@ class MapViewModel @Inject constructor(
 
     fun toggleLayersSheet(show: Boolean) {
         _uiState.update { it.copy(showLayersSheet = show) }
+    }
+
+    fun setBasemapMode(mode: com.touristsafety.app.core.map.BasemapMode) {
+        _uiState.update { it.copy(basemapMode = mode, showBasemapSelector = false) }
+    }
+
+    fun toggleBasemapSelector(show: Boolean) {
+        _uiState.update { it.copy(showBasemapSelector = show) }
     }
 
     fun toggleNearbySheet(show: Boolean) {

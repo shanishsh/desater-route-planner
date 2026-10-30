@@ -18,12 +18,27 @@ def _create_engine(url: str):
     connect_args = {}
     if "sqlite" in url:
         connect_args["check_same_thread"] = False
-    return create_async_engine(
-        url,
-        echo=settings.DATABASE_ECHO,
-        future=True,
-        connect_args=connect_args,
-    )
+        return create_async_engine(
+            url,
+            echo=settings.DATABASE_ECHO,
+            future=True,
+            connect_args=connect_args,
+        )
+    else:
+        # PostgreSQL / asyncpg production-ready pool tuning
+        # Disabling JIT prevents query latency spikes on short spatial PostGIS queries
+        connect_args["server_settings"] = {"jit": "off"}
+        return create_async_engine(
+            url,
+            echo=settings.DATABASE_ECHO,
+            future=True,
+            pool_size=10,
+            max_overflow=5,
+            pool_recycle=300,
+            pool_pre_ping=True,
+            pool_timeout=30.0,
+            connect_args=connect_args,
+        )
 
 
 engine = _create_engine(settings.DATABASE_URL)
@@ -85,6 +100,11 @@ async def init_db():
         # If the failed URL is not SQLite, fall back to bundled SQLite database so service starts cleanly
         if "sqlite" not in settings.DATABASE_URL:
             logger.info("Falling back to local SQLite database: sqlite+aiosqlite:///./tourist.db")
+            if engine is not None:
+                try:
+                    await engine.dispose()
+                except Exception:
+                    pass
             fallback_url = "sqlite+aiosqlite:///./tourist.db"
             engine = _create_engine(fallback_url)
             async_session_maker = async_sessionmaker(

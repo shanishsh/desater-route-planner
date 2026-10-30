@@ -10,6 +10,7 @@ if _backend_dir not in sys.path:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.config import settings
 from app.core.logging import setup_logging
 from app.database.base import Base
@@ -18,7 +19,9 @@ from app.api.v1.router import api_v1_router
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.error_handler import ErrorHandlingMiddleware
+from app.middleware.metrics import PrometheusMetricsMiddleware
 from app.observability.metrics import get_metrics_response
+from app.cache.redis_cache import cache_service
 from app.clients.open_meteo import open_meteo_client
 from app.clients.osm_forest import osm_forest_client
 from app.clients.nasa_firms import nasa_firms_client
@@ -42,6 +45,7 @@ async def lifespan(app: FastAPI):
     await nasa_firms_client.close()
     await opencellid_client.close()
     await groq_client.close()
+    await cache_service.close()
     await close_db()
 
 
@@ -54,10 +58,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Custom Middlewares
+# Custom Middlewares (outermost executed first on request, last on response)
 app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(PrometheusMetricsMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # CORS Middleware
 app.add_middleware(
@@ -99,5 +105,3 @@ if __name__ == "__main__":
     server_host = getattr(settings, "API_HOST", "0.0.0.0")
     is_debug = getattr(settings, "DEBUG", settings.ENVIRONMENT == "development")
     uvicorn.run("app.main:app", host=server_host, port=server_port, reload=is_debug)
-
-

@@ -78,3 +78,4 @@ sealed interface SelectedMapTarget {
             get() = String.format(Locale.US, "point-%.5f,%.5f", latitude, longitude)
     }
 }
+

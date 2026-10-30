@@ -1,23 +1,11 @@
 package com.touristsafety.app.core.map
 
 import com.touristsafety.app.BuildConfig
+import org.maplibre.android.maps.Style
 
 /**
- * Free basemap configuration using OpenFreeMap (https://openfreemap.org).
- * OpenFreeMap provides completely free, open-source vector map tiles powered by OpenStreetMap data
- * with no API keys, billing accounts, or proprietary tracking tokens required.
- *
- * OpenFreeMap Fair Use & Offline Terms:
- * - Direct vector downloads capped at 3,000 tiles or 50 MB per offline pack.
- * - Maximum of 4 parallel requests (enforced via OkHttp Dispatcher).
- * - Custom descriptive User-Agent header identifying client.
- *
- * Statewide Uttarakhand Architecture (Large-Area Offline Alternative):
- * For statewide coverage exceeding 3,000 tiles / 50 MB, OpenFreeMap provides free raw PMTiles
- * extracts (or MBTiles) available at https://openfreemap.org/downloads. These can be:
- * 1. Self-hosted locally on a regional server (e.g., using Martin, Tileserver-GL, or Caddy)
- * 2. Bundled as a local SQLite/PMTiles asset within the Android client or external SD card
- * 3. Pointed to via local file URI: "file:///android_asset/uttarakhand.mbtiles" or self-hosted endpoint.
+ * Free basemap configuration supporting Streets & Trails (OpenFreeMap),
+ * Satellite (ArcGIS World Imagery / MapTiler), and Hybrid imagery styles.
  */
 object MapConfig {
     const val DEFAULT_STYLE_URL = BuildConfig.MAP_STYLE_URL
@@ -77,7 +65,125 @@ object MapConfig {
     }
     """.trimIndent()
 
-    // Offline-ready fallback style JSON pointing to the rich OSM raster basemap
     val FALLBACK_STYLE_JSON = OSM_RASTER_STYLE_JSON
-}
 
+    /**
+     * Genuine high-resolution aerial and satellite imagery basemap.
+     * Powered by ArcGIS World Imagery (Esri, Maxar, Earthstar Geographics).
+     */
+    val SATELLITE_STYLE_JSON = """
+    {
+      "version": 8,
+      "name": "Uttarakhand Satellite Basemap",
+      "sources": {
+        "satellite-tiles": {
+          "type": "raster",
+          "tiles": [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          ],
+          "tileSize": 256,
+          "attribution": "Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+        }
+      },
+      "layers": [
+        {
+          "id": "background",
+          "type": "background",
+          "paint": {
+            "background-color": "#0B131E"
+          }
+        },
+        {
+          "id": "satellite-tiles-layer",
+          "type": "raster",
+          "source": "satellite-tiles",
+          "minzoom": 0,
+          "maxzoom": 19
+        }
+      ]
+    }
+    """.trimIndent()
+
+    /**
+     * Hybrid basemap compositing high-resolution satellite imagery with
+     * reference transportation roads and administrative place labels.
+     */
+    val HYBRID_STYLE_JSON = """
+    {
+      "version": 8,
+      "name": "Uttarakhand Hybrid Basemap",
+      "sources": {
+        "satellite-tiles": {
+          "type": "raster",
+          "tiles": [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          ],
+          "tileSize": 256,
+          "attribution": "Imagery: © Esri, Maxar, Earthstar Geographics"
+        },
+        "reference-roads": {
+          "type": "raster",
+          "tiles": [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+          ],
+          "tileSize": 256
+        },
+        "reference-labels": {
+          "type": "raster",
+          "tiles": [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+          ],
+          "tileSize": 256,
+          "attribution": "Boundaries & Places: © Esri"
+        }
+      },
+      "layers": [
+        {
+          "id": "background",
+          "type": "background",
+          "paint": {
+            "background-color": "#0B131E"
+          }
+        },
+        {
+          "id": "satellite-tiles-layer",
+          "type": "raster",
+          "source": "satellite-tiles",
+          "minzoom": 0,
+          "maxzoom": 19
+        },
+        {
+          "id": "reference-roads-layer",
+          "type": "raster",
+          "source": "reference-roads",
+          "minzoom": 0,
+          "maxzoom": 19
+        },
+        {
+          "id": "reference-labels-layer",
+          "type": "raster",
+          "source": "reference-labels",
+          "minzoom": 0,
+          "maxzoom": 19
+        }
+      ]
+    }
+    """.trimIndent()
+
+    /**
+     * Generates a MapLibre Style.Builder for the requested BasemapMode.
+     */
+    fun createStyleBuilder(mode: BasemapMode): Style.Builder {
+        return when (mode) {
+            BasemapMode.STREETS_TRAILS -> {
+                Style.Builder().fromUri(DEFAULT_STYLE_URL)
+            }
+            BasemapMode.SATELLITE -> {
+                Style.Builder().fromJson(SATELLITE_STYLE_JSON)
+            }
+            BasemapMode.HYBRID -> {
+                Style.Builder().fromJson(HYBRID_STYLE_JSON)
+            }
+        }
+    }
+}

@@ -66,7 +66,7 @@ async def client(test_db):
     redis_cli = await cache_service.get_client()
     if redis_cli:
         try:
-            for pattern in ["weather:*", "route:*", "firms:*", "forest:*", "amenity:*", "lock:*", "rate:*"]:
+            for pattern in ["weather:*", "route:*", "firms:*", "forest:*", "amenity:*", "point_context:*", "lock:*", "rate:*"]:
                 keys = await redis_cli.keys(pattern)
                 if keys:
                     await redis_cli.delete(*keys)

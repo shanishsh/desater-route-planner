@@ -51,3 +51,4 @@ class PointContextResponse(BaseModel):
         "Point inspection synthesizes Open-Meteo atmospheric forecasts, NDMA Sachet/IMD official bulletins, "
         "and OSM emergency infrastructure. Forecasts are model-based and not on-site measurements."
     )
+

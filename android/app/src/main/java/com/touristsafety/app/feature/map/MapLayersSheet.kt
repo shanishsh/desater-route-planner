@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.touristsafety.app.core.map.BasemapMode
 import com.touristsafety.app.core.model.LayerDataStatus
 import com.touristsafety.app.core.model.MapFeatureCategory
 
@@ -29,7 +30,9 @@ fun MapLayersSheet(
     onToggleLayer: (MapFeatureCategory) -> Unit,
     onShowAll: () -> Unit,
     onResetDefaults: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    currentBasemapMode: BasemapMode = BasemapMode.STREETS_TRAILS,
+    onSelectBasemapMode: ((BasemapMode) -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -61,6 +64,48 @@ fun MapLayersSheet(
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Close")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Basemap Style Selector
+            Text(
+                text = "Basemap Style",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BasemapMode.entries.forEach { mode ->
+                    val isSelected = mode == currentBasemapMode
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectBasemapMode?.invoke(mode) },
+                        label = {
+                            Text(
+                                text = mode.displayName,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = when (mode) {
+                                    BasemapMode.STREETS_TRAILS -> Icons.Default.Terrain
+                                    BasemapMode.SATELLITE -> Icons.Default.SatelliteAlt
+                                    BasemapMode.HYBRID -> Icons.Default.Map
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 

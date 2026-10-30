@@ -84,3 +84,4 @@ async def test_point_context_coordinate_validation(client):
     """Verify invalid coordinates return 422 Unprocessable Entity."""
     response = await client.get("/api/v1/places/point-context?lat=195.0&lon=79.0")
     assert response.status_code == 422
+
