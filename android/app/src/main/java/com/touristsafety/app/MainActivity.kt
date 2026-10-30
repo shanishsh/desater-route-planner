@@ -17,8 +17,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.auth.TokenManager
 import com.touristsafety.app.core.designsystem.ForestGreenPrimary
 import com.touristsafety.app.core.designsystem.SageContainer
@@ -72,7 +74,7 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
-                val activeTrip by routeRepository.activeTripFlow.collectAsState(initial = null)
+                val activeTrip by routeRepository.activeTripFlow.collectAsStateWithLifecycle(initialValue = null)
                 var isBannerDismissed by rememberSaveable { mutableStateOf(false) }
 
                 LaunchedEffect(activeTrip?.tripId) {
@@ -114,7 +116,9 @@ class MainActivity : ComponentActivity() {
                                                 .fillMaxWidth()
                                                 .height(44.dp)
                                                 .clickable {
-                                                    navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId))
+                                                    navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId)) {
+                                                        launchSingleTop = true
+                                                    }
                                                 },
                                             color = ForestGreenPrimary,
                                             contentColor = Color.White
@@ -195,7 +199,9 @@ class MainActivity : ComponentActivity() {
                                             val targetRoute = screen.route
                                             if (currentRoute?.substringBefore('?') != targetRoute.substringBefore('?')) {
                                                 navController.navigate(targetRoute) {
-                                                    popUpTo(Screen.Home.route) { saveState = true }
+                                                    popUpTo(navController.graph.findStartDestination().id) {
+                                                        saveState = true
+                                                    }
                                                     launchSingleTop = true
                                                     restoreState = true
                                                 }

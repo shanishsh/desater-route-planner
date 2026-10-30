@@ -1,6 +1,7 @@
 package com.touristsafety.app.feature.map
 
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
@@ -78,6 +79,7 @@ data class MapUiState(
     val locationErrorMessage: String? = null,
     val cameraTarget: Pair<Double, Double> = MapConfig.DEFAULT_LATITUDE to MapConfig.DEFAULT_LONGITUDE,
     val zoomLevel: Double = MapConfig.DEFAULT_ZOOM,
+    val cameraBearing: Double = 0.0,
     val isOfflineMode: Boolean = false,
     val selectedFilter: MapFilterChip = MapFilterChip.ALL,
     val layerVisibilities: Map<MapFeatureCategory, Boolean> = MapFeatureCategory.entries.associateWith { true },
@@ -178,12 +180,58 @@ class MapViewModel @Inject constructor(
     val pointContextRepository: PointContextRepository? = null,
     private val boundaryValidator: UttarakhandBoundaryValidator? = null,
     val liveTrekContextEngine: com.touristsafety.app.core.spatial.LiveTrekContextEngine? = null,
-    @ApplicationContext private val context: Context? = null
+    @ApplicationContext private val context: Context? = null,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
+
+    companion object {
+        private const val KEY_CAM_LAT = "map_cam_lat"
+        private const val KEY_CAM_LON = "map_cam_lon"
+        private const val KEY_CAM_ZOOM = "map_cam_zoom"
+        private const val KEY_CAM_BEARING = "map_cam_bearing"
+        private const val KEY_DRAWING_MODE = "map_drawing_mode"
+        private const val KEY_DRAWING_TYPE = "map_drawing_type"
+        private const val KEY_DRAFT_WAYPOINTS_JSON = "map_draft_waypoints"
+
+        fun encodeWaypoints(wpts: List<Pair<Double, Double>>): String =
+            wpts.joinToString(";") { "${it.first},${it.second}" }
+
+        fun decodeWaypoints(raw: String): List<Pair<Double, Double>> =
+            if (raw.isBlank()) emptyList()
+            else raw.split(";").mapNotNull { part ->
+                val tokens = part.split(",")
+                if (tokens.size == 2) {
+                    val lat = tokens[0].toDoubleOrNull()
+                    val lon = tokens[1].toDoubleOrNull()
+                    if (lat != null && lon != null) lat to lon else null
+                } else null
+            }
+    }
 
     val locationState = deviceLocationRepository.locationState
 
-    private val _uiState = MutableStateFlow(MapUiState())
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+
+    private val initialLat: Double = savedStateHandle.get<Double>(KEY_CAM_LAT) ?: MapConfig.DEFAULT_LATITUDE
+    private val initialLon: Double = savedStateHandle.get<Double>(KEY_CAM_LON) ?: MapConfig.DEFAULT_LONGITUDE
+    private val initialZoom: Double = savedStateHandle.get<Double>(KEY_CAM_ZOOM) ?: MapConfig.DEFAULT_ZOOM
+    private val initialBearing: Double = savedStateHandle.get<Double>(KEY_CAM_BEARING) ?: 0.0
+    private val initialDrawingMode: Boolean = savedStateHandle.get<Boolean>(KEY_DRAWING_MODE) ?: false
+    private val initialDrawingType: String = savedStateHandle.get<String>(KEY_DRAWING_TYPE) ?: "FREEHAND"
+    private val initialDraftWpts: List<Pair<Double, Double>> = savedStateHandle.get<String>(KEY_DRAFT_WAYPOINTS_JSON)?.let { raw ->
+        decodeWaypoints(raw)
+    } ?: emptyList()
+
+    private val _uiState = MutableStateFlow(
+        MapUiState(
+            cameraTarget = initialLat to initialLon,
+            zoomLevel = initialZoom,
+            cameraBearing = initialBearing,
+            isDrawingMode = initialDrawingMode,
+            drawingType = initialDrawingType,
+            draftWaypoints = initialDraftWpts
+        )
+    )
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
     private var rawMapPoints: List<MapPoint> = emptyList()
@@ -195,7 +243,25 @@ class MapViewModel @Inject constructor(
     private var selectionGenerationToken: Long = 0L
     private var pointContextJob: Job? = null
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    fun saveCameraState(lat: Double, lon: Double, zoom: Double, bearing: Double) {
+        savedStateHandle[KEY_CAM_LAT] = lat
+        savedStateHandle[KEY_CAM_LON] = lon
+        savedStateHandle[KEY_CAM_ZOOM] = zoom
+        savedStateHandle[KEY_CAM_BEARING] = bearing
+        _uiState.update {
+            it.copy(
+                cameraTarget = lat to lon,
+                zoomLevel = zoom,
+                cameraBearing = bearing
+            )
+        }
+    }
+
+    private fun persistDrawingDraft(isMode: Boolean, type: String, waypoints: List<Pair<Double, Double>>) {
+        savedStateHandle[KEY_DRAWING_MODE] = isMode
+        savedStateHandle[KEY_DRAWING_TYPE] = type
+        savedStateHandle[KEY_DRAFT_WAYPOINTS_JSON] = encodeWaypoints(waypoints)
+    }
 
     private var searchJob: Job? = null
     private var currentRouteAnalysisJob: Job? = null
@@ -2093,7 +2159,12 @@ class MapViewModel @Inject constructor(
 
     private var liveTrekTimerJob: Job? = null
 
-    fun enterDrawingMode(type: String = "FREEHAND") {
+    fun enterDrawingMode(type: String = "FREEHAND", resetIfActive: Boolean = false) {
+        val currentState = _uiState.value
+        if (currentState.isDrawingMode && !resetIfActive) {
+            return
+        }
+        persistDrawingDraft(true, type, emptyList())
         _uiState.update {
             it.copy(
                 isDrawingMode = true,
@@ -2108,6 +2179,7 @@ class MapViewModel @Inject constructor(
     }
 
     fun exitDrawingMode() {
+        persistDrawingDraft(false, "FREEHAND", emptyList())
         _uiState.update {
             it.copy(
                 isDrawingMode = false,
@@ -2183,6 +2255,7 @@ class MapViewModel @Inject constructor(
             )
         }
 
+        persistDrawingDraft(true, state.drawingType, currentWpts)
         _uiState.update {
             it.copy(
                 draftWaypoints = currentWpts,
@@ -2222,6 +2295,7 @@ class MapViewModel @Inject constructor(
             )
         }
 
+        persistDrawingDraft(true, state.drawingType, prevWpts)
         _uiState.update {
             it.copy(
                 draftWaypoints = prevWpts,
@@ -2233,6 +2307,7 @@ class MapViewModel @Inject constructor(
     }
 
     fun clearDraft() {
+        persistDrawingDraft(true, _uiState.value.drawingType, emptyList())
         _uiState.update {
             it.copy(
                 draftWaypoints = emptyList(),

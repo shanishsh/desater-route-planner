@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.crash.CrashReporter
 import com.touristsafety.app.core.map.BasemapManager
 import com.touristsafety.app.core.map.BasemapMode
@@ -67,7 +68,7 @@ fun MapScreen(
     onNavigateToPlanTrip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var baseMapStatus by remember { mutableStateOf(BaseMapStatus.INITIALIZING) }
     var currentStyleUrl by remember { mutableStateOf(MapConfig.DEFAULT_STYLE_URL) }
@@ -233,6 +234,7 @@ fun MapScreen(
                             val pos = CameraPosition.Builder()
                                 .target(target)
                                 .zoom(state.zoomLevel)
+                                .bearing(state.cameraBearing)
                                 .build()
                             mapboxMap.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
                         }
@@ -427,8 +429,16 @@ fun MapScreen(
 
                 mapboxMap.addOnCameraIdleListener {
                     try {
-                        val curZoom = mapboxMap.cameraPosition.zoom
-                        viewModel.setZoomLevel(curZoom)
+                        val curPos = mapboxMap.cameraPosition
+                        val target = curPos.target
+                        if (target != null) {
+                            viewModel.saveCameraState(
+                                lat = target.latitude,
+                                lon = target.longitude,
+                                zoom = curPos.zoom,
+                                bearing = curPos.bearing
+                            )
+                        }
                     } catch (t: Throwable) {
                         android.util.Log.w("MapScreen", "Camera idle callback failed: ${t.message}")
                     }
@@ -912,7 +922,7 @@ fun MapScreen(
         )
 
         if (showReportConditionSheet && viewModel.trailReportRepository != null) {
-            val locState by viewModel.locationState.collectAsState()
+            val locState by viewModel.locationState.collectAsStateWithLifecycle()
             ReportTrailConditionBottomSheet(
                 initialLat = locState.latitude ?: if (state.userLocation.first != 0.0) state.userLocation.first else null,
                 initialLon = locState.longitude ?: if (state.userLocation.second != 0.0) state.userLocation.second else null,

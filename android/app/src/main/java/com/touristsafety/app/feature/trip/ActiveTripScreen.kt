@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.map.MapConfig
@@ -50,8 +53,9 @@ fun ActiveTripScreen(
     onNavigateToCompletedTrekDetail: (String) -> Unit = {},
     viewModel: ActiveTripViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var isMapStyleReady by remember { mutableStateOf(false) }
@@ -59,9 +63,9 @@ fun ActiveTripScreen(
     var showEndTrekDialog by remember { mutableStateOf(false) }
     var showTrekSummaryDialog by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
-    var isSafetyAssistantExpanded by remember { mutableStateOf(false) }
-    var assistantInputText by remember { mutableStateOf("") }
-    var isFollowModeEnabled by remember { mutableStateOf(true) }
+    var isSafetyAssistantExpanded by rememberSaveable { mutableStateOf(false) }
+    var assistantInputText by rememberSaveable { mutableStateOf("") }
+    var isFollowModeEnabled by rememberSaveable { mutableStateOf(true) }
 
     // MapView instance lifecycle
     val mapView = remember {
@@ -131,6 +135,40 @@ fun ActiveTripScreen(
                     false
                 }
             }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            try {
+                when (event) {
+                    androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
+                    androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                    androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
+                    androidx.lifecycle.Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                    else -> {}
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("ActiveTripScreen", "Lifecycle event $event failed on MapView safely", t)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            try { mapView.onStart() } catch (_: Throwable) {}
+        }
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            try { mapView.onResume() } catch (_: Throwable) {}
+        }
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            try {
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+            } catch (_: Throwable) {}
         }
     }
 

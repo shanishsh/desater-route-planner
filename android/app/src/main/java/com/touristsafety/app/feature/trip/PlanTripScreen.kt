@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
 
@@ -31,7 +32,7 @@ fun PlanTripScreen(
     onNavigateToDrawRoute: () -> Unit = {},
     viewModel: PlanTripViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showRecentOriginMenu by remember { mutableStateOf(false) }
     var showRecentDestMenu by remember { mutableStateOf(false) }
 

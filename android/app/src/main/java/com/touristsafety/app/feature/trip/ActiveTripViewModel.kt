@@ -87,7 +87,7 @@ data class ActiveTripUiState(
 
 @HiltViewModel
 class ActiveTripViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val routeRepository: RouteRepository,
     private val deviceLocationRepository: DeviceLocationRepository,
     private val trekTrackPointDao: TrekTrackPointDao,
@@ -102,7 +102,28 @@ class ActiveTripViewModel @Inject constructor(
     val tripId: String = checkNotNull(savedStateHandle["tripId"])
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val _uiState = MutableStateFlow(ActiveTripUiState(tripId = tripId))
+    companion object {
+        private const val KEY_ASSISTANT_HISTORY = "active_trip_assistant_history"
+
+        fun encodeHistory(history: List<Pair<String, String>>): String =
+            history.joinToString("\u001E") { "${it.first}\u001F${it.second}" }
+
+        fun decodeHistory(raw: String): List<Pair<String, String>> =
+            if (raw.isBlank()) emptyList()
+            else raw.split("\u001E").mapNotNull { entry ->
+                val parts = entry.split("\u001F")
+                if (parts.size == 2) parts[0] to parts[1] else null
+            }
+    }
+
+    private val _uiState = MutableStateFlow(
+        ActiveTripUiState(
+            tripId = tripId,
+            assistantQueryHistory = savedStateHandle.get<String>(KEY_ASSISTANT_HISTORY)?.let { raw ->
+                decodeHistory(raw)
+            } ?: emptyList()
+        )
+    )
     val uiState: StateFlow<ActiveTripUiState> = _uiState.asStateFlow()
 
     // Cached static route metadata to prevent repeated Room queries and JSON parsing on GPS ticks
@@ -441,6 +462,7 @@ class ActiveTripViewModel @Inject constructor(
         liveTrekContextEngine.askAssistant(query) { response ->
             _uiState.update { cur ->
                 val updatedHistory = cur.assistantQueryHistory + (query to response.summary)
+                savedStateHandle[KEY_ASSISTANT_HISTORY] = encodeHistory(updatedHistory)
                 cur.copy(
                     isAssistantQueryLoading = false,
                     assistantGuidance = response,

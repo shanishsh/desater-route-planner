@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -121,19 +122,39 @@ fun AppNavGraph(
             val viewModel: HomeViewModel = hiltViewModel()
             HomeScreen(
                 viewModel = viewModel,
-                onNavigateToMap = { navController.navigate(Screen.Map.route) },
+                onNavigateToMap = {
+                    navController.navigate(Screen.Map.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 onNavigateToAlerts = { navController.navigate(Screen.Alerts.route) },
-                onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
+                onNavigateToEmergency = {
+                    navController.navigate(Screen.Emergency.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) },
                 onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) },
-                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) },
+                onNavigateToPlanTrip = {
+                    navController.navigate(Screen.PlanTrip.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 onNavigateToWelcome = {
                     navController.navigate(Screen.Welcome.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 onNavigateToActiveTrip = { tripId ->
-                    navController.navigate(Screen.ActiveTrip.createRoute(tripId))
+                    navController.navigate(Screen.ActiveTrip.createRoute(tripId)) {
+                        launchSingleTop = true
+                    }
                 },
                 onNavigateToCompletedTrekDetail = { tripId ->
                     navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
@@ -142,7 +163,11 @@ fun AppNavGraph(
                     navController.navigate(Screen.Map.createRoute(startDrawing = true))
                 },
                 onNavigateToHistory = {
-                    navController.navigate(Screen.TrekHistory.route)
+                    navController.navigate(Screen.TrekHistory.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
@@ -166,7 +191,10 @@ fun AppNavGraph(
             RouteSafetyReviewScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToActiveTrip = { tripId ->
-                    navController.navigate(Screen.ActiveTrip.createRoute(tripId))
+                    navController.navigate(Screen.ActiveTrip.createRoute(tripId)) {
+                        popUpTo(Screen.RouteSafetyReview.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 },
                 onNavigateToMap = {
                     navController.navigate(Screen.Map.route)
@@ -179,10 +207,26 @@ fun AppNavGraph(
             arguments = listOf(navArgument("tripId") { type = NavType.StringType })
         ) {
             ActiveTripScreen(
-                onNavigateBack = { navController.navigate(Screen.Home.route) },
-                onNavigateToHistory = { navController.navigate(Screen.TrekHistory.route) },
+                onNavigateBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                },
+                onNavigateToHistory = {
+                    navController.navigate(Screen.TrekHistory.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 onNavigateToCompletedTrekDetail = { tripId ->
-                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId)) {
+                        popUpTo(Screen.ActiveTrip.route) { inclusive = true }
+                    }
                 }
             )
         }
@@ -195,13 +239,21 @@ fun AppNavGraph(
                     navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
                 },
                 onNavigateToPlanTrip = {
-                    navController.navigate(Screen.PlanTrip.route)
+                    navController.navigate(Screen.PlanTrip.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 },
                 onNavigateToReview = { routeId ->
                     navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
                 },
                 onNavigateToMap = {
-                    navController.navigate(Screen.Map.route)
+                    navController.navigate(Screen.Map.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
@@ -227,13 +279,19 @@ fun AppNavGraph(
             val startDrawing = backStackEntry.arguments?.getBoolean("startDrawing") ?: false
             val viewModel: MapViewModel = hiltViewModel()
             LaunchedEffect(startDrawing) {
-                if (startDrawing) {
+                if (startDrawing && !viewModel.uiState.value.isDrawingMode) {
                     viewModel.enterDrawingMode("TRAIL_FOLLOWING")
                 }
             }
             MapScreen(
                 viewModel = viewModel,
-                onNavigateToPlanTrip = { navController.navigate(Screen.PlanTrip.route) }
+                onNavigateToPlanTrip = {
+                    navController.navigate(Screen.PlanTrip.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
             )
         }
 

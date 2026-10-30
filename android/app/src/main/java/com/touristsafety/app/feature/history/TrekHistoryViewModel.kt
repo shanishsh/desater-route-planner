@@ -1,5 +1,6 @@
 package com.touristsafety.app.feature.history
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.database.entity.ActiveTripEntity
@@ -28,10 +29,13 @@ data class TrekHistoryUiState(
 @HiltViewModel
 class TrekHistoryViewModel @Inject constructor(
     private val routeRepository: RouteRepository,
-    private val itineraryRepository: ItineraryRepository
+    private val itineraryRepository: ItineraryRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(TrekHistoryUiState())
+    private val initialTab: Int = savedStateHandle.get<Int>("history_selected_tab") ?: 0
+
+    private val _uiState = MutableStateFlow(TrekHistoryUiState(selectedTab = initialTab))
     val uiState: StateFlow<TrekHistoryUiState> = _uiState.asStateFlow()
 
     init {
@@ -39,6 +43,7 @@ class TrekHistoryViewModel @Inject constructor(
     }
 
     fun selectTab(tabIndex: Int) {
+        savedStateHandle["history_selected_tab"] = tabIndex
         _uiState.update { it.copy(selectedTab = tabIndex) }
     }
 

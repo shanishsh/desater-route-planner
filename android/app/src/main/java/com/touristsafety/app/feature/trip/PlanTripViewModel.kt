@@ -1,5 +1,6 @@
 package com.touristsafety.app.feature.trip
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
@@ -63,10 +64,45 @@ class PlanTripViewModel @Inject constructor(
     private val routeRepository: RouteRepository,
     private val locationHelper: LocationHelper,
     val boundaryValidator: UttarakhandBoundaryValidator,
-    private val serverConfigManager: ServerConfigManager
+    private val serverConfigManager: ServerConfigManager,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(PlanTripUiState())
+    companion object {
+        private const val KEY_ORIGIN_NAME = "plan_origin_name"
+        private const val KEY_ORIGIN_LAT = "plan_origin_lat"
+        private const val KEY_ORIGIN_LON = "plan_origin_lon"
+        private const val KEY_DEST_NAME = "plan_dest_name"
+        private const val KEY_DEST_LAT = "plan_dest_lat"
+        private const val KEY_DEST_LON = "plan_dest_lon"
+        private const val KEY_TRAVEL_MODE = "plan_travel_mode"
+        private const val KEY_CORRIDOR_KM = "plan_corridor_km"
+        private const val KEY_PEDESTRIAN_ONLY = "plan_pedestrian_only"
+    }
+
+    private val initialOriginName: String = savedStateHandle.get<String>(KEY_ORIGIN_NAME) ?: ""
+    private val initialOriginLat: Double? = savedStateHandle.get<Double>(KEY_ORIGIN_LAT)
+    private val initialOriginLon: Double? = savedStateHandle.get<Double>(KEY_ORIGIN_LON)
+    private val initialDestName: String = savedStateHandle.get<String>(KEY_DEST_NAME) ?: ""
+    private val initialDestLat: Double? = savedStateHandle.get<Double>(KEY_DEST_LAT)
+    private val initialDestLon: Double? = savedStateHandle.get<Double>(KEY_DEST_LON)
+    private val initialTravelMode: String = savedStateHandle.get<String>(KEY_TRAVEL_MODE) ?: "hiking"
+    private val initialCorridorKm: Double = savedStateHandle.get<Double>(KEY_CORRIDOR_KM) ?: 5.0
+    private val initialPedestrianOnly: Boolean = savedStateHandle.get<Boolean>(KEY_PEDESTRIAN_ONLY) ?: false
+
+    private val _uiState = MutableStateFlow(
+        PlanTripUiState(
+            originName = initialOriginName,
+            originLat = initialOriginLat,
+            originLon = initialOriginLon,
+            destinationName = initialDestName,
+            destinationLat = initialDestLat,
+            destinationLon = initialDestLon,
+            travelMode = initialTravelMode,
+            corridorDistanceKm = initialCorridorKm,
+            isPedestrianOnlySelected = initialPedestrianOnly
+        )
+    )
     val uiState: StateFlow<PlanTripUiState> = _uiState.asStateFlow()
 
     private val _eventFlow = MutableSharedFlow<PlanTripEvent>()
@@ -82,8 +118,22 @@ class PlanTripViewModel @Inject constructor(
                 _uiState.update { it.copy(recentLocations = recents) }
             }
         }
-        // Attempt current location fix on launch if permission is granted
-        useCurrentLocation()
+        // Only attempt current location fix if origin is not already preserved
+        if (initialOriginName.isBlank() && initialOriginLat == null) {
+            useCurrentLocation()
+        }
+    }
+
+    private fun persistDraftState(state: PlanTripUiState) {
+        savedStateHandle[KEY_ORIGIN_NAME] = state.originName
+        if (state.originLat != null) savedStateHandle[KEY_ORIGIN_LAT] = state.originLat
+        if (state.originLon != null) savedStateHandle[KEY_ORIGIN_LON] = state.originLon
+        savedStateHandle[KEY_DEST_NAME] = state.destinationName
+        if (state.destinationLat != null) savedStateHandle[KEY_DEST_LAT] = state.destinationLat
+        if (state.destinationLon != null) savedStateHandle[KEY_DEST_LON] = state.destinationLon
+        savedStateHandle[KEY_TRAVEL_MODE] = state.travelMode
+        savedStateHandle[KEY_CORRIDOR_KM] = state.corridorDistanceKm
+        savedStateHandle[KEY_PEDESTRIAN_ONLY] = state.isPedestrianOnlySelected
     }
 
     fun useCurrentLocation() {
@@ -229,6 +279,7 @@ class PlanTripViewModel @Inject constructor(
                 )
             }
         }
+        persistDraftState(_uiState.value)
     }
 
     fun selectRecentLocation(place: PlaceSearchResultDto, isOrigin: Boolean) {
@@ -254,6 +305,7 @@ class PlanTripViewModel @Inject constructor(
                 )
             }
         }
+        persistDraftState(_uiState.value)
     }
 
     suspend fun reverseGeocode(lat: Double, lon: Double): Result<PlaceSearchResultDto> {
@@ -262,6 +314,7 @@ class PlanTripViewModel @Inject constructor(
 
     fun setCorridorDistanceKm(km: Double) {
         _uiState.update { it.copy(corridorDistanceKm = km) }
+        persistDraftState(_uiState.value)
     }
 
     fun onOriginQueryChanged(query: String) {
@@ -316,6 +369,7 @@ class PlanTripViewModel @Inject constructor(
                 errorMessage = null
             )
         }
+        persistDraftState(_uiState.value)
     }
 
     fun onDestinationQueryChanged(query: String) {
@@ -373,6 +427,7 @@ class PlanTripViewModel @Inject constructor(
                 errorMessage = null
             )
         }
+        persistDraftState(_uiState.value)
     }
 
     fun selectVerifiedCorridor(
@@ -400,6 +455,7 @@ class PlanTripViewModel @Inject constructor(
                 errorMessage = null
             )
         }
+        persistDraftState(_uiState.value)
     }
 
     fun selectQuickDestination(name: String, lat: Double, lon: Double) {
@@ -415,6 +471,7 @@ class PlanTripViewModel @Inject constructor(
                 errorMessage = null
             )
         }
+        persistDraftState(_uiState.value)
     }
 
     fun setTravelMode(mode: String) {
@@ -428,6 +485,7 @@ class PlanTripViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(travelMode = mode, errorMessage = null) }
+        persistDraftState(_uiState.value)
     }
 
     fun retryWithTravelMode(mode: String) {

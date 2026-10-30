@@ -27,6 +27,7 @@ import com.touristsafety.app.core.designsystem.components.AppPrimaryButton
 import com.touristsafety.app.core.designsystem.components.AppSectionHeader
 import com.touristsafety.app.core.model.Itinerary
 import java.util.Locale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +39,7 @@ fun TrekHistoryScreen(
     onNavigateToMap: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.model.Alert
@@ -49,8 +50,8 @@ fun HomeScreen(
     onNavigateToHistory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val isSirenPlaying by viewModel.isSirenPlaying.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isSirenPlaying by viewModel.isSirenPlaying.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showProfileDialog by remember { mutableStateOf(false) }
 
