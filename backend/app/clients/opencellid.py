@@ -97,15 +97,43 @@ class OpenCellIDClient:
     def __init__(self):
         self.base_url = settings.OPENCELLID_BASE_URL
         self.circuit_breaker = CircuitBreaker("OpenCellID", failure_threshold=3, recovery_time_seconds=60.0)
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
-            headers={"User-Agent": "TouristSafetyPlatform/1.0 (Telecom-Safety-Research)"},
-        )
+        self._client: Optional[httpx.AsyncClient] = None
+        self._loop = None
         self.last_attempt_at: Optional[datetime] = None
         self.last_success_at: Optional[datetime] = None
         self.last_status_code: Optional[int] = None
         self.last_error: Optional[str] = None
         self.last_record_count: int = 0
+
+    async def get_client(self) -> httpx.AsyncClient:
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._client is None or self._client.is_closed or self._loop != loop:
+            self._loop = loop
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
+                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Telecom-Safety-Research)"},
+            )
+        return self._client
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Backward-compatible property for accessing active client on current loop."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._client is None or self._client.is_closed or self._loop != loop:
+            self._loop = loop
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
+                headers={"User-Agent": "TouristSafetyPlatform/1.0 (Telecom-Safety-Research)"},
+            )
+        return self._client
 
     def is_configured(self) -> bool:
         """Returns True if a non-empty OPENCELLID_API_KEY is configured in settings."""
@@ -179,7 +207,8 @@ class OpenCellIDClient:
         }
 
         try:
-            response = await self.client.get(target_url, params=params)
+            client = await self.get_client()
+            response = await client.get(target_url, params=params)
             self.last_status_code = response.status_code
 
             if response.status_code == 200:
@@ -342,7 +371,12 @@ class OpenCellIDClient:
         return list(unique_cells.values())
 
     async def close(self):
-        await self.client.aclose()
+        if self._client is not None and not self._client.is_closed:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+        self._client = None
 
 
 opencellid_client = OpenCellIDClient()

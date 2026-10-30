@@ -5,12 +5,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -69,6 +73,11 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val activeTrip by routeRepository.activeTripFlow.collectAsState(initial = null)
+                var isBannerDismissed by rememberSaveable { mutableStateOf(false) }
+
+                LaunchedEffect(activeTrip?.tripId) {
+                    isBannerDismissed = false
+                }
 
                 val isFullScreen = currentRoute == null ||
                         currentRoute in Screen.fullScreenRoutes ||
@@ -97,12 +106,13 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (!isFullScreen) {
-                            Column {
+                            Column(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                                 activeTrip?.let { trip ->
-                                    if (currentRoute?.startsWith("active_trip") != true) {
+                                    if (!isBannerDismissed && currentRoute?.startsWith("active_trip") != true) {
                                         Surface(
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .height(44.dp)
                                                 .clickable {
                                                     navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId))
                                                 },
@@ -112,24 +122,48 @@ class MainActivity : ComponentActivity() {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                    .fillMaxHeight()
+                                                    .padding(horizontal = 12.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("●", color = Color(0xFF69F0AE), fontSize = 14.sp)
-                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("●", color = Color(0xFF69F0AE), fontSize = 12.sp)
+                                                    Spacer(modifier = Modifier.width(6.dp))
                                                     Text(
                                                         text = trip.routeTitle.ifBlank { "Trek in Progress" },
                                                         style = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.Bold,
-                                                        maxLines = 1
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
-                                                Text(
-                                                    text = "${String.format(java.util.Locale.US, "%.1f km", trip.traveledDistanceMeters / 1000.0)} • Tap to resume HUD",
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${String.format(java.util.Locale.US, "%.1f km", trip.traveledDistanceMeters / 1000.0)} • Resume",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    IconButton(
+                                                        onClick = { isBannerDismissed = true },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Close,
+                                                            contentDescription = "Dismiss",
+                                                            tint = Color.White.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }

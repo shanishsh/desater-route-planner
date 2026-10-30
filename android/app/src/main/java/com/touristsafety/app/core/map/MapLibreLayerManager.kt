@@ -291,6 +291,7 @@ object MapLibreLayerManager {
                                 get("hazard_category"),
                                 literal("flash_flood"), color(Color.rgb(0, 151, 167)), // Flood Inundation Teal #0097A7
                                 literal("flood"), color(Color.rgb(0, 151, 167)),
+                                literal("landslide"), color(Color.rgb(216, 67, 21)), // Orange-Brown Landslide
                                 color(Color.rgb(229, 57, 53)) // Emergency Red #E53935
                             )
                         ),
@@ -312,6 +313,7 @@ object MapLibreLayerManager {
                                 get("hazard_category"),
                                 literal("flash_flood"), color(Color.rgb(0, 121, 107)), // Flood Inundation Dark Teal #00796B
                                 literal("flood"), color(Color.rgb(0, 121, 107)),
+                                literal("landslide"), color(Color.rgb(191, 54, 12)),
                                 color(Color.rgb(211, 47, 47)) // #D32F2F
                             )
                         ),
@@ -1679,13 +1681,17 @@ object MapLibreLayerManager {
             val safeTitle = escapeJson(feat.title)
             val safeSub = escapeJson(feat.subtitle)
             val safeId = escapeJson(feat.id)
-            val hazardCat = feat.details["hazard_category"] ?: feat.details["Category"]?.lowercase()?.replace(' ', '_') ?: ""
+            val hazardCat = (feat.details["hazard_category"] ?: feat.details["Category"] ?: feat.details["hazard_type"] ?: "")
+                .lowercase().replace(' ', '_').trim()
             val safeHazardCat = escapeJson(hazardCat)
+            val severity = (feat.details["severity"] ?: feat.details["Severity"] ?: "moderate")
+                .lowercase().trim()
+            val safeSeverity = escapeJson(severity)
             val ring = feat.geometryPolygon
             if (ring != null && ring.size >= 3) {
                 if (count > 0) sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
-                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Polygon\"")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"severity\":\"$safeSeverity\",\"geom_type\":\"Polygon\"")
                 sb.append("},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[")
                 ring.forEachIndexed { pIdx, pt ->
                     if (pIdx > 0) sb.append(",")
@@ -1700,14 +1706,14 @@ object MapLibreLayerManager {
                 // Dual emission: Also emit a centroid Point feature so symbol & circle layers render the hazard warning icon
                 sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"id\":\"${safeId}_center\",\"properties\":{")
-                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Point\"")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"severity\":\"$safeSeverity\",\"geom_type\":\"Point\"")
                 sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
                 count++
             } else {
                 // Point hazard advisory
                 if (count > 0) sb.append(",")
                 sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"properties\":{")
-                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Point\"")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"severity\":\"$safeSeverity\",\"geom_type\":\"Point\"")
                 sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
                 count++
             }

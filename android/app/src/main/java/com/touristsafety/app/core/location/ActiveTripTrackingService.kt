@@ -222,6 +222,7 @@ class ActiveTripTrackingService : Service() {
             isPaused = true
             pauseStartEpochMs = System.currentTimeMillis()
             liveTrekContextEngine.pauseTrekSession()
+            adjustLocationUpdates(30000L, 15000L, Priority.PRIORITY_BALANCED_POWER_ACCURACY)
             updateNotification("Trek Paused", "Distance accumulation suspended • To $destinationName")
             serviceScope.launch {
                 flushPointBuffer()
@@ -246,6 +247,7 @@ class ActiveTripTrackingService : Service() {
             }
             pauseStartEpochMs = null
             liveTrekContextEngine.resumeTrekSession()
+            adjustLocationUpdates(5000L, 3000L, Priority.PRIORITY_HIGH_ACCURACY)
             updateNotification("Trek Active", "Tracking route to $destinationName")
             serviceScope.launch {
                 val existing = activeTripDao.getTripById(currentTripId)
@@ -280,13 +282,20 @@ class ActiveTripTrackingService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
-            .setMinUpdateIntervalMillis(3000L)
+        adjustLocationUpdates(5000L, 3000L, Priority.PRIORITY_HIGH_ACCURACY)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun adjustLocationUpdates(intervalMs: Long, minIntervalMs: Long, priority: Int) {
+        val request = LocationRequest.Builder(priority, intervalMs)
+            .setMinUpdateIntervalMillis(minIntervalMs)
             .setWaitForAccurateLocation(false)
             .build()
 
         try {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
             fusedLocationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+            Log.d(TAG, "Adjusted location updates: interval=${intervalMs}ms, priority=$priority")
         } catch (e: SecurityException) {
             Log.e(TAG, "Location permission missing: ${e.message}")
         }

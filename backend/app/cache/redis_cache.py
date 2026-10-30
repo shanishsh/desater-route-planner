@@ -184,6 +184,16 @@ class CacheService:
         self._in_memory_cache.pop(key, None)
         return True
 
+    async def clear(self) -> None:
+        """Flushes in-memory cache and Redis keys if available."""
+        self._in_memory_cache.clear()
+        try:
+            client = await self.get_client()
+            if client:
+                await client.flushdb()
+        except Exception as e:
+            logger.warning("Redis flushdb failed: %s", e)
+
     async def acquire_lock(self, lock_key: str, timeout_seconds: int = 10) -> bool:
         """Acquires a distributed lock for stampede protection."""
         try:
