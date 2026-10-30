@@ -42,6 +42,9 @@ class ActiveTripTrackingService : Service() {
     @Inject
     lateinit var hazardAlertEngine: HazardAlertEngine
 
+    @Inject
+    lateinit var liveTrekContextEngine: com.touristsafety.app.core.spatial.LiveTrekContextEngine
+
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -63,6 +66,7 @@ class ActiveTripTrackingService : Service() {
 
     private var durationTimerJob: Job? = null
     private var periodicSyncJob: Job? = null
+    private var engineObserveJob: Job? = null
 
     // High-performance track point buffering to eliminate disk I/O on every GPS point
     private val pointBuffer = java.util.Collections.synchronizedList(mutableListOf<TrekTrackPointEntity>())
@@ -157,9 +161,11 @@ class ActiveTripTrackingService : Service() {
                 startForegroundWithNotification("Active Trek Started", "Monitoring route to $destinationName")
 
                 loadTripStateAndResume()
+                liveTrekContextEngine.startTrekSession(currentTripId, currentRouteId, destinationName)
                 startLocationUpdates()
                 startDurationTimer()
                 startPeriodicSync()
+                observeEngineContext()
                 return START_STICKY
             }
         }
@@ -215,6 +221,7 @@ class ActiveTripTrackingService : Service() {
         if (!isPaused) {
             isPaused = true
             pauseStartEpochMs = System.currentTimeMillis()
+            liveTrekContextEngine.pauseTrekSession()
             updateNotification("Trek Paused", "Distance accumulation suspended • To $destinationName")
             serviceScope.launch {
                 flushPointBuffer()
@@ -238,6 +245,7 @@ class ActiveTripTrackingService : Service() {
                 totalPausedDurationMs += (System.currentTimeMillis() - it)
             }
             pauseStartEpochMs = null
+            liveTrekContextEngine.resumeTrekSession()
             updateNotification("Trek Active", "Tracking route to $destinationName")
             serviceScope.launch {
                 val existing = activeTripDao.getTripById(currentTripId)
@@ -329,6 +337,9 @@ class ActiveTripTrackingService : Service() {
             if (pointBuffer.size >= 5 || (now - lastBufferFlushMs) >= 15_000L) {
                 flushPointBuffer()
             }
+
+            // Ingest and evaluate with LiveTrekContextEngine
+            liveTrekContextEngine.processGpsUpdate(location)
 
             // Check hazard proximity
             hazardAlertEngine.evaluatePosition(location.latitude, location.longitude, isInBackground = true)
@@ -445,11 +456,37 @@ class ActiveTripTrackingService : Service() {
             .build()
     }
 
+    private fun observeEngineContext() {
+        engineObserveJob?.cancel()
+        engineObserveJob = serviceScope.launch {
+            liveTrekContextEngine.liveContext.collect { context ->
+                val upcoming = context.hazards.upcomingHazards.firstOrNull()
+                val hazardSubtitle = if (upcoming != null) {
+                    val distKm = (upcoming.distanceAheadMeters ?: 0.0) / 1000.0
+                    " • ${upcoming.sequenceLabel} ${upcoming.feature.title} (${String.format(java.util.Locale.US, "%.1f km", distKm)})"
+                } else ""
+                val kmStr = String.format(java.util.Locale.US, "%.2f km", context.progress.traveledDistanceMeters / 1000.0)
+                val statusPart = if (isPaused) "PAUSED" else "ACTIVE"
+                val timeStr = formatDuration(context.progress.elapsedDurationSeconds)
+                val now = System.currentTimeMillis()
+                if (now - lastNotificationUpdateMs >= 3500L || isPaused) {
+                    lastNotificationUpdateMs = now
+                    updateNotification(
+                        title = "$statusPart • $kmStr in $timeStr",
+                        content = "En route to $destinationName$hazardSubtitle"
+                    )
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         fusedLocationClient.removeLocationUpdates(locationCallback)
         durationTimerJob?.cancel()
         periodicSyncJob?.cancel()
+        engineObserveJob?.cancel()
+        liveTrekContextEngine.stopTrekSession()
         runBlocking {
             flushPointBuffer()
             syncPendingPointsBatch()

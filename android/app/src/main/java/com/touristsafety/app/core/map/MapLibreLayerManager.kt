@@ -2083,6 +2083,21 @@ object MapLibreLayerManager {
         source.setGeoJson(geoJson)
     }
 
+    fun updateRouteHazardSequence(style: Style, items: List<com.touristsafety.app.core.model.RouteOrderedHazardItem>, selectedId: String? = null) {
+        if (!style.isFullyLoaded) return
+        try {
+            val source = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_HAZARD_SEQUENCE) ?: return
+            val geoJson = if (items.isNotEmpty()) {
+                buildHazardSequenceGeoJson(items, selectedId)
+            } else {
+                EMPTY_GEOJSON
+            }
+            source.setGeoJson(geoJson)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed updating route hazard sequence: ${t.message}")
+        }
+    }
+
     fun setLayerCategoryVisibility(style: Style, category: String, visible: Boolean) {
         if (!style.isFullyLoaded) return
         val visibility = if (visible) Property.VISIBLE else Property.NONE

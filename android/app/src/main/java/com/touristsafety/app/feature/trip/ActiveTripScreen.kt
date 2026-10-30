@@ -30,7 +30,9 @@ import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.model.MapFeatureCategory
+import com.touristsafety.app.core.model.RouteOrderedHazardItem
 import com.touristsafety.app.core.model.UnifiedMapFeature
+import com.touristsafety.app.core.network.dto.NearbyFacilityDto
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -56,6 +58,7 @@ fun ActiveTripScreen(
     var showEndTrekDialog by remember { mutableStateOf(false) }
     var showTrekSummaryDialog by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
+    var isSafetyAssistantExpanded by remember { mutableStateOf(false) }
 
     // MapView instance lifecycle
     val mapView = remember {
@@ -123,13 +126,14 @@ fun ActiveTripScreen(
         }
     }
 
-    // Reactively update traveled track, user puck, and layer visibility
+    // Reactively update traveled track, user puck, upcoming hazard sequence, and layer visibility
     LaunchedEffect(
         state.traveledTrackCoordinates,
         state.currentLatitude,
         state.currentLongitude,
         state.gpsAccuracyMeters,
         state.layerVisibility,
+        state.upcomingHazards,
         isMapStyleReady
     ) {
         if (isMapStyleReady) {
@@ -147,7 +151,10 @@ fun ActiveTripScreen(
                         MapLibreLayerManager.updateTrekCurrentPosition(style, lat, lon, acc)
                     }
 
-                    // 3. Update Category Layer Visibilities
+                    // 3. Update Route Hazard Sequence (Upcoming hazards #01, #02...)
+                    MapLibreLayerManager.updateRouteHazardSequence(style, state.upcomingHazards)
+
+                    // 4. Update Category Layer Visibilities
                     state.layerVisibility.forEach { (category, visible) ->
                         MapLibreLayerManager.setLayerCategoryVisibility(style, category, visible)
                     }
@@ -389,36 +396,123 @@ fun ActiveTripScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .padding(top = 8.dp, start = 14.dp, end = 14.dp)
                     .fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                 shadowElevation = 6.dp
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    AppMetricDisplay(
-                        value = String.format(java.util.Locale.US, "%.2f km", state.traveledDistanceKm),
-                        label = "Distance",
-                        valueColor = ForestGreenPrimary
+                    // Row 1: Distance & Progress Disambiguation
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppMetricDisplay(
+                            value = String.format(java.util.Locale.US, "%.2f km", state.traveledDistanceKm),
+                            label = "Odometer",
+                            valueColor = ForestGreenPrimary
+                        )
+                        VerticalDivider(modifier = Modifier.height(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        AppMetricDisplay(
+                            value = state.elapsedDurationFormatted,
+                            label = "Elapsed",
+                            valueColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        VerticalDivider(modifier = Modifier.height(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        AppMetricDisplay(
+                            value = String.format(java.util.Locale.US, "%.1f km", state.remainingDistanceKm),
+                            label = "Remaining",
+                            valueColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        VerticalDivider(modifier = Modifier.height(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        AppMetricDisplay(
+                            value = "${state.progressPct.toInt()}%",
+                            label = "Progress",
+                            valueColor = ForestGreenPrimary
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    VerticalDivider(modifier = Modifier.height(32.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    AppMetricDisplay(
-                        value = state.elapsedDurationFormatted,
-                        label = "Elapsed",
-                        valueColor = MaterialTheme.colorScheme.onSurface
-                    )
-                    VerticalDivider(modifier = Modifier.height(32.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    AppMetricDisplay(
-                        value = "${state.progressPct.toInt()}%",
-                        label = "Route Done",
-                        valueColor = MaterialTheme.colorScheme.onSurface
-                    )
+
+                    // Row 2: Live Conditions (Weather & Network)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Weather Status
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = null,
+                                tint = InfoBlue,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            val tempStr = state.liveWeather.currentTemperatureC?.let { "${it.toInt()}°C" } ?: "--°C"
+                            val descStr = state.liveWeather.weatherDescription ?: "Fair"
+                            Text(
+                                text = "$tempStr • $descStr",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        // Network Connectivity Status
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (state.liveNetwork.isConnected) Icons.Default.Wifi else Icons.Default.WifiOff,
+                                contentDescription = null,
+                                tint = if (state.liveNetwork.isConnected) ForestGreenPrimary else WarningAmber,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            val netLabel = if (state.liveNetwork.isConnected) {
+                                val towerKm = state.liveNetwork.nearestTowerDistanceM?.let { String.format(java.util.Locale.US, " (%.1fkm)", it / 1000.0) } ?: ""
+                                "${state.liveNetwork.connectionType}$towerKm"
+                            } else {
+                                "Offline"
+                            }
+                            Text(
+                                text = netLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (state.liveNetwork.isConnected) MaterialTheme.colorScheme.onSurface else WarningAmber
+                            )
+                        }
+                    }
+
+                    // Row 3: Off-Route Warning (if active)
+                    if (state.isOffRoute) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = WarningAmber.copy(alpha = 0.18f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    "OFF TRAIL: Cross-track deviation >80m. Rejoin route.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = WarningAmber,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -515,106 +609,296 @@ fun ActiveTripScreen(
                 }
             }
 
-            // 5. Bottom Trek Controls Bar
-            Surface(
+            // 5. Bottom Interactive Area: Safety Assistant + Trek Controls
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 12.dp
+                    .fillMaxWidth()
             ) {
-                Column(
+                // Live Route Safety Assistant Card
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shadowElevation = 8.dp
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
                     ) {
-                        // Pause / Resume Button
-                        if (state.isPaused) {
+                        // Header row (always visible)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isSafetyAssistantExpanded = !isSafetyAssistantExpanded },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val upcomingCount = state.upcomingHazards.size
+                                val indicatorColor = if (upcomingCount > 0) EmergencyRed else ForestGreenPrimary
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(indicatorColor)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (upcomingCount > 0) "Upcoming Hazards ($upcomingCount Ahead)" else "Trail Status: All Clear Ahead",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { isSafetyAssistantExpanded = !isSafetyAssistantExpanded },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isSafetyAssistantExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Toggle Safety Assistant"
+                                )
+                            }
+                        }
+
+                        // Collapsed Summary line
+                        if (!isSafetyAssistantExpanded) {
+                            val firstAhead = state.upcomingHazards.firstOrNull()
+                            if (firstAhead != null) {
+                                val distStr = firstAhead.formattedDistanceAhead() ?: ""
+                                val timeStr = firstAhead.estimatedMinutesAhead?.let { " • ~$it min" } ?: ""
+                                Text(
+                                    text = "Next: ${firstAhead.sequenceLabel} ${firstAhead.feature.title} ($distStr$timeStr)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "No active hazards detected within remaining planned route.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ForestGreenPrimary,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Expanded Details
+                        AnimatedVisibility(visible = isSafetyAssistantExpanded) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .padding(top = 8.dp)
+                            ) {
+                                androidx.compose.foundation.lazy.LazyColumn(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // 1. Ahead on Route Section
+                                    item {
+                                        Text(
+                                            "AHEAD ON ROUTE",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    if (state.upcomingHazards.isEmpty()) {
+                                        item {
+                                            Text(
+                                                "No upcoming hazards along remaining route.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    } else {
+                                        items(state.upcomingHazards.size) { idx ->
+                                            val item = state.upcomingHazards[idx]
+                                            HazardListItemRow(
+                                                item = item,
+                                                onClick = {
+                                                    viewModel.selectFeatureDetail(item.feature)
+                                                    maplibreMapInstance?.animateCamera(
+                                                        CameraUpdateFactory.newLatLngZoom(
+                                                            LatLng(item.feature.latitude, item.feature.longitude),
+                                                            15.0
+                                                        ),
+                                                        600
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    // 2. Near Current Location Section
+                                    if (state.nearbyHazards.isNotEmpty() || state.nearbyFacilities.isNotEmpty()) {
+                                        item {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                "NEAR CURRENT LOCATION",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = EmergencyRed
+                                            )
+                                        }
+                                        items(state.nearbyHazards.size) { idx ->
+                                            val item = state.nearbyHazards[idx]
+                                            HazardListItemRow(
+                                                item = item,
+                                                onClick = {
+                                                    viewModel.selectFeatureDetail(item.feature)
+                                                }
+                                            )
+                                        }
+                                        items(state.nearbyFacilities.size) { idx ->
+                                            val facility = state.nearbyFacilities[idx]
+                                            FacilityListItemRow(facility = facility)
+                                        }
+                                    }
+
+                                    // 3. Passed Section
+                                    if (state.passedHazards.isNotEmpty()) {
+                                        item {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                "PASSED HAZARDS (${state.passedHazards.size} CLEARED)",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ForestGreenPrimary
+                                            )
+                                        }
+                                        items(state.passedHazards.size) { idx ->
+                                            val passed = state.passedHazards[idx]
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        "${passed.feature.title} • Cleared",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Controls Bar Surface
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 12.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Pause / Resume Button
+                            if (state.isPaused) {
+                                Button(
+                                    onClick = { viewModel.resumeTrek(context) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Resume Trek", fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.pauseTrek(context) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(AppIcons.PauseTrek, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Pause Trek", fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            // End Trek Button
                             Button(
-                                onClick = { viewModel.resumeTrek(context) },
+                                onClick = { showEndTrekDialog = true },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp),
                                 shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                                colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Icon(AppIcons.StopTrek, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Resume Trek", fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = { viewModel.pauseTrek(context) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(AppIcons.PauseTrek, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Pause Trek", fontWeight = FontWeight.SemiBold)
+                                Text("End Trek", fontWeight = FontWeight.Bold)
                             }
                         }
 
-                        // End Trek Button
-                        Button(
-                            onClick = { showEndTrekDialog = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
-                        ) {
-                            Icon(AppIcons.StopTrek, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("End Trek", fontWeight = FontWeight.Bold)
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Secondary Emergency Actions Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Check-in Button
-                        FilledTonalButton(
-                            onClick = { viewModel.submitCheckIn() },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            enabled = !state.isCheckingIn
+                        // Secondary Emergency Actions Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            if (state.isCheckingIn) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            // Check-in Button
+                            FilledTonalButton(
+                                onClick = { viewModel.submitCheckIn() },
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                enabled = !state.isCheckingIn
+                            ) {
+                                if (state.isCheckingIn) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Safety Check-In", fontSize = 12.sp)
+                                }
+                            }
+
+                            // SOS Emergency Beacon Button
+                            Button(
+                                onClick = { viewModel.triggerEmergencySos() },
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (state.isSosTriggered) Color.White else EmergencyRedContainer,
+                                    contentColor = EmergencyRed
+                                )
+                            ) {
+                                Icon(AppIcons.SosBeacon, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Safety Check-In", fontSize = 12.sp)
+                                Text(
+                                    if (state.isSosTriggered) "SOS ACTIVE" else "SOS Beacon",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                        }
-
-                        // SOS Emergency Beacon Button
-                        Button(
-                            onClick = { viewModel.triggerEmergencySos() },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (state.isSosTriggered) Color.White else EmergencyRedContainer,
-                                contentColor = EmergencyRed
-                            )
-                        ) {
-                            Icon(AppIcons.SosBeacon, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                if (state.isSosTriggered) "SOS ACTIVE" else "SOS Beacon",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
                     }
                 }
@@ -674,6 +958,98 @@ fun ActiveTripScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HazardListItemRow(
+    item: RouteOrderedHazardItem,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = if (item.severity == "CRITICAL" || item.severity == "SEVERE") EmergencyRed else WarningAmber
+            ) {
+                Text(
+                    text = item.sequenceLabel,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.feature.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                val aheadStr = item.formattedDistanceAhead() ?: "${(item.distanceAlongRouteMeters / 1000.0).toInt()} km"
+                val etaStr = item.estimatedMinutesAhead?.let { " • ~$it min walk" } ?: ""
+                Text(
+                    text = "$aheadStr$etaStr • ${item.categoryType.name.replace('_', ' ')}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FacilityListItemRow(facility: NearbyFacilityDto) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = ForestGreenPrimary.copy(alpha = 0.12f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                when (facility.category.lowercase()) {
+                    "hospital" -> AppIcons.Hospital
+                    "police" -> AppIcons.Police
+                    else -> AppIcons.Shelter
+                },
+                contentDescription = null,
+                tint = ForestGreenPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = facility.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${facility.category.replace('_', ' ')} • ${String.format(java.util.Locale.US, "%.1f km away", facility.distance_km)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

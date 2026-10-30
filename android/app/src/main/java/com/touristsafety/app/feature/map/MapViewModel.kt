@@ -177,6 +177,7 @@ class MapViewModel @Inject constructor(
     val trailReportRepository: TrailReportRepository? = null,
     val pointContextRepository: PointContextRepository? = null,
     private val boundaryValidator: UttarakhandBoundaryValidator? = null,
+    val liveTrekContextEngine: com.touristsafety.app.core.spatial.LiveTrekContextEngine? = null,
     @ApplicationContext private val context: Context? = null
 ) : ViewModel() {
 
@@ -207,6 +208,28 @@ class MapViewModel @Inject constructor(
         requestCurrentLocationFix(recenter = false)
         refreshAllLayers()
         loadBaselineWaterways()
+        observeLiveTrekEngine()
+    }
+
+    private fun observeLiveTrekEngine() {
+        val engine = liveTrekContextEngine ?: return
+        viewModelScope.launch {
+            engine.liveContext.collect { liveCtx ->
+                if (liveCtx.sessionStatus == com.touristsafety.app.core.model.TrekSessionStatus.ACTIVE ||
+                    liveCtx.sessionStatus == com.touristsafety.app.core.model.TrekSessionStatus.PAUSED
+                ) {
+                    _uiState.update { current ->
+                        current.copy(
+                            isRecordingTrek = true,
+                            isTrekPaused = liveCtx.sessionStatus == com.touristsafety.app.core.model.TrekSessionStatus.PAUSED,
+                            recordedTrekDistanceKm = Math.round((liveCtx.progress.traveledDistanceMeters / 1000.0) * 100.0) / 100.0,
+                            recordedTrekDurationSeconds = liveCtx.progress.elapsedDurationSeconds,
+                            routeHazardSequence = liveCtx.hazards.upcomingHazards
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun observeDeviceLocation() {
@@ -1391,6 +1414,7 @@ class MapViewModel @Inject constructor(
                 selectedHazardSequenceItem = updatedSelected
             )
         }
+        liveTrekContextEngine?.updateMonitoredFeatures(state.allFeatures)
     }
 
     fun selectHazardSequenceItem(item: RouteOrderedHazardItem?) {

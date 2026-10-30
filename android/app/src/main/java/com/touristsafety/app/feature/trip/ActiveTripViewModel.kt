@@ -13,6 +13,12 @@ import com.touristsafety.app.core.location.DeviceLocationRepository
 import com.touristsafety.app.core.location.HazardAlertEngine
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
+import com.touristsafety.app.core.model.RouteOrderedHazardItem
+import com.touristsafety.app.core.model.LiveWeatherContext
+import com.touristsafety.app.core.model.LiveNetworkStatus
+import com.touristsafety.app.core.model.TrekSessionStatus
+import com.touristsafety.app.core.network.dto.NearbyFacilityDto
+import com.touristsafety.app.core.spatial.LiveTrekContextEngine
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.repository.RouteRepository
@@ -61,7 +67,15 @@ data class ActiveTripUiState(
         "police" to true,
         "shelters" to true
     ),
-    val selectedFeatureDetail: UnifiedMapFeature? = null
+    val selectedFeatureDetail: UnifiedMapFeature? = null,
+    val remainingDistanceKm: Double = 0.0,
+    val routeProgressKm: Double = 0.0,
+    val upcomingHazards: List<RouteOrderedHazardItem> = emptyList(),
+    val nearbyHazards: List<RouteOrderedHazardItem> = emptyList(),
+    val passedHazards: List<RouteOrderedHazardItem> = emptyList(),
+    val liveWeather: LiveWeatherContext = LiveWeatherContext(),
+    val liveNetwork: LiveNetworkStatus = LiveNetworkStatus(),
+    val nearbyFacilities: List<NearbyFacilityDto> = emptyList()
 )
 
 @HiltViewModel
@@ -72,6 +86,7 @@ class ActiveTripViewModel @Inject constructor(
     private val trekTrackPointDao: TrekTrackPointDao,
     private val activeTripDao: ActiveTripDao,
     private val hazardAlertEngine: HazardAlertEngine,
+    private val liveTrekContextEngine: LiveTrekContextEngine,
     val trailReportRepository: TrailReportRepository? = null,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -98,6 +113,35 @@ class ActiveTripViewModel @Inject constructor(
         observeTrackPoints()
         observeGpsLocation()
         observeHazardAlerts()
+        observeLiveTrekEngine()
+    }
+
+    private fun observeLiveTrekEngine() {
+        viewModelScope.launch {
+            liveTrekContextEngine.liveContext.collect { context ->
+                if (context.sessionStatus != TrekSessionStatus.IDLE) {
+                    _uiState.update { current ->
+                        current.copy(
+                            traveledDistanceKm = context.progress.traveledDistanceMeters / 1000.0,
+                            routeProgressKm = context.progress.routeProgressMeters / 1000.0,
+                            remainingDistanceKm = context.progress.remainingDistanceMeters / 1000.0,
+                            progressPct = context.progress.progressPct.toDouble(),
+                            isOffRoute = context.progress.isOffRoute,
+                            currentLatitude = context.progress.lastAcceptedLat ?: current.currentLatitude,
+                            currentLongitude = context.progress.lastAcceptedLon ?: current.currentLongitude,
+                            gpsAccuracyMeters = context.progress.currentGpsAccuracyM ?: current.gpsAccuracyMeters,
+                            upcomingHazards = context.hazards.upcomingHazards,
+                            nearbyHazards = context.hazards.nearbyHazards,
+                            passedHazards = context.hazards.passedHazards,
+                            liveWeather = context.weather,
+                            liveNetwork = context.networkStatus,
+                            nearbyFacilities = context.nearbyFacilities,
+                            activeAlertBanner = context.activeCriticalAlert ?: current.activeAlertBanner
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun getBatteryPercentage(): Int {
@@ -138,6 +182,17 @@ class ActiveTripViewModel @Inject constructor(
                             cachedRouteCoords = if (route.routeGeoJson != null) {
                                 parseRouteCoordsFromGeoJson(route.routeGeoJson)
                             } else emptyList()
+
+                            if (cachedRouteCoords.isNotEmpty() && liveTrekContextEngine.liveContext.value.sessionStatus == TrekSessionStatus.IDLE) {
+                                liveTrekContextEngine.startTrekSession(
+                                    tripId = trip.tripId,
+                                    routeId = trip.routeId,
+                                    points = cachedRouteCoords,
+                                    totalDistanceKm = cachedTotalDistanceKm,
+                                    destination = cachedDestinationName,
+                                    initialTraveledMeters = trip.traveledDistanceMeters
+                                )
+                            }
                         }
                     }
 
@@ -217,11 +272,13 @@ class ActiveTripViewModel @Inject constructor(
 
     fun pauseTrek(ctx: Context) {
         ActiveTripTrackingService.pause(ctx)
+        liveTrekContextEngine.pauseTrekSession()
         _uiState.update { it.copy(isPaused = true) }
     }
 
     fun resumeTrek(ctx: Context) {
         ActiveTripTrackingService.resume(ctx)
+        liveTrekContextEngine.resumeTrekSession()
         _uiState.update { it.copy(isPaused = false) }
     }
 
@@ -229,6 +286,7 @@ class ActiveTripViewModel @Inject constructor(
         viewModelScope.launch {
             routeRepository.stopTrip(tripId)
             ActiveTripTrackingService.stop(ctx)
+            liveTrekContextEngine.stopTrekSession()
             hazardAlertEngine.dismissActiveAlert()
             _uiState.update { it.copy(isCompleted = true, status = "COMPLETED") }
         }
