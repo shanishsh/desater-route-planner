@@ -36,6 +36,8 @@ object MapLibreLayerManager {
     private var lastSlopeGeoJson: String? = null
     private var lastWaterwayGeoJson: String? = null
     private var lastSelectedPointGeoJson: String? = null
+    private var lastHistoricalLandslidesGeoJson: String? = null
+    private var lastHazardSequenceGeoJson: String? = null
 
     /**
      * Clears all GeoJSON change-detection hashes.
@@ -53,6 +55,8 @@ object MapLibreLayerManager {
         lastSlopeGeoJson = null
         lastWaterwayGeoJson = null
         lastSelectedPointGeoJson = null
+        lastHistoricalLandslidesGeoJson = null
+        lastHazardSequenceGeoJson = null
     }
 
     // Sources
@@ -271,7 +275,8 @@ object MapLibreLayerManager {
 
             // 3. Disaster Alerts Polygons Source & Layers
             if (style.getSource(SOURCE_DISASTER_POLYGONS) == null) {
-                style.addSource(GeoJsonSource(SOURCE_DISASTER_POLYGONS, EMPTY_GEOJSON))
+                val initialDisaster = if (context != null) getOrLoadHazardZonesBaselineGeoJson(context) ?: EMPTY_GEOJSON else (cachedHazardZonesBaselineGeoJson ?: EMPTY_GEOJSON)
+                style.addSource(GeoJsonSource(SOURCE_DISASTER_POLYGONS, initialDisaster))
             }
             if (style.getLayer(LAYER_DISASTER_FILL) == null) {
                 val disasterFill = FillLayer(LAYER_DISASTER_FILL, SOURCE_DISASTER_POLYGONS).apply {
@@ -284,12 +289,12 @@ object MapLibreLayerManager {
                         fillColor(
                             match(
                                 get("hazard_category"),
-                                literal("flash_flood"), color(Color.argb(110, 0, 151, 167)), // Flood Inundation Teal #0097A7
-                                literal("flood"), color(Color.argb(110, 0, 151, 167)),
-                                color(Color.argb(70, 229, 57, 53)) // Emergency Red #E53935
+                                literal("flash_flood"), color(Color.rgb(0, 151, 167)), // Flood Inundation Teal #0097A7
+                                literal("flood"), color(Color.rgb(0, 151, 167)),
+                                color(Color.rgb(229, 57, 53)) // Emergency Red #E53935
                             )
                         ),
-                        fillOpacity(0.35f)
+                        fillOpacity(0.38f)
                     )
                 }
                 style.addLayer(disasterFill)
@@ -310,7 +315,8 @@ object MapLibreLayerManager {
                                 color(Color.rgb(211, 47, 47)) // #D32F2F
                             )
                         ),
-                        lineWidth(2.5f),
+                        lineWidth(2.8f),
+                        lineOpacity(0.95f),
                         lineJoin(Property.LINE_JOIN_ROUND),
                         lineCap(Property.LINE_CAP_ROUND)
                     )
@@ -561,7 +567,8 @@ object MapLibreLayerManager {
 
             // 4d. Historical Landslides (GSI Bhukosh / USDMA)
             if (style.getSource(SOURCE_HISTORICAL_LANDSLIDES) == null) {
-                style.addSource(GeoJsonSource(SOURCE_HISTORICAL_LANDSLIDES, EMPTY_GEOJSON))
+                val initialLandslides = if (context != null) getOrLoadHistoricalLandslidesBaselineGeoJson(context) ?: EMPTY_GEOJSON else (cachedHistoricalLandslidesBaselineGeoJson ?: EMPTY_GEOJSON)
+                style.addSource(GeoJsonSource(SOURCE_HISTORICAL_LANDSLIDES, initialLandslides))
             }
             if (style.getLayer(LAYER_HISTORICAL_LANDSLIDES_CIRCLE) == null) {
                 val lsCircle = CircleLayer(LAYER_HISTORICAL_LANDSLIDES_CIRCLE, SOURCE_HISTORICAL_LANDSLIDES).apply {
@@ -1083,11 +1090,20 @@ object MapLibreLayerManager {
             // 3. Update Disaster Features (Polygons & Point Advisories)
             try {
                 val disasterSource = style.getSourceAs<GeoJsonSource>(SOURCE_DISASTER_POLYGONS)
-                val disasterJson = if (!state.hazardsGeoJson.isNullOrBlank()) {
+                val routeHazardsHaveFeatures = hasFeatures(state.hazardsGeoJson)
+                val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
+                val baselineDisasterJson = if (context != null) getOrLoadHazardZonesBaselineGeoJson(context) else cachedHazardZonesBaselineGeoJson
+
+                val disasterJson = if (routeHazardsHaveFeatures) {
+                    ensureFeatureCollection(state.hazardsGeoJson)
+                } else if (disasterFeatures.isNotEmpty()) {
+                    buildDisasterFeatureCollection(disasterFeatures)
+                } else if (!baselineDisasterJson.isNullOrBlank()) {
+                    baselineDisasterJson
+                } else if (!state.hazardsGeoJson.isNullOrBlank()) {
                     ensureFeatureCollection(state.hazardsGeoJson)
                 } else {
-                    val disasterFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.HAZARD_ZONE }
-                    buildDisasterFeatureCollection(disasterFeatures)
+                    EMPTY_GEOJSON
                 }
                 if (disasterJson != lastDisasterGeoJson) {
                     disasterSource?.setGeoJson(disasterJson)
@@ -1220,10 +1236,22 @@ object MapLibreLayerManager {
             // 7d. Update Historical Landslides GeoJSON
             try {
                 val lsSource = style.getSourceAs<GeoJsonSource>(SOURCE_HISTORICAL_LANDSLIDES)
-                val lsJson = if (!state.historicalLandslidesGeoJson.isNullOrBlank()) {
+                val routeLsHasFeatures = hasFeatures(state.historicalLandslidesGeoJson)
+                val baselineLsJson = if (context != null) getOrLoadHistoricalLandslidesBaselineGeoJson(context) else cachedHistoricalLandslidesBaselineGeoJson
+
+                val lsJson = if (routeLsHasFeatures) {
                     ensureFeatureCollection(state.historicalLandslidesGeoJson)
-                } else EMPTY_GEOJSON
-                lsSource?.setGeoJson(lsJson)
+                } else if (!baselineLsJson.isNullOrBlank()) {
+                    baselineLsJson
+                } else if (!state.historicalLandslidesGeoJson.isNullOrBlank()) {
+                    ensureFeatureCollection(state.historicalLandslidesGeoJson)
+                } else {
+                    EMPTY_GEOJSON
+                }
+                if (lsJson != lastHistoricalLandslidesGeoJson) {
+                    lsSource?.setGeoJson(lsJson)
+                    lastHistoricalLandslidesGeoJson = lsJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating historical landslides GeoJSON: ${t.message}")
             }
@@ -1273,6 +1301,20 @@ object MapLibreLayerManager {
                 cellCovSource?.setGeoJson(cellCovJson)
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating cellular coverage GeoJSON: ${t.message}")
+            }
+
+            // 7g. Update Route Hazard Sequence GeoJSON
+            try {
+                val seqSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_HAZARD_SEQUENCE)
+                val seqJson = if (state.routeHazardSequence.isNotEmpty()) {
+                    buildHazardSequenceGeoJson(state.routeHazardSequence, state.selectedHazardSequenceItem?.feature?.id)
+                } else EMPTY_GEOJSON
+                if (seqJson != lastHazardSequenceGeoJson) {
+                    seqSource?.setGeoJson(seqJson)
+                    lastHazardSequenceGeoJson = seqJson
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating route hazard sequence GeoJSON: ${t.message}")
             }
 
             // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip
@@ -1357,6 +1399,15 @@ object MapLibreLayerManager {
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
         style.getLayer(LAYER_DISASTER_POINTS_SYMBOL)?.setProperties(
+            visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_HISTORICAL_LANDSLIDES_CIRCLE)?.setProperties(
+            visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_HISTORICAL_LANDSLIDES_SYMBOL)?.setProperties(
+            visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL)?.setProperties(
             visibility(if (hazardVis) Property.VISIBLE else Property.NONE)
         )
 
@@ -1645,6 +1696,13 @@ object MapLibreLayerManager {
                 }
                 sb.append("]]}}")
                 count++
+
+                // Dual emission: Also emit a centroid Point feature so symbol & circle layers render the hazard warning icon
+                sb.append(",")
+                sb.append("{\"type\":\"Feature\",\"id\":\"${safeId}_center\",\"properties\":{")
+                sb.append("\"id\":\"$safeId\",\"title\":\"$safeTitle\",\"subtitle\":\"$safeSub\",\"category\":\"${feat.category.name}\",\"hazard_category\":\"$safeHazardCat\",\"geom_type\":\"Point\"")
+                sb.append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[${feat.longitude},${feat.latitude}]}}")
+                count++
             } else {
                 // Point hazard advisory
                 if (count > 0) sb.append(",")
@@ -1713,6 +1771,27 @@ object MapLibreLayerManager {
         }
     }
 
+    /**
+     * Checks whether a GeoJSON string contains at least one non-empty feature.
+     * Prevents empty FeatureCollections from overwriting baseline or memory features.
+     */
+    fun hasFeatures(rawJson: String?): Boolean {
+        if (rawJson.isNullOrBlank()) return false
+        val trimmed = rawJson.trim()
+        if (trimmed == "{}" || trimmed == "null" || trimmed.isEmpty()) return false
+        return try {
+            val root = org.json.JSONObject(trimmed)
+            val features = root.optJSONArray("features")
+            if (features != null) {
+                features.length() > 0
+            } else {
+                root.has("geometry") || root.optString("type").equals("Feature", ignoreCase = true)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private var cachedMaskGeoJson: String? = null
     private var cachedBoundaryGeoJson: String? = null
     private var cachedVerifiedTrailsGeoJson: String? = null
@@ -1759,6 +1838,38 @@ object MapLibreLayerManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading uttarakhand_major_waterways.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private var cachedHazardZonesBaselineGeoJson: String? = null
+
+    private fun getOrLoadHazardZonesBaselineGeoJson(context: android.content.Context): String? {
+        if (cachedHazardZonesBaselineGeoJson != null) return cachedHazardZonesBaselineGeoJson
+        return try {
+            context.assets.open("uttarakhand_hazard_zones.geojson").use { stream ->
+                val str = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedHazardZonesBaselineGeoJson = ensureFeatureCollection(str)
+                cachedHazardZonesBaselineGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_hazard_zones.geojson from assets: ${e.message}", e)
+            null
+        }
+    }
+
+    private var cachedHistoricalLandslidesBaselineGeoJson: String? = null
+
+    private fun getOrLoadHistoricalLandslidesBaselineGeoJson(context: android.content.Context): String? {
+        if (cachedHistoricalLandslidesBaselineGeoJson != null) return cachedHistoricalLandslidesBaselineGeoJson
+        return try {
+            context.assets.open("uttarakhand_historical_landslides.geojson").use { stream ->
+                val str = stream.bufferedReader(Charsets.UTF_8).readText()
+                cachedHistoricalLandslidesBaselineGeoJson = ensureFeatureCollection(str)
+                cachedHistoricalLandslidesBaselineGeoJson
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading uttarakhand_historical_landslides.geojson from assets: ${e.message}", e)
             null
         }
     }
@@ -1848,21 +1959,27 @@ object MapLibreLayerManager {
     ): String {
         if (items.isEmpty()) return EMPTY_GEOJSON
         val sb = StringBuilder()
-        sb.append("\"type\":\"FeatureCollection\",\"features\":[")
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
         items.forEachIndexed { idx, item ->
             if (idx > 0) sb.append(",")
             val isSelected = item.feature.id == selectedId || item.sequenceLabel == selectedId
-            sb.append("\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+            val safeId = escapeJson(item.feature.id)
+            val safeTitle = escapeJson(item.feature.title)
+            val safeLabel = escapeJson(item.sequenceLabel)
+            val iconId = escapeJson(item.categoryType.iconKey)
+            sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
             sb.append(item.feature.longitude).append(",").append(item.feature.latitude)
-            sb.append("],\"properties\":{")
-            sb.append("\"id\":\"").append(escapeJson(item.feature.id)).append("\",")
-            sb.append("\"sequence_label\":\"").append(item.sequenceLabel).append("\",")
-            sb.append("\"title\":\"").append(escapeJson(item.feature.title)).append("\",")
-            sb.append("\"category\":\"").append(item.categoryType.name).append("\",")
-            sb.append("\"icon_id\":\"").append(item.categoryType.iconKey).append("\",")
-            sb.append("\"is_selected\":").append(isSelected).append(",")
-            sb.append("\"is_direct_intersection\":").append(item.intersectionType == com.touristsafety.app.core.model.RouteIntersectionType.DIRECT_INTERSECTION).append(",")
-            sb.append("\"trek_status\":\"").append(item.trekStatus.name).append("\"")
+            sb.append("]},\"properties\":{")
+            sb.append("\"id\":\"$safeId\",")
+            sb.append("\"sequence_label\":\"$safeLabel\",")
+            sb.append("\"sequence_number\":${item.sequenceNumber},")
+            sb.append("\"title\":\"$safeTitle\",")
+            sb.append("\"category\":\"${item.feature.category.name}\",")
+            sb.append("\"hazard_category\":\"${item.categoryType.id}\",")
+            sb.append("\"icon_id\":\"$iconId\",")
+            sb.append("\"is_selected\":$isSelected,")
+            sb.append("\"is_direct_intersection\":${item.intersectionType == com.touristsafety.app.core.model.RouteIntersectionType.DIRECT_INTERSECTION},")
+            sb.append("\"trek_status\":\"${item.trekStatus.name}\"")
             sb.append("}}")
         }
         sb.append("]}")

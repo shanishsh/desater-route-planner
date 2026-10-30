@@ -922,6 +922,7 @@ class RouteConditionAnalyzer:
                         "title": alert.title,
                         "severity": alert.severity,
                         "category": alert.hazard_category,
+                        "hazard_category": alert.hazard_category,
                         "instructions": alert.required_protective_instructions,
                         "issuing_authority": alert.issuing_authority,
                         "derived_from": derived_from,
@@ -930,6 +931,27 @@ class RouteConditionAnalyzer:
                         "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
                     }
                 })
+                # If polygon alert, also emit companion center point so warning icon renders prominently
+                if layer_type == "disaster_alert" and getattr(alert, "center_longitude", None) is not None and getattr(alert, "center_latitude", None) is not None:
+                    overlay_features.append({
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [alert.center_longitude, alert.center_latitude]},
+                        "properties": {
+                            "layer": "disaster_alert_point",
+                            "id": f"{alert.id}_center",
+                            "alert_id": alert.id,
+                            "title": alert.title,
+                            "severity": alert.severity,
+                            "category": alert.hazard_category,
+                            "hazard_category": alert.hazard_category,
+                            "instructions": alert.required_protective_instructions,
+                            "issuing_authority": alert.issuing_authority,
+                            "derived_from": "center_point",
+                            "area_description": alert.area_description,
+                            "source_url": alert.source_url,
+                            "color": "#D32F2F" if alert.severity in ["CRITICAL", "SEVERE"] else "#F57C00",
+                        }
+                    })
         # 3. Active fires
         for fire in active_fires:
             f_lat = fire.get("latitude", 0.0)

@@ -6,10 +6,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface HazardZoneDao {
-    @Query("SELECT * FROM hazard_zones WHERE status IN ('active', 'updated') AND isSimulated = 0 ORDER BY publishedAtEpochMs DESC")
+    @Query("SELECT * FROM hazard_zones WHERE status IN ('active', 'updated') ORDER BY publishedAtEpochMs DESC")
     fun getAllActive(): Flow<List<HazardZoneEntity>>
 
-    @Query("SELECT * FROM hazard_zones WHERE status IN ('active', 'updated') AND isSimulated = 0")
+    @Query("SELECT * FROM hazard_zones WHERE status IN ('active', 'updated')")
     suspend fun getAllActiveList(): List<HazardZoneEntity>
 
     @Query("SELECT * FROM hazard_zones WHERE alertId = :id")

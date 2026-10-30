@@ -134,6 +134,96 @@ class MapLibreLayerManagerTest {
         assertEquals("FeatureCollection", trailsParsed.optString("type"))
         val trailsFeatures = trailsParsed.getJSONArray("features")
         assertEquals("Expected 12 verified trails", 12, trailsFeatures.length())
+
+        // 5. Baseline hazard zones asset
+        val hazardFile = File(assetsDir, "uttarakhand_hazard_zones.geojson")
+        assertTrue("uttarakhand_hazard_zones.geojson must exist", hazardFile.exists())
+        val hazardJson = MapLibreLayerManager.ensureFeatureCollection(hazardFile.readText())
+        val hazardParsed = JSONObject(hazardJson)
+        assertEquals("FeatureCollection", hazardParsed.optString("type"))
+        val hazardFeatures = hazardParsed.getJSONArray("features")
+        assertEquals("Expected 18 hazard features (9 polygons + 9 centroid markers)", 18, hazardFeatures.length())
+    }
+
+    @Test
+    fun `hasFeatures accurately identifies non-empty features and rejects empty collections`() {
+        assertFalse(MapLibreLayerManager.hasFeatures(null))
+        assertFalse(MapLibreLayerManager.hasFeatures(""))
+        assertFalse(MapLibreLayerManager.hasFeatures("   "))
+        assertFalse(MapLibreLayerManager.hasFeatures("{}"))
+        assertFalse(MapLibreLayerManager.hasFeatures("{\"type\":\"FeatureCollection\",\"features\":[]}"))
+        assertFalse(MapLibreLayerManager.hasFeatures("""
+            {
+               "type": "FeatureCollection",
+               "features": []
+            }
+        """.trimIndent()))
+
+        val validFc = """
+            {
+               "type": "FeatureCollection",
+               "features": [
+                 {
+                   "type": "Feature",
+                   "geometry": { "type": "Point", "coordinates": [79.0, 30.0] }
+                 }
+               ]
+            }
+        """.trimIndent()
+        assertTrue(MapLibreLayerManager.hasFeatures(validFc))
+
+        val singleFeature = """
+            {
+               "type": "Feature",
+               "geometry": { "type": "Point", "coordinates": [79.0, 30.0] }
+            }
+        """.trimIndent()
+        assertTrue(MapLibreLayerManager.hasFeatures(singleFeature))
+    }
+
+    @Test
+    fun `buildHazardSequenceGeoJson produces syntactically valid GeoJSON with icon and sequence properties`() {
+        val dummyFeature = com.touristsafety.app.core.model.UnifiedMapFeature(
+            id = "hazard_101",
+            category = com.touristsafety.app.core.model.MapFeatureCategory.HAZARD_ZONE,
+            title = "Kedarnath Outburst",
+            subtitle = "Active Warning",
+            latitude = 30.7346,
+            longitude = 79.0669
+        )
+        val dummyItem = com.touristsafety.app.core.model.RouteOrderedHazardItem(
+            sequenceNumber = 1,
+            sequenceLabel = "#1",
+            feature = dummyFeature,
+            distanceAlongRouteMeters = 1200.0,
+            crossTrackDistanceMeters = 15.0,
+            intersectionType = com.touristsafety.app.core.model.RouteIntersectionType.DIRECT_INTERSECTION,
+            categoryType = com.touristsafety.app.core.model.HazardCategoryType.FLOODING,
+            severity = "CRITICAL"
+        )
+
+        val jsonString = MapLibreLayerManager.buildHazardSequenceGeoJson(listOf(dummyItem))
+        val parsed = JSONObject(jsonString)
+
+        assertEquals("FeatureCollection", parsed.optString("type"))
+        val features = parsed.getJSONArray("features")
+        assertEquals(1, features.length())
+
+        val feat = features.getJSONObject(0)
+        assertEquals("Feature", feat.optString("type"))
+        assertEquals("hazard_101", feat.optString("id"))
+
+        val geom = feat.getJSONObject("geometry")
+        assertEquals("Point", geom.optString("type"))
+        val coords = geom.getJSONArray("coordinates")
+        assertEquals(79.0669, coords.getDouble(0), 0.0001)
+        assertEquals(30.7346, coords.getDouble(1), 0.0001)
+
+        val props = feat.getJSONObject("properties")
+        assertEquals("#1", props.optString("sequence_label"))
+        assertEquals(1, props.optInt("sequence_number"))
+        assertEquals("icon-anim-flooding", props.optString("icon_id"))
+        assertEquals("flooding", props.optString("hazard_category"))
     }
 }
 
