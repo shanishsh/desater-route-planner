@@ -1,6 +1,7 @@
 package com.touristsafety.app.core.model
 
 import com.touristsafety.app.core.location.ActiveHazardAlert
+import com.touristsafety.app.core.network.dto.LiveSafetyAssistantResponseDto
 import com.touristsafety.app.core.network.dto.NearbyFacilityDto
 import com.touristsafety.app.core.network.dto.WeatherDto
 
@@ -118,5 +119,9 @@ data class LiveTrekContext(
     val nearbyFacilities: List<NearbyFacilityDto> = emptyList(),
     val networkStatus: LiveNetworkStatus = LiveNetworkStatus(),
     val activeCriticalAlert: ActiveHazardAlert? = null,
+    val activeSafetyEvent: SafetyEvent? = null,
+    val assistantGuidance: LiveSafetyAssistantResponseDto? = null,
+    val contextGenerationId: Int = 1,
+    val isVoiceGuidanceEnabled: Boolean = true,
     val lastEngineUpdateEpochMs: Long = System.currentTimeMillis()
 )

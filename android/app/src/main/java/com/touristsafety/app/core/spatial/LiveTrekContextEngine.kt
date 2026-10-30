@@ -7,6 +7,11 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import com.touristsafety.app.core.audio.SafetyAlertPlayer
+import com.touristsafety.app.core.audio.TrekVoiceAssistant
+import com.touristsafety.app.core.model.SafetyEvent
+import com.touristsafety.app.core.model.SafetyEventType
+import com.touristsafety.app.core.network.dto.*
+import com.touristsafety.app.core.repository.AssistantRepository
 import com.touristsafety.app.core.database.dao.ActiveTripDao
 import com.touristsafety.app.core.database.dao.FireHotspotDao
 import com.touristsafety.app.core.database.dao.HazardZoneDao
@@ -62,7 +67,10 @@ class LiveTrekContextEngine @Inject constructor(
     private val activeTripDao: ActiveTripDao,
     private val trekTrackPointDao: TrekTrackPointDao,
     private val hazardAlertEngine: HazardAlertEngine,
-    private val safetyAlertPlayer: SafetyAlertPlayer
+    private val safetyAlertPlayer: SafetyAlertPlayer,
+    private val deterministicDecisionEngine: DeterministicSafetyDecisionEngine,
+    private val trekVoiceAssistant: TrekVoiceAssistant,
+    private val assistantRepository: AssistantRepository
 ) {
     companion object {
         private const val TAG = "LiveTrekContextEngine"
@@ -98,6 +106,11 @@ class LiveTrekContextEngine @Inject constructor(
     // Cached hazards, baseline datasets, and facilities
     private var monitoredFeatures: List<UnifiedMapFeature> = emptyList()
     private val cachedCellTowers = mutableListOf<CellTowerInfo>()
+
+    // Assistant & Generation tracking
+    private var currentGenerationId: Int = 1
+    private var lastGenUpdateLat: Double? = null
+    private var lastGenUpdateLon: Double? = null
 
     // Tiered refresh tracking
     private var lastWeatherQueryLocation: Pair<Double, Double>? = null
@@ -288,6 +301,8 @@ class LiveTrekContextEngine @Inject constructor(
             cumulativeTraveledMeters = initialTraveledMeters
             sessionStartTimeEpochMs = System.currentTimeMillis()
             isPaused = false
+            deterministicDecisionEngine.reset()
+            assistantRepository.clearCache()
 
             // Store features or load local baseline if empty
             monitoredFeatures = if (features.isNotEmpty()) {
@@ -326,6 +341,9 @@ class LiveTrekContextEngine @Inject constructor(
     }
 
     fun stopTrekSession() {
+        deterministicDecisionEngine.reset()
+        trekVoiceAssistant.stopSpeaking()
+        safetyAlertPlayer.stopSafetyAlert()
         engineScope.launch {
             flushPointBuffer()
             activeTripId = null
@@ -463,11 +481,27 @@ class LiveTrekContextEngine @Inject constructor(
             speedKmh
         )
 
+        // Check generation distance advancement
+        val prevGenLat = lastGenUpdateLat
+        val prevGenLon = lastGenUpdateLon
+        if (prevGenLat != null && prevGenLon != null) {
+            val moved = RouteMatchingEngine.haversineDistanceMeters(location.latitude, location.longitude, prevGenLat, prevGenLon)
+            if (moved >= 30.0) {
+                currentGenerationId++
+                lastGenUpdateLat = location.latitude
+                lastGenUpdateLon = location.longitude
+            }
+        } else {
+            lastGenUpdateLat = location.latitude
+            lastGenUpdateLon = location.longitude
+        }
+
         // 4. Update Engine State Snapshot
         _liveContext.update { current ->
             current.copy(
                 progress = progressMetrics,
                 hazards = categorized,
+                contextGenerationId = currentGenerationId,
                 lastEngineUpdateEpochMs = now
             )
         }
@@ -475,8 +509,8 @@ class LiveTrekContextEngine @Inject constructor(
         // 5. Tiered Event-Driven Refreshes
         checkAndTriggerTieredRefreshes(location.latitude, location.longitude, now)
 
-        // 6. Imminent Critical Safety Alert Evaluation
-        evaluateCriticalAlerts(categorized.nearbyHazards, categorized.upcomingHazards)
+        // 6. Deterministic Safety Evaluation & Grounded Voice/AI Alerts
+        evaluateSafetyAndAssistant(progressMetrics, categorized, now)
     }
 
     private fun reclassifyHazards(
@@ -548,7 +582,7 @@ class LiveTrekContextEngine @Inject constructor(
                         )
                     } else {
                         // Currently traversing or inside polygon
-                        nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, estimatedMinutesAhead = 0))
+                        nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, distanceCurrentLocationMeters = distToUserMeters, estimatedMinutesAhead = 0))
                     }
                 } else if (distToUserMeters <= physicalRadiusMeters) {
                     nearby.add(
@@ -562,6 +596,7 @@ class LiveTrekContextEngine @Inject constructor(
                             trekStatus = HazardTrekStatus.NEARBY,
                             categoryType = catType,
                             distanceAheadMeters = 0.0,
+                            distanceCurrentLocationMeters = distToUserMeters,
                             estimatedMinutesAhead = 0,
                             severity = feat.details["Severity"] ?: "WARNING"
                         )
@@ -586,7 +621,7 @@ class LiveTrekContextEngine @Inject constructor(
                 )
 
                 if (distToUserMeters <= physicalRadiusMeters) {
-                    nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, estimatedMinutesAhead = 0))
+                    nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, distanceCurrentLocationMeters = distToUserMeters, estimatedMinutesAhead = 0))
                 } else if (isOffRoute) {
                     uncertain.add(item.copy(trekStatus = HazardTrekStatus.UNCERTAIN))
                 } else if (proj != null && proj.crossTrackDistanceMeters <= 120.0) {
@@ -602,7 +637,7 @@ class LiveTrekContextEngine @Inject constructor(
                             )
                         )
                     } else {
-                        nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, estimatedMinutesAhead = 0))
+                        nearby.add(item.copy(trekStatus = HazardTrekStatus.NEARBY, distanceAheadMeters = 0.0, distanceCurrentLocationMeters = distToUserMeters, estimatedMinutesAhead = 0))
                     }
                 } else if (proj != null && proj.crossTrackDistanceMeters <= 2000.0) {
                     offRoute.add(item.copy(trekStatus = HazardTrekStatus.UNCERTAIN, intersectionType = RouteIntersectionType.CORRIDOR_NEARBY))
@@ -701,38 +736,254 @@ class LiveTrekContextEngine @Inject constructor(
         }
     }
 
-    private fun evaluateCriticalAlerts(
-        nearby: List<RouteOrderedHazardItem>,
-        upcoming: List<RouteOrderedHazardItem>
+    private fun evaluateSafetyAndAssistant(
+        progress: TrekProgressMetrics,
+        categorized: CategorizedHazards,
+        now: Long
     ) {
-        val criticalOrSevere = nearby.firstOrNull { it.severity.equals("CRITICAL", ignoreCase = true) || it.severity.equals("SEVERE", ignoreCase = true) }
-            ?: upcoming.firstOrNull {
-                (it.severity.equals("CRITICAL", ignoreCase = true) || it.severity.equals("SEVERE", ignoreCase = true)) &&
-                        (it.distanceAheadMeters ?: 9999.0) <= 2500.0
+        val safetyEvent = deterministicDecisionEngine.evaluate(
+            upcomingHazards = categorized.upcomingHazards,
+            nearbyHazards = categorized.nearbyHazards,
+            progress = progress,
+            weather = _liveContext.value.weather,
+            isOffline = _liveContext.value.networkStatus.isOffline,
+            hasVerifiedAlternatives = false,
+            now = now
+        )
+
+        if (safetyEvent != null) {
+            if (safetyEvent.requiresImmediateAlarm) {
+                val alert = ActiveHazardAlert(
+                    hazardId = safetyEvent.hazardId ?: "hazard_alert",
+                    title = safetyEvent.hazardTitle,
+                    severity = safetyEvent.severity,
+                    distanceKm = round(((safetyEvent.distanceAheadMeters ?: safetyEvent.distanceCurrentMeters) / 1000.0) * 10.0) / 10.0,
+                    instructions = safetyEvent.deterministicActionText,
+                    issuingAuthority = "USDMA / Live Safety Engine",
+                    triggeredAtEpochMs = now
+                )
+                _liveContext.update { it.copy(activeCriticalAlert = alert, activeSafetyEvent = safetyEvent) }
+                safetyAlertPlayer.playSafetyAlert()
+            } else {
+                _liveContext.update { it.copy(activeSafetyEvent = safetyEvent) }
             }
 
-        if (criticalOrSevere != null) {
-            val alert = ActiveHazardAlert(
-                hazardId = criticalOrSevere.feature.id,
-                title = criticalOrSevere.feature.title,
-                severity = criticalOrSevere.severity,
-                distanceKm = round(((criticalOrSevere.distanceAheadMeters ?: 0.0) / 1000.0) * 10.0) / 10.0,
-                instructions = criticalOrSevere.feature.details["Instructions"] ?: "Exercise extreme caution.",
-                issuingAuthority = criticalOrSevere.feature.sourceName ?: "USDMA",
-                triggeredAtEpochMs = System.currentTimeMillis()
+            if (safetyEvent.requiresVoiceAlert && _liveContext.value.isVoiceGuidanceEnabled) {
+                trekVoiceAssistant.speakSafetyAlert(
+                    text = safetyEvent.deterministicSpokenText,
+                    isCritical = safetyEvent.requiresImmediateAlarm,
+                    now = now
+                )
+            }
+
+            // Asynchronously dispatch for grounded AI explanation
+            val genId = currentGenerationId
+            engineScope.launch(Dispatchers.IO) {
+                try {
+                    val reqDto = buildAssistantRequestDto(progress, categorized, safetyEvent, genId)
+                    val aiResponse = assistantRepository.getSafetyGuidance(reqDto, safetyEvent)
+                    if (_liveContext.value.contextGenerationId == genId) {
+                        _liveContext.update { it.copy(assistantGuidance = aiResponse) }
+                        if (aiResponse.is_ai_generated && aiResponse.spoken_message.isNotBlank() && _liveContext.value.isVoiceGuidanceEnabled) {
+                            trekVoiceAssistant.speakSafetyAlert(
+                                text = aiResponse.spoken_message,
+                                isCritical = safetyEvent.requiresImmediateAlarm,
+                                now = System.currentTimeMillis()
+                            )
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Error fetching AI guidance: ${t.message}")
+                }
+            }
+        }
+    }
+
+    private fun buildAssistantRequestDto(
+        progress: TrekProgressMetrics,
+        categorized: CategorizedHazards,
+        safetyEvent: SafetyEvent?,
+        genId: Int
+    ): LiveSafetyAssistantRequestDto {
+        val w = _liveContext.value.weather
+        val facs = _liveContext.value.nearbyFacilities
+        val net = _liveContext.value.networkStatus
+
+        return LiveSafetyAssistantRequestDto(
+            trip_id = activeTripId ?: "trip_active",
+            route_id = activeRouteId ?: "route_active",
+            context_generation_id = genId,
+            trigger_event = safetyEvent?.let { ev ->
+                AssistantSafetyEventDto(
+                    event_id = ev.eventId,
+                    event_type = ev.eventType.name,
+                    hazard_id = ev.hazardId,
+                    hazard_title = ev.hazardTitle,
+                    severity = ev.severity,
+                    distance_ahead_m = ev.distanceAheadMeters,
+                    distance_current_m = ev.distanceCurrentMeters,
+                    is_direct_route_obstruction = ev.isDirectRouteObstruction,
+                    has_verified_alternative = ev.hasVerifiedAlternative,
+                    deterministic_spoken_text = ev.deterministicSpokenText,
+                    deterministic_action_text = ev.deterministicActionText
+                )
+            },
+            current_location = AssistantLocationDto(
+                latitude = progress.lastAcceptedLat ?: 0.0,
+                longitude = progress.lastAcceptedLon ?: 0.0,
+                altitude_meters = progress.lastAcceptedAltitudeM,
+                accuracy_meters = progress.currentGpsAccuracyM,
+                speed_kmh = progress.currentSpeedKmh
+            ),
+            route_progress = AssistantRouteProgressDto(
+                traveled_km = progress.traveledDistanceMeters / 1000.0,
+                chainage_km = progress.routeProgressMeters / 1000.0,
+                remaining_km = progress.remainingDistanceMeters / 1000.0,
+                progress_pct = progress.progressPct.toDouble(),
+                is_off_route = progress.isOffRoute,
+                cross_track_m = progress.crossTrackDistanceMeters
+            ),
+            upcoming_hazards = categorized.upcomingHazards.map {
+                AssistantHazardContextDto(
+                    id = it.feature.id,
+                    title = it.feature.title,
+                    category = it.feature.category.name,
+                    severity = it.severity,
+                    distance_ahead_m = it.distanceAheadMeters,
+                    sequence_number = it.sequenceNumber,
+                    is_direct_intersection = it.intersectionType == RouteIntersectionType.DIRECT_INTERSECTION
+                )
+            },
+            nearby_hazards = categorized.nearbyHazards.map {
+                AssistantHazardContextDto(
+                    id = it.feature.id,
+                    title = it.feature.title,
+                    category = it.feature.category.name,
+                    severity = it.severity,
+                    distance_current_m = it.distanceCurrentLocationMeters
+                )
+            },
+            current_weather = AssistantWeatherContextDto(
+                temperature_c = w.currentTemperatureC,
+                weather_description = w.weatherDescription,
+                precipitation_probability_pct = w.precipitationProbabilityPct,
+                wind_speed_kmh = w.windSpeedKmh,
+                thunderstorm_probability_pct = w.thunderstormProbabilityPct,
+                is_stale = w.isStale
+            ),
+            nearby_facilities = facs.map {
+                AssistantFacilityContextDto(
+                    id = it.id,
+                    name = it.name,
+                    category = it.category,
+                    distance_km = it.distance_km,
+                    latitude = it.latitude,
+                    longitude = it.longitude
+                )
+            },
+            verified_alternatives = emptyList(),
+            connectivity_status = if (net.isOffline) "OFFLINE" else net.estimatedCoverage
+        )
+    }
+
+    fun askAssistant(query: String, onResult: (LiveSafetyAssistantResponseDto) -> Unit = {}) {
+        val genId = currentGenerationId
+        val progress = _liveContext.value.progress
+        val hazards = _liveContext.value.hazards
+        val weather = _liveContext.value.weather
+        val facilities = _liveContext.value.nearbyFacilities
+        val net = _liveContext.value.networkStatus
+
+        engineScope.launch(Dispatchers.IO) {
+            val req = AssistantInteractiveQueryRequestDto(
+                trip_id = activeTripId ?: "active_trip",
+                route_id = activeRouteId ?: "active_route",
+                context_generation_id = genId,
+                query = query,
+                current_location = AssistantLocationDto(
+                    latitude = progress.lastAcceptedLat ?: 0.0,
+                    longitude = progress.lastAcceptedLon ?: 0.0,
+                    altitude_meters = progress.lastAcceptedAltitudeM,
+                    accuracy_meters = progress.currentGpsAccuracyM,
+                    speed_kmh = progress.currentSpeedKmh
+                ),
+                route_progress = AssistantRouteProgressDto(
+                    traveled_km = progress.traveledDistanceMeters / 1000.0,
+                    chainage_km = progress.routeProgressMeters / 1000.0,
+                    remaining_km = progress.remainingDistanceMeters / 1000.0,
+                    progress_pct = progress.progressPct.toDouble(),
+                    is_off_route = progress.isOffRoute,
+                    cross_track_m = progress.crossTrackDistanceMeters
+                ),
+                upcoming_hazards = hazards.upcomingHazards.map {
+                    AssistantHazardContextDto(
+                        id = it.feature.id,
+                        title = it.feature.title,
+                        category = it.feature.category.name,
+                        severity = it.severity,
+                        distance_ahead_m = it.distanceAheadMeters,
+                        sequence_number = it.sequenceNumber,
+                        is_direct_intersection = it.intersectionType == RouteIntersectionType.DIRECT_INTERSECTION
+                    )
+                },
+                nearby_hazards = hazards.nearbyHazards.map {
+                    AssistantHazardContextDto(
+                        id = it.feature.id,
+                        title = it.feature.title,
+                        category = it.feature.category.name,
+                        severity = it.severity,
+                        distance_current_m = it.distanceCurrentLocationMeters
+                    )
+                },
+                current_weather = AssistantWeatherContextDto(
+                    temperature_c = weather.currentTemperatureC,
+                    weather_description = weather.weatherDescription,
+                    precipitation_probability_pct = weather.precipitationProbabilityPct,
+                    wind_speed_kmh = weather.windSpeedKmh,
+                    thunderstorm_probability_pct = weather.thunderstormProbabilityPct,
+                    is_stale = weather.isStale
+                ),
+                nearby_facilities = facilities.map {
+                    AssistantFacilityContextDto(
+                        id = it.id,
+                        name = it.name,
+                        category = it.category,
+                        distance_km = it.distance_km,
+                        latitude = it.latitude,
+                        longitude = it.longitude
+                    )
+                },
+                connectivity_status = if (net.isOffline) "OFFLINE" else net.estimatedCoverage
             )
 
-            val currentAlert = _liveContext.value.activeCriticalAlert
-            if (currentAlert?.hazardId != alert.hazardId) {
-                _liveContext.update { it.copy(activeCriticalAlert = alert) }
-                safetyAlertPlayer.playSafetyAlert()
+            val res = assistantRepository.askAssistant(req)
+            withContext(Dispatchers.Main) {
+                _liveContext.update { it.copy(assistantGuidance = res) }
+                if (_liveContext.value.isVoiceGuidanceEnabled && res.spoken_message.isNotBlank()) {
+                    trekVoiceAssistant.speakSafetyAlert(res.spoken_message, isCritical = false)
+                }
+                onResult(res)
             }
+        }
+    }
+
+    fun setVoiceGuidanceEnabled(enabled: Boolean) {
+        _liveContext.update { it.copy(isVoiceGuidanceEnabled = enabled) }
+        trekVoiceAssistant.setVoiceEnabled(enabled)
+    }
+
+    fun replayAssistantVoice() {
+        val guidance = _liveContext.value.assistantGuidance
+        val spoken = guidance?.spoken_message?.ifBlank { null }
+            ?: _liveContext.value.activeSafetyEvent?.deterministicSpokenText
+        if (!spoken.isNullOrBlank()) {
+            trekVoiceAssistant.speakSafetyAlert(spoken, isCritical = true)
         }
     }
 
     fun dismissCriticalAlert() {
         safetyAlertPlayer.stopSafetyAlert()
-        _liveContext.update { it.copy(activeCriticalAlert = null) }
+        _liveContext.update { it.copy(activeCriticalAlert = null, activeSafetyEvent = null) }
     }
 
     private fun loadAllLocalFeatures(): List<UnifiedMapFeature> {

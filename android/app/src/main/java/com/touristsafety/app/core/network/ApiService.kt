@@ -226,4 +226,14 @@ interface ApiService {
         @Path("id") id: String,
         @Body body: TrailReportInteractionCreateDto
     ): Response<TrailReportResponseDto>
+
+    @POST("assistant/safety-guidance")
+    suspend fun getSafetyGuidance(
+        @Body body: LiveSafetyAssistantRequestDto
+    ): Response<LiveSafetyAssistantResponseDto>
+
+    @POST("assistant/ask")
+    suspend fun askAssistant(
+        @Body body: AssistantInteractiveQueryRequestDto
+    ): Response<LiveSafetyAssistantResponseDto>
 }

@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -59,6 +60,7 @@ fun ActiveTripScreen(
     var showTrekSummaryDialog by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
     var isSafetyAssistantExpanded by remember { mutableStateOf(false) }
+    var assistantInputText by remember { mutableStateOf("") }
 
     // MapView instance lifecycle
     val mapView = remember {
@@ -487,6 +489,65 @@ fun ActiveTripScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (state.liveNetwork.isConnected) MaterialTheme.colorScheme.onSurface else WarningAmber
                             )
+
+                            Spacer(modifier = Modifier.width(10.dp))
+                            // Voice Guidance Toggle
+                            IconButton(
+                                onClick = { viewModel.toggleVoiceGuidance(!state.isVoiceGuidanceEnabled) },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (state.isVoiceGuidanceEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                    contentDescription = "Toggle Voice Guidance",
+                                    tint = if (state.isVoiceGuidanceEnabled) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Deterministic Safety Event Banner (if triggered)
+                    if (state.activeSafetyEvent != null) {
+                        val ev = state.activeSafetyEvent!!
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (ev.requiresImmediateAlarm) EmergencyRed.copy(alpha = 0.15f) else WarningAmber.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, if (ev.requiresImmediateAlarm) EmergencyRed else WarningAmber),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = if (ev.requiresImmediateAlarm) EmergencyRed else WarningAmber,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "${ev.severity}: ${ev.hazardTitle}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (ev.requiresImmediateAlarm) EmergencyRed else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        ev.deterministicActionText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { viewModel.dismissActiveAlert() },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(14.dp))
+                                }
+                            }
                         }
                     }
 
@@ -692,13 +753,150 @@ fun ActiveTripScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 240.dp)
+                                    .heightIn(max = 350.dp)
                                     .padding(top = 8.dp)
                             ) {
                                 androidx.compose.foundation.lazy.LazyColumn(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
+                                    // 0. AI Safety Assistant Guidance Card
+                                    if (state.assistantGuidance != null) {
+                                        val g = state.assistantGuidance!!
+                                        item {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                border = BorderStroke(1.dp, if (g.is_ai_generated) ForestGreenPrimary.copy(alpha = 0.4f) else InfoBlue.copy(alpha = 0.4f)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.padding(10.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(
+                                                                Icons.Default.RecordVoiceOver,
+                                                                contentDescription = null,
+                                                                tint = if (g.is_ai_generated) ForestGreenPrimary else InfoBlue,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text(
+                                                                if (g.is_ai_generated) "GROQ AI SAFETY ADVISOR" else "OFFLINE PRE-APPROVED GUIDANCE",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (g.is_ai_generated) ForestGreenPrimary else InfoBlue
+                                                            )
+                                                        }
+
+                                                        TextButton(
+                                                            onClick = { viewModel.replayVoiceGuidance() },
+                                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                                            modifier = Modifier.height(24.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text("Replay", style = MaterialTheme.typography.labelSmall)
+                                                        }
+                                                    }
+
+                                                    Text(
+                                                        g.summary,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier = Modifier.padding(top = 4.dp)
+                                                    )
+
+                                                    if (g.recommended_action.isNotBlank()) {
+                                                        Text(
+                                                            "Action: ${g.recommended_action}",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = ForestGreenPrimary,
+                                                            modifier = Modifier.padding(top = 2.dp)
+                                                        )
+                                                    }
+
+                                                    if (g.what_to_avoid.isNotBlank()) {
+                                                        Text(
+                                                            "Avoid: ${g.what_to_avoid}",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = EmergencyRed,
+                                                            modifier = Modifier.padding(top = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Quick-Action Question Chips
+                                    item {
+                                        androidx.compose.foundation.lazy.LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            val chips = listOf(
+                                                "What is the next hazard?",
+                                                "What's the weather ahead?",
+                                                "Nearest medical clinic?",
+                                                "Is there an alternative trail?"
+                                            )
+                                            items(chips.size) { idx ->
+                                                val chipText = chips[idx]
+                                                Surface(
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                                    modifier = Modifier.clickable {
+                                                        viewModel.askAssistant(chipText)
+                                                    }
+                                                ) {
+                                                    Text(
+                                                        chipText,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Interactive Query Input Bar
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = assistantInputText,
+                                                onValueChange = { assistantInputText = it },
+                                                placeholder = { Text("Ask trek safety assistant...", style = MaterialTheme.typography.bodySmall) },
+                                                modifier = Modifier.weight(1f).height(46.dp),
+                                                shape = RoundedCornerShape(8.dp),
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.bodySmall
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            IconButton(
+                                                onClick = {
+                                                    val query = assistantInputText
+                                                    assistantInputText = ""
+                                                    viewModel.askAssistant(query)
+                                                },
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                if (state.isAssistantQueryLoading) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                } else {
+                                                    Icon(Icons.Default.Send, contentDescription = "Send Query", tint = ForestGreenPrimary)
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     // 1. Ahead on Route Section
                                     item {
                                         Text(

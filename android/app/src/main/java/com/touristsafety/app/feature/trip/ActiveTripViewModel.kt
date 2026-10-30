@@ -15,6 +15,8 @@ import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import com.touristsafety.app.core.model.RouteOrderedHazardItem
 import com.touristsafety.app.core.model.LiveWeatherContext
+import com.touristsafety.app.core.model.SafetyEvent
+import com.touristsafety.app.core.network.dto.LiveSafetyAssistantResponseDto
 import com.touristsafety.app.core.model.LiveNetworkStatus
 import com.touristsafety.app.core.model.TrekSessionStatus
 import com.touristsafety.app.core.network.dto.NearbyFacilityDto
@@ -75,7 +77,12 @@ data class ActiveTripUiState(
     val passedHazards: List<RouteOrderedHazardItem> = emptyList(),
     val liveWeather: LiveWeatherContext = LiveWeatherContext(),
     val liveNetwork: LiveNetworkStatus = LiveNetworkStatus(),
-    val nearbyFacilities: List<NearbyFacilityDto> = emptyList()
+    val nearbyFacilities: List<NearbyFacilityDto> = emptyList(),
+    val activeSafetyEvent: SafetyEvent? = null,
+    val assistantGuidance: LiveSafetyAssistantResponseDto? = null,
+    val isVoiceGuidanceEnabled: Boolean = true,
+    val isAssistantQueryLoading: Boolean = false,
+    val assistantQueryHistory: List<Pair<String, String>> = emptyList()
 )
 
 @HiltViewModel
@@ -136,7 +143,10 @@ class ActiveTripViewModel @Inject constructor(
                             liveWeather = context.weather,
                             liveNetwork = context.networkStatus,
                             nearbyFacilities = context.nearbyFacilities,
-                            activeAlertBanner = context.activeCriticalAlert ?: current.activeAlertBanner
+                            activeAlertBanner = context.activeCriticalAlert ?: current.activeAlertBanner,
+                            activeSafetyEvent = context.activeSafetyEvent,
+                            assistantGuidance = context.assistantGuidance,
+                            isVoiceGuidanceEnabled = context.isVoiceGuidanceEnabled
                         )
                     }
                 }
@@ -294,7 +304,8 @@ class ActiveTripViewModel @Inject constructor(
 
     fun dismissActiveAlert() {
         hazardAlertEngine.dismissActiveAlert()
-        _uiState.update { it.copy(activeAlertBanner = null) }
+        liveTrekContextEngine.dismissCriticalAlert()
+        _uiState.update { it.copy(activeAlertBanner = null, activeSafetyEvent = null) }
     }
 
     fun toggleSoundAlerts() {
@@ -424,4 +435,28 @@ class ActiveTripViewModel @Inject constructor(
             String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
         }
     }
+    fun askAssistant(query: String) {
+        if (query.isBlank()) return
+        _uiState.update { it.copy(isAssistantQueryLoading = true) }
+        liveTrekContextEngine.askAssistant(query) { response ->
+            _uiState.update { cur ->
+                val updatedHistory = cur.assistantQueryHistory + (query to response.summary)
+                cur.copy(
+                    isAssistantQueryLoading = false,
+                    assistantGuidance = response,
+                    assistantQueryHistory = updatedHistory
+                )
+            }
+        }
+    }
+
+    fun toggleVoiceGuidance(enabled: Boolean) {
+        liveTrekContextEngine.setVoiceGuidanceEnabled(enabled)
+        _uiState.update { it.copy(isVoiceGuidanceEnabled = enabled) }
+    }
+
+    fun replayVoiceGuidance() {
+        liveTrekContextEngine.replayAssistantVoice()
+    }
+
 }

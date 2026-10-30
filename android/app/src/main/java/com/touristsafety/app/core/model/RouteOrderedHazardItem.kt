@@ -32,6 +32,7 @@ data class RouteOrderedHazardItem(
     val intersectionType: RouteIntersectionType,
     val trekStatus: HazardTrekStatus = HazardTrekStatus.AHEAD,
     val distanceAheadMeters: Double? = null,
+    val distanceCurrentLocationMeters: Double? = null,
     val estimatedMinutesAhead: Int? = null,
     val categoryType: HazardCategoryType,
     val severity: String = "WARNING",
@@ -57,4 +58,3 @@ data class RouteOrderedHazardItem(
         }
     }
 }
-
