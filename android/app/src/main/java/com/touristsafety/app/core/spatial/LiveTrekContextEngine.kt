@@ -549,6 +549,12 @@ class LiveTrekContextEngine @Inject constructor(
 
         val map = mutableMapOf<String, PrecomputedHazardRouteInfo>()
         for (feat in features) {
+            if (feat.category == MapFeatureCategory.CELL_TOWER ||
+                feat.category == MapFeatureCategory.PETROL_PUMP ||
+                feat.category == MapFeatureCategory.WATERWAY
+            ) {
+                continue
+            }
             val catType = HazardCategoryType.fromFeature(feat)
             val physicalRadiusMeters = when (catType) {
                 HazardCategoryType.LANDSLIDE -> 600.0
@@ -623,6 +629,12 @@ class LiveTrekContextEngine @Inject constructor(
         }
 
         for (feat in features) {
+            if (feat.category == MapFeatureCategory.CELL_TOWER ||
+                feat.category == MapFeatureCategory.PETROL_PUMP ||
+                feat.category == MapFeatureCategory.WATERWAY
+            ) {
+                continue
+            }
             val pre = synchronized(precomputedHazardMap) { precomputedHazardMap[feat.id] }
             val catType = pre?.categoryType ?: HazardCategoryType.fromFeature(feat)
             val physicalRadiusMeters = pre?.physicalRadiusMeters ?: when (catType) {
@@ -950,9 +962,10 @@ class LiveTrekContextEngine @Inject constructor(
                 cross_track_m = progress.crossTrackDistanceMeters
             ),
             upcoming_hazards = categorized.upcomingHazards.map {
+                val tag = if (it.feature.category == MapFeatureCategory.COMMUNITY_HAZARD) "[Community Report]" else "[Official Advisory]"
                 AssistantHazardContextDto(
                     id = it.feature.id,
-                    title = it.feature.title,
+                    title = "$tag ${it.feature.title}",
                     category = it.feature.category.name,
                     severity = it.severity,
                     distance_ahead_m = it.distanceAheadMeters,
@@ -961,9 +974,10 @@ class LiveTrekContextEngine @Inject constructor(
                 )
             },
             nearby_hazards = categorized.nearbyHazards.map {
+                val tag = if (it.feature.category == MapFeatureCategory.COMMUNITY_HAZARD) "[Community Report]" else "[Official Advisory]"
                 AssistantHazardContextDto(
                     id = it.feature.id,
-                    title = it.feature.title,
+                    title = "$tag ${it.feature.title}",
                     category = it.feature.category.name,
                     severity = it.severity,
                     distance_current_m = it.distanceCurrentLocationMeters
@@ -1022,9 +1036,10 @@ class LiveTrekContextEngine @Inject constructor(
                     cross_track_m = progress.crossTrackDistanceMeters
                 ),
                 upcoming_hazards = hazards.upcomingHazards.map {
+                    val tag = if (it.feature.category == MapFeatureCategory.COMMUNITY_HAZARD) "[Community Report]" else "[Official Advisory]"
                     AssistantHazardContextDto(
                         id = it.feature.id,
-                        title = it.feature.title,
+                        title = "$tag ${it.feature.title}",
                         category = it.feature.category.name,
                         severity = it.severity,
                         distance_ahead_m = it.distanceAheadMeters,
@@ -1033,9 +1048,10 @@ class LiveTrekContextEngine @Inject constructor(
                     )
                 },
                 nearby_hazards = hazards.nearbyHazards.map {
+                    val tag = if (it.feature.category == MapFeatureCategory.COMMUNITY_HAZARD) "[Community Report]" else "[Official Advisory]"
                     AssistantHazardContextDto(
                         id = it.feature.id,
-                        title = it.feature.title,
+                        title = "$tag ${it.feature.title}",
                         category = it.feature.category.name,
                         severity = it.severity,
                         distance_current_m = it.distanceCurrentLocationMeters

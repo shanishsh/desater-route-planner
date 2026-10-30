@@ -331,11 +331,11 @@ fun ReportTrailConditionBottomSheet(
                                     location_accuracy_meters = reportAccuracyM,
                                     location_source = locationSource,
                                     description = descriptionText.ifBlank { null },
-                                    photo_url = selectedPhotoUri?.toString(),
+                                    photo_url = null,
                                     route_id = routeId,
                                     idempotency_key = "report-${UUID.randomUUID().toString().take(16)}"
                                 )
-                                val res = trailReportRepository.submitReport(reportDto)
+                                val res = trailReportRepository.submitReport(reportDto, localPhotoUri = selectedPhotoUri)
                                 isSubmitting = false
                                 res.fold(
                                     onSuccess = {

@@ -2,6 +2,7 @@
 corroboration logic, and matching reports to approaching active trek corridors.
 """
 import io
+import json
 import os
 import uuid
 import logging
@@ -19,6 +20,7 @@ from fastapi import UploadFile, HTTPException, status
 
 from app.models.trail_report import TrailConditionReport, TrailReportInteraction
 from app.models.planned_route import PlannedRoute, ActiveTrip
+from app.models.outbox import OutboxEvent
 from app.schemas.trail_report import TrailReportCreate, TrailReportInteractionCreate
 from app.services.spatial.route_corridor_service import RouteCorridorService
 
@@ -145,6 +147,34 @@ class TrailReportService:
         await self.session.refresh(report)
 
         affected = await self._find_affected_active_trips(report)
+        for trip in affected:
+            try:
+                evt = OutboxEvent(
+                    event_type="TRAIL_REPORT_CORRIDOR_ALERT",
+                    payload_json=json.dumps({
+                        "report_id": report.id,
+                        "category": report.category,
+                        "severity": report.severity,
+                        "passability": report.passability,
+                        "latitude": report.latitude,
+                        "longitude": report.longitude,
+                        "trip_id": str(trip.id),
+                        "user_id": str(getattr(trip, "user_id", "") or ""),
+                        "title": f"⚠️ Trail Hazard Ahead: {report.category.replace('_', ' ').title()}",
+                        "message": f"A fellow trekker reported {report.category.replace('_', ' ')} on your trail corridor. Exercise caution.",
+                    }),
+                    status="PENDING",
+                )
+                self.session.add(evt)
+            except Exception as e:
+                logger.warning("Failed to queue outbox event for trip %s: %s", getattr(trip, "id", None), e)
+
+        if affected:
+            try:
+                await self.session.commit()
+            except Exception as e:
+                logger.warning("Failed committing outbox events for trail report %s: %s", report.id, e)
+
         return report, {"idempotent": False, "affected_trekkers": len(affected)}
 
     async def _find_affected_active_trips(

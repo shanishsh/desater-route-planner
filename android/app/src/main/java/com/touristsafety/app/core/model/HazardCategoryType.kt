@@ -72,6 +72,13 @@ enum class HazardCategoryType(
         badgeColor = Color(0xFFEA580C), // Orange Warning
         icon = Icons.Default.Warning
     ),
+    COMMUNITY_REPORT(
+        id = "community_report",
+        displayName = "Community Trail Report",
+        iconKey = "poi-community-hazard",
+        badgeColor = Color(0xFFF59E0B), // Amber Warning
+        icon = Icons.Default.ReportProblem
+    ),
     SAFETY_FACILITY(
         id = "safety_facility",
         displayName = "Verified Safety Facility",
@@ -87,13 +94,17 @@ enum class HazardCategoryType(
         fun fromFeature(feature: UnifiedMapFeature): HazardCategoryType {
             if (feature.category != MapFeatureCategory.HAZARD_ZONE &&
                 feature.category != MapFeatureCategory.ACTIVE_FIRE_DETECTION &&
-                feature.category != MapFeatureCategory.WEATHER_POINT
+                feature.category != MapFeatureCategory.WEATHER_POINT &&
+                feature.category != MapFeatureCategory.COMMUNITY_HAZARD
             ) {
                 return SAFETY_FACILITY
             }
 
             if (feature.category == MapFeatureCategory.ACTIVE_FIRE_DETECTION) {
                 return WILDFIRE
+            }
+            if (feature.category == MapFeatureCategory.COMMUNITY_HAZARD) {
+                return COMMUNITY_REPORT
             }
 
             val titleLower = feature.title.lowercase()

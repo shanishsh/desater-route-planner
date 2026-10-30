@@ -76,6 +76,13 @@ object RouteHazardSequenceCalculator {
         val seenFeatureIds = mutableSetOf<String>()
 
         for (feat in features) {
+            // Strictly exclude cellular towers and non-hazard infrastructure from the hazard timeline
+            if (feat.category == MapFeatureCategory.CELL_TOWER ||
+                feat.category == MapFeatureCategory.PETROL_PUMP ||
+                feat.category == MapFeatureCategory.WATERWAY
+            ) {
+                continue
+            }
             if (seenFeatureIds.contains(feat.id)) continue
 
             val polygon = feat.geometryPolygon

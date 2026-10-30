@@ -277,6 +277,7 @@ class PlannedRouteResponse(BaseModel):
     corridor_distance_meters: float = 5000.0
     corridor_geojson: Optional[Dict[str, Any]] = None
     hazards_geojson: Optional[Dict[str, Any]] = None
+    community_hazards_geojson: Optional[Dict[str, Any]] = None
     fires_geojson: Optional[Dict[str, Any]] = None
     facilities_geojson: Optional[Dict[str, Any]] = None
     forests_geojson: Optional[Dict[str, Any]] = None
@@ -292,6 +293,7 @@ class PlannedRouteResponse(BaseModel):
     waterway_summary: Optional[Dict[str, Any]] = None
     landslide_summary: Optional[Dict[str, Any]] = None
     nasa_lhasa_status: Optional[Dict[str, Any]] = None
+    community_reports: List[Dict[str, Any]] = Field(default_factory=list)
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     grounded_summary: Optional[Dict[str, Any]] = None
     distance_meters: float = 0.0
@@ -320,6 +322,7 @@ class PlannedRouteResponse(BaseModel):
     conditions: List[RouteWaypointCondition] = Field(default_factory=list)
     elevation_profile: List[ElevationProfilePoint] = Field(default_factory=list)
     safe_havens: List[SafeHavenInfo] = Field(default_factory=list)
+    community_reports: List[Dict[str, Any]] = Field(default_factory=list)
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     provider_statuses: Dict[str, ProviderStatusItem] = Field(default_factory=dict)
     analysis_limitations: List[str] = Field(default_factory=list)
@@ -392,6 +395,7 @@ class RouteAnalysisResponse(BaseModel):
     overlays_geojson: Dict[str, Any] = Field(default_factory=dict)
     corridor_geojson: Optional[Dict[str, Any]] = None
     hazards_geojson: Optional[Dict[str, Any]] = None
+    community_hazards_geojson: Optional[Dict[str, Any]] = None
     fires_geojson: Optional[Dict[str, Any]] = None
     facilities_geojson: Optional[Dict[str, Any]] = None
     forests_geojson: Optional[Dict[str, Any]] = None
@@ -409,6 +413,7 @@ class RouteAnalysisResponse(BaseModel):
     nasa_lhasa_status: Optional[Dict[str, Any]] = None
     alternatives: List[RouteAlternativeSchema] = Field(default_factory=list)
     analysis_limitations: List[str] = Field(default_factory=list)
+    community_reports: List[Dict[str, Any]] = Field(default_factory=list)
     geometry_diagnostics: Dict[str, Any] = Field(default_factory=dict)
     grounded_summary: Optional[Dict[str, Any]] = None
     verification_status: str = "MAPPED_TRAIL"

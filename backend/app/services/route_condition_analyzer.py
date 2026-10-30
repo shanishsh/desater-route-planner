@@ -237,9 +237,31 @@ class RouteConditionAnalyzer:
                     pass
                 return []
 
-        (elevation_data, forest_features, fires_res, amenity_items, cell_masts, lhasa_res), candidate_alerts = await asyncio.gather(
+        async def _safe_community_reports():
+            try:
+                from app.models.trail_report import TrailConditionReport
+                stmt_cr = select(TrailConditionReport).where(
+                    TrailConditionReport.latitude >= min_lat - 0.05,
+                    TrailConditionReport.latitude <= max_lat + 0.05,
+                    TrailConditionReport.longitude >= min_lon - 0.05,
+                    TrailConditionReport.longitude <= max_lon + 0.05,
+                    or_(TrailConditionReport.expires_at.is_(None), TrailConditionReport.expires_at > now),
+                    TrailConditionReport.verification_status != "RESOLVED",
+                )
+                res = await db.execute(stmt_cr)
+                return list(res.scalars().all())
+            except Exception as e:
+                logger.warning(f"Database community reports query failed: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                return []
+
+        (elevation_data, forest_features, fires_res, amenity_items, cell_masts, lhasa_res), candidate_alerts, candidate_community_reports = await asyncio.gather(
             asyncio.gather(_safe_elev(), _safe_forest(), _safe_fires(), _safe_amenities(), _safe_cells(), _safe_lhasa()),
             _safe_db_alerts(),
+            _safe_community_reports(),
         )
 
         raw_records = fires_res.get("records", []) if isinstance(fires_res, dict) else []
@@ -300,6 +322,53 @@ class RouteConditionAnalyzer:
             )
         safe_havens.sort(key=lambda sh: sh.distance_km)
         safe_havens = safe_havens[:30]
+
+        # Filter community trail condition reports to corridor
+        corridor_community_reports: List[Dict[str, Any]] = []
+        community_features: List[Dict[str, Any]] = []
+        for cr in (candidate_community_reports or []):
+            try:
+                d_m, along_m, _ = route_corridor_service.distance_point_to_route(
+                    cr.latitude, cr.longitude, route_coords_lat_lon
+                )
+                if d_m <= corridor_dist_m:
+                    obs_iso = cr.observation_time.isoformat() if cr.observation_time else None
+                    cr_dict = {
+                        "id": str(cr.id),
+                        "category": cr.category,
+                        "severity": cr.severity,
+                        "passability": cr.passability,
+                        "latitude": cr.latitude,
+                        "longitude": cr.longitude,
+                        "location_accuracy_meters": cr.location_accuracy_meters,
+                        "description": cr.description,
+                        "photo_url": cr.photo_url,
+                        "verification_status": cr.verification_status,
+                        "confirmations_count": cr.confirmations_count,
+                        "disputes_count": cr.disputes_count,
+                        "observation_time": obs_iso,
+                        "distance_to_route_km": round(d_m / 1000.0, 2),
+                        "distance_along_route_km": round(along_m / 1000.0, 2),
+                        "provenance": "community",
+                        "layer": "community_hazard",
+                    }
+                    corridor_community_reports.append(cr_dict)
+                    community_features.append({
+                        "type": "Feature",
+                        "id": f"community_{cr.id}",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [cr.longitude, cr.latitude]
+                        },
+                        "properties": cr_dict
+                    })
+            except Exception as e:
+                logger.warning("Error filtering community report to corridor: %s", e)
+
+        community_hazards_geojson = {
+            "type": "FeatureCollection",
+            "features": community_features
+        }
 
         # Analyze each waypoint with terrain and TrailGuard Risk Engine
         waypoint_conditions: List[RouteWaypointCondition] = []
@@ -1240,6 +1309,7 @@ class RouteConditionAnalyzer:
             corridor_distance_meters=corridor_dist_m,
             corridor_geojson=corridor_poly_geojson,
             hazards_geojson=hazards_geojson,
+            community_hazards_geojson=community_hazards_geojson,
             fires_geojson=fires_geojson,
             facilities_geojson=facilities_geojson,
             forests_geojson=forests_geojson,
@@ -1282,6 +1352,7 @@ class RouteConditionAnalyzer:
             conditions=waypoint_conditions,
             elevation_profile=elevation_profile_points,
             safe_havens=safe_havens,
+            community_reports=corridor_community_reports,
             alternatives=alt_schemas,
             provider_statuses=provider_statuses,
             analysis_limitations=analysis_limitations,
@@ -1441,6 +1512,7 @@ class RouteConditionAnalyzer:
             data_quality_summary=fresh,
             overlays_geojson=fresh.get("overlays_geojson", {}),
             hazards_geojson=analysis.hazards_geojson,
+            community_hazards_geojson=getattr(analysis, "community_hazards_geojson", None),
             fires_geojson=analysis.fires_geojson,
             facilities_geojson=analysis.facilities_geojson,
             forests_geojson=analysis.forests_geojson,
@@ -1457,6 +1529,7 @@ class RouteConditionAnalyzer:
             landslide_summary=analysis.landslide_summary,
             geometry_diagnostics=fresh.get("geometry_diagnostics", {}),
             alternatives=analysis.alternatives,
+            community_reports=getattr(analysis, "community_reports", []),
             analysis_limitations=limitations,
             verification_status=getattr(analysis, "verification_status", "MAPPED_TRAIL"),
             drawing_mode=getattr(analysis, "drawing_mode", "AUTOMATIC"),

@@ -79,6 +79,18 @@ class OfflineSafetyGuidanceProvider @Inject constructor() {
                 )
             }
 
+            event.eventType == SafetyEventType.COMMUNITY_HAZARD_REPORT -> {
+                OfflineSafetyGuidance(
+                    summary = "Community trekker report: ${event.hazardTitle} ($distStr).",
+                    whatHappened = "A fellow trekker reported a hazard [${event.hazardId ?: "COMMUNITY"}] along the trail.",
+                    whyRelevant = "Trail conditions may have deteriorated recently due to local weather or physical obstacles.",
+                    recommendedAction = "Visually verify trail condition ahead before advancing. Be prepared to halt or bypass if unsafe.",
+                    whatToAvoid = "Do not disregard community warnings, especially during heavy rain or low visibility.",
+                    verifiedAlternatives = alts,
+                    spokenMessage = "Community report: A fellow trekker reported ${event.hazardTitle} $distStr ahead. Exercise caution."
+                )
+            }
+
             event.eventType == SafetyEventType.SIGNIFICANT_ROUTE_DEVIATION -> {
                 val devM = (event.distanceAheadMeters ?: event.distanceCurrentMeters).toInt()
                 OfflineSafetyGuidance(

@@ -14,7 +14,8 @@ enum class MapFeatureCategory(
     val displayName: String,
     val icon: ImageVector,
     val primaryColor: Color,
-    val isAreaFeature: Boolean = false
+    val isAreaFeature: Boolean = false,
+    val isHazard: Boolean = false
 ) {
     HOSPITAL(
         displayName = "Hospital",
@@ -60,7 +61,8 @@ enum class MapFeatureCategory(
     ACTIVE_FIRE_DETECTION(
         displayName = "Active Wildfire",
         icon = Icons.Default.Whatshot,
-        primaryColor = Color(0xFFD32F2F) // Alert Flame Red
+        primaryColor = Color(0xFFD32F2F), // Alert Flame Red
+        isHazard = true
     ),
     WEATHER_POINT(
         displayName = "Route Weather",
@@ -71,7 +73,14 @@ enum class MapFeatureCategory(
         displayName = "Disaster Hazard Zone",
         icon = Icons.Default.Warning,
         primaryColor = Color(0xFFC62828), // Critical Hazard Deep Red
-        isAreaFeature = true
+        isAreaFeature = true,
+        isHazard = true
+    ),
+    COMMUNITY_HAZARD(
+        displayName = "Community Trail Report",
+        icon = Icons.Default.ReportProblem,
+        primaryColor = Color(0xFFFF9800), // Amber Warning
+        isHazard = true
     ),
     ROUTE_WAYPOINT(
         displayName = "Route Waypoint",

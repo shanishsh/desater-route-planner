@@ -33,6 +33,7 @@ object MapIconFactory {
     const val ICON_WILDFIRE = "icon-wildfire"
     const val ICON_DISASTER = "icon-disaster"
     const val ICON_CELL_TOWER = "poi-cell-tower"
+    const val ICON_COMMUNITY_HAZARD = "poi-community-hazard"
 
     // Animated Hazard Icon Keys
     const val ICON_ANIM_THUNDERSTORM = "icon-anim-thunderstorm"
@@ -159,6 +160,9 @@ object MapIconFactory {
         if (style.getImage(LEGACY_ICON_CELL_TOWER) == null) {
             style.addImage(LEGACY_ICON_CELL_TOWER, cellTowerBitmap)
         }
+        if (style.getImage(ICON_COMMUNITY_HAZARD) == null) {
+            style.addImage(ICON_COMMUNITY_HAZARD, createCommunityHazardBitmap())
+        }
 
         // Register Animated Category Icons (Initial Static Frame 0)
         if (style.getImage(ICON_ANIM_THUNDERSTORM) == null) style.addImage(ICON_ANIM_THUNDERSTORM, thunderstormFrames[0])
@@ -192,6 +196,44 @@ object MapIconFactory {
             ICON_DISASTER
         )
         return required.associateWith { isIconRegistered(style, it) }
+    }
+
+    /**
+     * Community Trail Hazard Icon: Amber circular badge with white exclamation mark.
+     */
+    fun createCommunityHazardBitmap(): Bitmap {
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = ICON_SIZE / 2f
+        val radius = center - 3f
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(245, 158, 11) // Amber #F59E0B
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, radius, bgPaint)
+
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawCircle(center, center, radius, strokePaint)
+
+        val fgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
+        // Exclamation mark stem
+        canvas.drawRoundRect(
+            RectF(center - 3.5f, center - 16f, center + 3.5f, center + 4f),
+            2f, 2f, fgPaint
+        )
+        // Exclamation mark dot
+        canvas.drawCircle(center, center + 12f, 4f, fgPaint)
+
+        return bitmap
     }
 
     /**

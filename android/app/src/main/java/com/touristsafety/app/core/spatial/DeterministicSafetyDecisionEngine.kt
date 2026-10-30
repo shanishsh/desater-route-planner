@@ -43,7 +43,8 @@ class DeterministicSafetyDecisionEngine @Inject constructor(
         val imminentObstruction = upcomingHazards.firstOrNull { h ->
             val dist = h.distanceAheadMeters ?: 9999.0
             val isSevereOrCritical = h.severity.equals("CRITICAL", ignoreCase = true) ||
-                    h.severity.equals("SEVERE", ignoreCase = true)
+                    h.severity.equals("SEVERE", ignoreCase = true) ||
+                    h.feature.category == MapFeatureCategory.COMMUNITY_HAZARD
             isSevereOrCritical && dist <= CRITICAL_DISTANCE_THRESHOLD_METERS
         }
 
@@ -52,16 +53,17 @@ class DeterministicSafetyDecisionEngine @Inject constructor(
             val lastSent = eventCooldowns[key] ?: 0L
             val dist = imminentObstruction.distanceAheadMeters ?: 0.0
 
+            val isCommunity = imminentObstruction.feature.category == MapFeatureCategory.COMMUNITY_HAZARD
             // Escalate if within 500m even if previously alerted
             val isEscalation = dist <= 500.0 && (now - lastSent) >= (3 * 60 * 1000L)
 
             if ((now - lastSent) >= ALERT_COOLDOWN_MS || isEscalation) {
                 eventCooldowns[key] = now
-                val evType = if (imminentObstruction.feature.title.contains("Landslide", ignoreCase = true) ||
-                    imminentObstruction.feature.title.contains("Rockfall", ignoreCase = true)) {
-                    SafetyEventType.ROUTE_CLOSURE_OBSTRUCTION
-                } else {
-                    SafetyEventType.CRITICAL_HAZARD_WARNING
+                val evType = when {
+                    isCommunity -> SafetyEventType.COMMUNITY_HAZARD_REPORT
+                    imminentObstruction.feature.title.contains("Landslide", ignoreCase = true) ||
+                    imminentObstruction.feature.title.contains("Rockfall", ignoreCase = true) -> SafetyEventType.ROUTE_CLOSURE_OBSTRUCTION
+                    else -> SafetyEventType.CRITICAL_HAZARD_WARNING
                 }
 
                 val guidance = offlineGuidanceProvider.getGuidanceForEvent(
@@ -87,7 +89,7 @@ class DeterministicSafetyDecisionEngine @Inject constructor(
                     distanceCurrentMeters = dist,
                     isDirectRouteObstruction = true,
                     hasVerifiedAlternative = hasVerifiedAlternatives,
-                    requiresImmediateAlarm = true,
+                    requiresImmediateAlarm = !isCommunity,
                     requiresVoiceAlert = true,
                     deterministicSpokenText = guidance.spokenMessage,
                     deterministicActionText = guidance.recommendedAction,

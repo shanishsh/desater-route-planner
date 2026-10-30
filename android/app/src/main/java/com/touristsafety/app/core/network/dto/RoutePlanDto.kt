@@ -239,7 +239,9 @@ data class PlannedRouteResponseDto(
     val verification_status: String = "MAPPED_TRAIL",
     val proposed_connector_geojson: JsonElement? = null,
     val unverified_reason: String? = null,
-    val trail_name: String? = null
+    val trail_name: String? = null,
+    val community_hazards_geojson: JsonElement? = null,
+    val community_reports: List<TrailReportResponseDto> = emptyList()
 )
 
 @Serializable
@@ -287,7 +289,9 @@ data class RouteAnalysisResponseDto(
     val verification_status: String = "MAPPED_TRAIL",
     val proposed_connector_geojson: JsonElement? = null,
     val unverified_reason: String? = null,
-    val trail_name: String? = null
+    val trail_name: String? = null,
+    val community_hazards_geojson: JsonElement? = null,
+    val community_reports: List<TrailReportResponseDto> = emptyList()
 )
 
 @Serializable

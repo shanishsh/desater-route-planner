@@ -76,6 +76,35 @@ object DatabaseModule {
         }
     }
 
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `trail_reports` (
+                    `id` TEXT PRIMARY KEY NOT NULL,
+                    `category` TEXT NOT NULL,
+                    `severity` TEXT NOT NULL,
+                    `passability` TEXT NOT NULL,
+                    `latitude` REAL NOT NULL,
+                    `longitude` REAL NOT NULL,
+                    `locationAccuracyMeters` REAL NOT NULL,
+                    `locationSource` TEXT NOT NULL,
+                    `description` TEXT DEFAULT NULL,
+                    `localPhotoUri` TEXT DEFAULT NULL,
+                    `serverPhotoUrl` TEXT DEFAULT NULL,
+                    `routeId` TEXT DEFAULT NULL,
+                    `routeVersion` INTEGER DEFAULT NULL,
+                    `idempotencyKey` TEXT NOT NULL,
+                    `verificationStatus` TEXT NOT NULL DEFAULT 'UNVERIFIED',
+                    `confirmationsCount` INTEGER NOT NULL DEFAULT 0,
+                    `disputesCount` INTEGER NOT NULL DEFAULT 0,
+                    `observationTimeEpochMs` INTEGER NOT NULL,
+                    `syncStatus` TEXT NOT NULL DEFAULT 'PENDING',
+                    `createdAtEpochMs` INTEGER NOT NULL
+                )
+            """.trimIndent())
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -84,7 +113,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             "tourist_safety.db"
         )
-            .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+            .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -128,4 +157,7 @@ object DatabaseModule {
 
     @Provides
     fun provideTrekTrackPointDao(db: AppDatabase): TrekTrackPointDao = db.trekTrackPointDao()
+
+    @Provides
+    fun provideTrailReportDao(db: AppDatabase): TrailReportDao = db.trailReportDao()
 }

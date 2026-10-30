@@ -20,9 +20,10 @@ import com.touristsafety.app.core.database.entity.*
         ProviderStatusEntity::class,
         PlannedRouteEntity::class,
         ActiveTripEntity::class,
-        TrekTrackPointEntity::class
+        TrekTrackPointEntity::class,
+        TrailReportEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -39,4 +40,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun plannedRouteDao(): PlannedRouteDao
     abstract fun activeTripDao(): ActiveTripDao
     abstract fun trekTrackPointDao(): TrekTrackPointDao
+    abstract fun trailReportDao(): TrailReportDao
 }

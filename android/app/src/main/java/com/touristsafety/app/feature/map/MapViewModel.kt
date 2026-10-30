@@ -240,6 +240,7 @@ class MapViewModel @Inject constructor(
     private var rawHazardZones: List<UnifiedMapFeature> = emptyList()
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
     private var rawWaterwayFeatures: List<UnifiedMapFeature> = emptyList()
+    private var rawCommunityReports: List<com.touristsafety.app.core.database.entity.TrailReportEntity> = emptyList()
     private var selectionGenerationToken: Long = 0L
     private var pointContextJob: Job? = null
 
@@ -568,6 +569,14 @@ class MapViewModel @Inject constructor(
                 } else {
                     rawWeatherPoints = emptyList()
                 }
+                rebuildUnifiedFeatures()
+            }
+        }
+
+        // 7. Community Trail Reports
+        viewModelScope.launch {
+            trailReportRepository?.localReports?.collect { reports ->
+                rawCommunityReports = reports
                 rebuildUnifiedFeatures()
             }
         }
@@ -1007,6 +1016,35 @@ class MapViewModel @Inject constructor(
                 proposedConnectorCoordinates = parseRouteGeoJson(analysis.proposed_connector_geojson?.toString())
             )
         }
+
+        if (analysis.community_reports.isNotEmpty()) {
+            val fetchedReports = analysis.community_reports.map { cr ->
+                com.touristsafety.app.core.database.entity.TrailReportEntity(
+                    id = cr.id,
+                    category = cr.category,
+                    severity = cr.severity,
+                    passability = cr.passability,
+                    latitude = cr.latitude,
+                    longitude = cr.longitude,
+                    locationAccuracyMeters = cr.location_accuracy_meters,
+                    locationSource = cr.location_source,
+                    description = cr.description,
+                    localPhotoUri = null,
+                    serverPhotoUrl = cr.photo_url,
+                    routeId = cr.route_id,
+                    routeVersion = cr.route_version,
+                    idempotencyKey = cr.idempotency_key ?: cr.id,
+                    verificationStatus = cr.verification_status,
+                    confirmationsCount = cr.confirmations_count,
+                    disputesCount = cr.disputes_count,
+                    observationTimeEpochMs = System.currentTimeMillis(),
+                    syncStatus = "SYNCED",
+                    createdAtEpochMs = System.currentTimeMillis()
+                )
+            }
+            rawCommunityReports = (rawCommunityReports + fetchedReports).distinctBy { it.id }
+        }
+
         rebuildUnifiedFeatures()
     }
 
@@ -1297,6 +1335,37 @@ class MapViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.w("MapViewModel", "Failed parsing cellular sites for unified features: ${e.message}")
             }
+        }
+
+        // 6. Community Trail Reports
+        rawCommunityReports.forEach { rep ->
+            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, rep.latitude, rep.longitude)
+            val detailMap = mutableMapOf<String, String>()
+            detailMap["Category"] = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() }
+            detailMap["Severity"] = rep.severity
+            detailMap["Status"] = if (rep.syncStatus == "SYNCED") "Synced to Community" else "Local Pending Sync"
+            rep.description?.let { detailMap["Description"] = it }
+            if (!rep.serverPhotoUrl.isNullOrBlank()) {
+                detailMap["Photo"] = rep.serverPhotoUrl
+            } else if (!rep.localPhotoUri.isNullOrBlank()) {
+                detailMap["LocalPhoto"] = rep.localPhotoUri
+            }
+
+            list.add(
+                UnifiedMapFeature(
+                    id = "community_${rep.id}",
+                    category = MapFeatureCategory.COMMUNITY_HAZARD,
+                    title = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() },
+                    subtitle = "Community Report • ${rep.severity}",
+                    latitude = rep.latitude,
+                    longitude = rep.longitude,
+                    distanceMeters = dist,
+                    sourceName = "Community Trekker Report",
+                    sourceTimestampEpochMs = rep.createdAtEpochMs,
+                    isVerified = rep.syncStatus == "SYNCED",
+                    details = detailMap
+                )
+            )
         }
 
         // Calculate counts per category

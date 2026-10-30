@@ -353,6 +353,7 @@ private fun getProviderNameForCategory(category: MapFeatureCategory): String {
         MapFeatureCategory.ACTIVE_FIRE_DETECTION -> "NASA FIRMS (VIIRS/MODIS)"
         MapFeatureCategory.WEATHER_POINT -> "Open-Meteo API"
         MapFeatureCategory.HAZARD_ZONE -> "USDMA & NDMA CAP"
+        MapFeatureCategory.COMMUNITY_HAZARD -> "Community Trekker Reports"
         MapFeatureCategory.ROUTE_WAYPOINT -> "Offline Route Engine"
         MapFeatureCategory.CELL_TOWER -> "OpenCelliD / TARANG Sanchar"
         MapFeatureCategory.WATERWAY -> "OpenStreetMap / Glacial Lake Atlas"
