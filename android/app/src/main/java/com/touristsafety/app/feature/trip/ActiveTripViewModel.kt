@@ -142,6 +142,30 @@ class ActiveTripViewModel @Inject constructor(
         observeGpsLocation()
         observeHazardAlerts()
         observeLiveTrekEngine()
+        observeCommunityReports()
+    }
+
+    private fun observeCommunityReports() {
+        viewModelScope.launch {
+            trailReportRepository?.localReports?.collect { reports ->
+                if (reports.isNotEmpty()) {
+                    val communityFeatures = reports.map { rep ->
+                        com.touristsafety.app.core.model.UnifiedMapFeature(
+                            id = "community_${rep.id}",
+                            category = com.touristsafety.app.core.model.MapFeatureCategory.COMMUNITY_HAZARD,
+                            title = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() },
+                            subtitle = "Community Report • ${rep.severity}",
+                            latitude = rep.latitude,
+                            longitude = rep.longitude,
+                            sourceName = "Community Trekker Report",
+                            sourceTimestampEpochMs = rep.createdAtEpochMs,
+                            isVerified = rep.syncStatus == "SYNCED"
+                        )
+                    }
+                    liveTrekContextEngine.updateMonitoredFeatures(communityFeatures)
+                }
+            }
+        }
     }
 
     private fun observeLiveTrekEngine() {

@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -129,6 +130,12 @@ fun FeatureDetailBottomSheet(
                 }
                 MapFeatureCategory.HAZARD_ZONE -> {
                     HazardZoneDetailContent(feature)
+                }
+                MapFeatureCategory.CELL_TOWER -> {
+                    CellTowerDetailContent(feature)
+                }
+                MapFeatureCategory.COMMUNITY_HAZARD -> {
+                    CommunityHazardDetailContent(feature)
                 }
                 else -> {
                     GenericAssistanceDetailContent(feature)
@@ -485,6 +492,123 @@ private fun GenericAssistanceDetailContent(feature: UnifiedMapFeature) {
         DetailRow(icon = Icons.Default.Schedule, label = "Opening Hours", value = hours)
         feature.details["phone"]?.let { DetailRow(icon = Icons.Default.Phone, label = "Phone", value = it) }
         DetailRow(icon = Icons.Default.Verified, label = "Source", value = feature.sourceName)
+    }
+}
+
+@Composable
+private fun CellTowerDetailContent(feature: UnifiedMapFeature) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFFEDE7F6), // Soft Lavender/Indigo
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CellTower,
+                    contentDescription = null,
+                    tint = Color(0xFF651FFF),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Mobile Network Infrastructure",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = Color(0xFF4527A0)
+                    )
+                    Text(
+                        text = "Essential connectivity site for voice calls and emergency SMS.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF5E35B1)
+                    )
+                }
+            }
+        }
+
+        val radio = feature.details["Radio"] ?: feature.details["radio"] ?: "LTE / 4G"
+        val operator = feature.details["Operator"] ?: feature.details["carrier"] ?: "Cellular Carrier"
+        val range = feature.details["Range"] ?: "Estimated line-of-sight coverage"
+
+        DetailRow(icon = Icons.Default.SignalCellularAlt, label = "Radio Generation", value = radio, tint = Color(0xFF651FFF))
+        DetailRow(icon = Icons.Default.Business, label = "Network Operator", value = operator, tint = Color(0xFF651FFF))
+        DetailRow(icon = Icons.Default.Radar, label = "Signal Coverage", value = range, tint = Color(0xFF651FFF))
+        DetailRow(icon = Icons.Default.Verified, label = "Registry Source", value = feature.sourceName)
+    }
+}
+
+@Composable
+private fun CommunityHazardDetailContent(feature: UnifiedMapFeature) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFFFFF3E0), // Amber-Orange Warning
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = "Community Trail Condition",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color(0xFFE65100)
+                )
+                Text(
+                    text = feature.subtitle ?: "Observed and reported by fellow hikers along this trail corridor.",
+                    fontSize = 12.sp,
+                    color = Color(0xFFBF360C),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+
+        // Show photo indicator if available
+        val photoUrl = feature.details["ServerPhoto"] ?: feature.details["LocalPhoto"]
+        if (!photoUrl.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        tint = Color(0xFFE65100),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Field Photo Evidence Attached ✓",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+
+        feature.details["Description"]?.let {
+            DetailRow(icon = Icons.Default.Description, label = "Field Notes", value = it, tint = Color(0xFFE65100))
+        }
+        feature.details["Passability"]?.let {
+            DetailRow(icon = Icons.Default.DirectionsWalk, label = "Trail Passability", value = it.replace('_', ' '), tint = Color(0xFFE65100))
+        }
+        feature.details["Severity"]?.let {
+            DetailRow(icon = Icons.Default.Warning, label = "Reported Severity", value = it, tint = Color(0xFFE65100))
+        }
+        DetailRow(
+            icon = if (feature.isVerified) Icons.Default.CheckCircle else Icons.Default.CloudQueue,
+            label = "Verification",
+            value = if (feature.isVerified) "Verified Live Sync" else "Community Submitted",
+            tint = if (feature.isVerified) Color(0xFF2E7D32) else Color(0xFFE65100)
+        )
     }
 }
 

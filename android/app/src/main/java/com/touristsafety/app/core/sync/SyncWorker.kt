@@ -8,6 +8,7 @@ import com.touristsafety.app.core.repository.AlertRepository
 import com.touristsafety.app.core.repository.EmergencyRepository
 import com.touristsafety.app.core.repository.ItineraryRepository
 import com.touristsafety.app.core.repository.RouteRepository
+import com.touristsafety.app.core.repository.TrailReportRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -18,7 +19,8 @@ class SyncWorker @AssistedInject constructor(
     private val itineraryRepository: ItineraryRepository,
     private val alertRepository: AlertRepository,
     private val emergencyRepository: EmergencyRepository,
-    private val routeRepository: RouteRepository
+    private val routeRepository: RouteRepository,
+    private val trailReportRepository: TrailReportRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -28,6 +30,7 @@ class SyncWorker @AssistedInject constructor(
         return try {
             // Synchronize active trek progress if currently trekking
             routeRepository.syncActiveTrip()
+            trailReportRepository.syncPendingReports()
 
             val itinResult = itineraryRepository.refreshItineraries()
             val alertResult = alertRepository.refreshAlerts()

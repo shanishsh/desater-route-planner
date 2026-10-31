@@ -96,7 +96,7 @@ class LiveTrekContextEngine @Inject constructor(
     )
 
     private val precomputedHazardMap = mutableMapOf<String, PrecomputedHazardRouteInfo>()
-    private val spokenEventIds = mutableSetOf<String>()
+    private val spokenEventIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val engineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -355,6 +355,8 @@ class LiveTrekContextEngine @Inject constructor(
 
     fun pauseTrekSession() {
         isPaused = true
+        trekVoiceAssistant.stopSpeaking()
+        safetyAlertPlayer.stopSafetyAlert()
         _liveContext.update { it.copy(sessionStatus = TrekSessionStatus.PAUSED) }
     }
 
@@ -549,10 +551,8 @@ class LiveTrekContextEngine @Inject constructor(
 
         val map = mutableMapOf<String, PrecomputedHazardRouteInfo>()
         for (feat in features) {
-            if (feat.category == MapFeatureCategory.CELL_TOWER ||
-                feat.category == MapFeatureCategory.PETROL_PUMP ||
-                feat.category == MapFeatureCategory.WATERWAY
-            ) {
+            // Strictly exclude cellular towers, facilities, and all non-hazard infrastructure
+            if (!feat.category.isHazard) {
                 continue
             }
             val catType = HazardCategoryType.fromFeature(feat)
@@ -629,10 +629,8 @@ class LiveTrekContextEngine @Inject constructor(
         }
 
         for (feat in features) {
-            if (feat.category == MapFeatureCategory.CELL_TOWER ||
-                feat.category == MapFeatureCategory.PETROL_PUMP ||
-                feat.category == MapFeatureCategory.WATERWAY
-            ) {
+            // Strictly exclude cellular towers, facilities, and all non-hazard infrastructure
+            if (!feat.category.isHazard) {
                 continue
             }
             val pre = synchronized(precomputedHazardMap) { precomputedHazardMap[feat.id] }

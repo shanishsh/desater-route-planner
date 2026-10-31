@@ -90,6 +90,13 @@ class MainActivity : ComponentActivity() {
                         currentRoute.startsWith("active_trip") ||
                         currentRoute.startsWith("completed_trek_detail")
 
+                val shouldShowHudBanner = !isBannerDismissed &&
+                        currentRoute != null &&
+                        !currentRoute.startsWith("active_trip") &&
+                        !currentRoute.startsWith("route_safety_review") &&
+                        currentRoute != Screen.PlanTrip.route &&
+                        currentRoute !in Screen.fullScreenRoutes
+
                 val startDestination = remember {
                     try {
                         if (tokenManager.isLoggedIn()) {
@@ -156,7 +163,7 @@ class MainActivity : ComponentActivity() {
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                                 // Docked active trek HUD banner if active
                                 activeTrip?.let { trip ->
-                                    if (!isBannerDismissed && currentRoute?.startsWith("active_trip") != true) {
+                                    if (shouldShowHudBanner) {
                                         ActiveTrekHudBanner(
                                             routeTitle = trip.routeTitle,
                                             distanceMeters = trip.traveledDistanceMeters,
@@ -188,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                 if (!isFullScreen) {
                                     Column(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                                         activeTrip?.let { trip ->
-                                            if (!isBannerDismissed && currentRoute?.startsWith("active_trip") != true) {
+                                            if (shouldShowHudBanner) {
                                                 ActiveTrekHudBanner(
                                                     routeTitle = trip.routeTitle,
                                                     distanceMeters = trip.traveledDistanceMeters,

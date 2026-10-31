@@ -103,6 +103,8 @@ fun ActiveTripScreen(
                         val renderedFeatures = map.queryRenderedFeatures(
                             screenPoint,
                             MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
+                            MapLibreLayerManager.LAYER_COMMUNITY_HAZARDS_SYMBOL,
+                            MapLibreLayerManager.LAYER_COMMUNITY_HAZARDS_CIRCLE,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
                             MapLibreLayerManager.LAYER_HOSPITALS_SYMBOL,
                             MapLibreLayerManager.LAYER_CLINICS_SYMBOL,

@@ -2072,6 +2072,40 @@ class MapViewModel @Inject constructor(
             val forRes = forestRepository.refreshForestFeatures()
             val fireRes = fireHotspotRepository.refreshHotspots()
             val disRes = disasterRepository.syncDisasterAlerts()
+            try {
+                trailReportRepository?.getReports()?.onSuccess { reports ->
+                    if (reports.isNotEmpty()) {
+                        val fetchedReports = reports.map { cr ->
+                            com.touristsafety.app.core.database.entity.TrailReportEntity(
+                                id = cr.id,
+                                category = cr.category,
+                                severity = cr.severity,
+                                passability = cr.passability,
+                                latitude = cr.latitude,
+                                longitude = cr.longitude,
+                                locationAccuracyMeters = cr.location_accuracy_meters,
+                                locationSource = cr.location_source,
+                                description = cr.description,
+                                localPhotoUri = null,
+                                serverPhotoUrl = cr.photo_url,
+                                routeId = cr.route_id,
+                                routeVersion = cr.route_version,
+                                idempotencyKey = cr.idempotency_key ?: cr.id,
+                                verificationStatus = cr.verification_status,
+                                confirmationsCount = cr.confirmations_count,
+                                disputesCount = cr.disputes_count,
+                                observationTimeEpochMs = System.currentTimeMillis(),
+                                syncStatus = "SYNCED",
+                                createdAtEpochMs = System.currentTimeMillis()
+                            )
+                        }
+                        rawCommunityReports = (rawCommunityReports + fetchedReports).distinctBy { it.id }
+                        rebuildUnifiedFeatures()
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w("MapViewModel", "Failed refreshing community reports: ${t.message}")
+            }
 
             val updatedStatuses = _uiState.value.layerStatuses.toMutableMap()
 

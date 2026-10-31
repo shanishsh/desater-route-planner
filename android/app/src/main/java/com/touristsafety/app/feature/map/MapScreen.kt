@@ -260,6 +260,8 @@ fun MapScreen(
                             screenPoint,
                             MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                             MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
+                            MapLibreLayerManager.LAYER_COMMUNITY_HAZARDS_SYMBOL,
+                            MapLibreLayerManager.LAYER_COMMUNITY_HAZARDS_CIRCLE,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_SYMBOL,
                             MapLibreLayerManager.LAYER_ACTIVE_FIRES_CIRCLE,
                             MapLibreLayerManager.LAYER_DISASTER_POINTS_SYMBOL,
@@ -922,16 +924,19 @@ fun MapScreen(
                 .padding(end = 12.dp)
         )
 
-        if (showReportConditionSheet && viewModel.trailReportRepository != null) {
+        if (showReportConditionSheet) {
             val locState by viewModel.locationState.collectAsStateWithLifecycle()
             ReportTrailConditionBottomSheet(
                 initialLat = locState.latitude ?: if (state.userLocation.first != 0.0) state.userLocation.first else null,
                 initialLon = locState.longitude ?: if (state.userLocation.second != 0.0) state.userLocation.second else null,
                 initialAccuracyM = locState.location?.accuracy?.toDouble() ?: 10.0,
                 routeId = state.activeRouteId,
-                trailReportRepository = viewModel.trailReportRepository!!,
+                trailReportRepository = viewModel.trailReportRepository,
                 onDismiss = { showReportConditionSheet = false },
-                onReportSubmitted = { showReportConditionSheet = false }
+                onReportSubmitted = {
+                    showReportConditionSheet = false
+                    viewModel.refreshAllLayers()
+                }
             )
         }
 

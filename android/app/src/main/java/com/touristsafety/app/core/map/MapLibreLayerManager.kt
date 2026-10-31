@@ -38,6 +38,7 @@ object MapLibreLayerManager {
     private var lastSelectedPointGeoJson: String? = null
     private var lastHistoricalLandslidesGeoJson: String? = null
     private var lastHazardSequenceGeoJson: String? = null
+    private var lastCommunityGeoJson: String? = null
 
     /**
      * Clears all GeoJSON change-detection hashes.
@@ -57,6 +58,7 @@ object MapLibreLayerManager {
         lastSelectedPointGeoJson = null
         lastHistoricalLandslidesGeoJson = null
         lastHazardSequenceGeoJson = null
+        lastCommunityGeoJson = null
     }
 
     // Sources
@@ -68,6 +70,7 @@ object MapLibreLayerManager {
     const val SOURCE_DISASTER_POLYGONS = "source-disaster-polygons"
     const val SOURCE_FOREST_POLYGONS = "source-forest-polygons"
     const val SOURCE_ACTIVE_FIRES = "source-active-fires"
+    const val SOURCE_COMMUNITY_HAZARDS = "source-community-hazards"
     const val SOURCE_SAFE_HAVENS = "source-safe-havens"
     const val SOURCE_WEATHER_POINTS = "source-weather-points"
     const val SOURCE_SELECTED_POINT = "source-selected-point"
@@ -88,6 +91,8 @@ object MapLibreLayerManager {
     const val LAYER_ROUTE_PRIMARY_LINE = "layer-route-primary-line"
     const val LAYER_ACTIVE_FIRES_CIRCLE = "layer-active-fires-circle"
     const val LAYER_ACTIVE_FIRES_SYMBOL = "layer-active-fires-symbol"
+    const val LAYER_COMMUNITY_HAZARDS_CIRCLE = "layer-community-hazards-circle"
+    const val LAYER_COMMUNITY_HAZARDS_SYMBOL = "layer-community-hazards-symbol"
 
     // Dedicated Essential Facility Layers
     const val LAYER_HOSPITALS_CIRCLE = "layer-hospitals-circle"
@@ -968,6 +973,34 @@ object MapLibreLayerManager {
                 style.addLayer(fireSymbol)
             }
 
+            // 7g-1. Community Hazard Reports Layer
+            if (style.getSource(SOURCE_COMMUNITY_HAZARDS) == null) {
+                style.addSource(GeoJsonSource(SOURCE_COMMUNITY_HAZARDS, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_COMMUNITY_HAZARDS_CIRCLE) == null) {
+                val commCircle = CircleLayer(LAYER_COMMUNITY_HAZARDS_CIRCLE, SOURCE_COMMUNITY_HAZARDS).apply {
+                    setProperties(
+                        circleColor(Color.rgb(245, 124, 0)), // Hazard Amber #F57C00
+                        circleRadius(10.0f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(2.0f)
+                    )
+                }
+                style.addLayer(commCircle)
+            }
+            if (style.getLayer(LAYER_COMMUNITY_HAZARDS_SYMBOL) == null) {
+                val commSymbol = SymbolLayer(LAYER_COMMUNITY_HAZARDS_SYMBOL, SOURCE_COMMUNITY_HAZARDS).apply {
+                    setProperties(
+                        iconImage(MapIconFactory.ICON_COMMUNITY_HAZARD),
+                        iconSize(0.85f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(false),
+                        iconAnchor(Property.ICON_ANCHOR_CENTER)
+                    )
+                }
+                style.addLayer(commSymbol)
+            }
+
             // 8. Ordered Route Hazard Sequence Layer (Animated Category Glyphs + Numbered Badges)
             if (style.getSource(SOURCE_ROUTE_HAZARD_SEQUENCE) == null) {
                 style.addSource(GeoJsonSource(SOURCE_ROUTE_HAZARD_SEQUENCE, EMPTY_GEOJSON))
@@ -1319,6 +1352,19 @@ object MapLibreLayerManager {
                 Log.w(TAG, "Failed updating route hazard sequence GeoJSON: ${t.message}")
             }
 
+            // 7g-2. Update Community Hazards GeoJSON
+            try {
+                val commSource = style.getSourceAs<GeoJsonSource>(SOURCE_COMMUNITY_HAZARDS)
+                val commFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.COMMUNITY_HAZARD }
+                val commJson = buildPointFeatureCollection(commFeatures)
+                if (commJson != lastCommunityGeoJson) {
+                    commSource?.setGeoJson(commJson)
+                    lastCommunityGeoJson = commJson
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating community hazards GeoJSON: ${t.message}")
+            }
+
             // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip
             try {
                 updateLayerVisibilities(style, state)
@@ -1354,6 +1400,9 @@ object MapLibreLayerManager {
         val firesVis = (filterCat == null || filterCat == MapFeatureCategory.ACTIVE_FIRE_DETECTION) &&
                 (vis[MapFeatureCategory.ACTIVE_FIRE_DETECTION] != false)
 
+        val commVis = (filterCat == null || filterCat == MapFeatureCategory.COMMUNITY_HAZARD) &&
+                (vis[MapFeatureCategory.COMMUNITY_HAZARD] != false)
+
         val hazardVis = (filterCat == null || filterCat == MapFeatureCategory.HAZARD_ZONE) &&
                 (vis[MapFeatureCategory.HAZARD_ZONE] != false)
 
@@ -1388,6 +1437,14 @@ object MapLibreLayerManager {
         )
         style.getLayer(LAYER_ACTIVE_FIRES_SYMBOL)?.setProperties(
             visibility(if (firesVis) Property.VISIBLE else Property.NONE)
+        )
+
+        // Community Hazards
+        style.getLayer(LAYER_COMMUNITY_HAZARDS_CIRCLE)?.setProperties(
+            visibility(if (commVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_COMMUNITY_HAZARDS_SYMBOL)?.setProperties(
+            visibility(if (commVis) Property.VISIBLE else Property.NONE)
         )
 
         // Hazards
