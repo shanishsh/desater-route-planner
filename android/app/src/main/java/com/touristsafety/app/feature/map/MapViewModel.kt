@@ -417,13 +417,17 @@ class MapViewModel @Inject constructor(
                     }
                     rebuildUnifiedFeatures()
                 } else {
+                    val isSameRoute = _uiState.value.activeRouteId == activeRoute.route_id &&
+                            _uiState.value.activeRouteVersion == activeRoute.route_version &&
+                            _uiState.value.routeLifecycleState == RouteLifecycleState.ROUTE_AVAILABLE
+
                     val primaryCoords = parseGeoJsonCoordinates(activeRoute.geometry_geojson?.toString())
                         .ifEmpty { activeRoute.conditions.map { it.latitude to it.longitude } }
 
                     val start = primaryCoords.firstOrNull() ?: _uiState.value.userLocation
 
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { current ->
+                        current.copy(
                             selectedItinerary = null,
                             routeLifecycleState = RouteLifecycleState.ROUTE_AVAILABLE,
                             activeRouteId = activeRoute.route_id,
@@ -452,13 +456,15 @@ class MapViewModel @Inject constructor(
                             plannedRouteAlternatives = activeRoute.alternatives,
                             selectedAlternativeId = null,
                             activeDecisionExplanation = activeRoute.decision_explanation,
-                            cameraTarget = start,
-                            zoomLevel = 13.0
+                            cameraTarget = if (isSameRoute) current.cameraTarget else start,
+                            zoomLevel = if (isSameRoute) current.zoomLevel else 13.0
                         )
                     }
 
-                    // Trigger genuine corridor hazard analysis for this route
-                    triggerRouteCorridorAnalysis(activeRoute.route_id, activeRoute.route_version, _uiState.value.corridorDistanceKm, activeRoute)
+                    // Trigger genuine corridor hazard analysis for this route if new or modified
+                    if (!isSameRoute) {
+                        triggerRouteCorridorAnalysis(activeRoute.route_id, activeRoute.route_version, _uiState.value.corridorDistanceKm, activeRoute)
+                    }
                 }
             }
         }

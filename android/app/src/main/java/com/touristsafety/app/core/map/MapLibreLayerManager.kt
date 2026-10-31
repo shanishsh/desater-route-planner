@@ -25,6 +25,7 @@ object MapLibreLayerManager {
     private const val TAG = "MapLibreLayerManager"
 
     // High-performance GeoJSON change-detection cache to prevent redundant C++ JNI source updates
+    private var lastLoadedStyleRef: Int? = null
     private var lastCorridorGeoJson: String? = null
     private var lastRoutePrimaryGeoJson: String? = null
     private var lastRouteSecondaryGeoJson: String? = null
@@ -173,6 +174,13 @@ object MapLibreLayerManager {
         if (!style.isFullyLoaded) {
             Log.d(TAG, "Style not fully loaded yet; deferring source/layer creation.")
             return
+        }
+
+        // Detect new or reloaded Style instances and invalidate dirty cache to guarantee fresh re-population
+        if (lastLoadedStyleRef != System.identityHashCode(style)) {
+            Log.d(TAG, "New or reloaded Style detected (ref=${System.identityHashCode(style)}). Resetting dirty cache.")
+            resetDirtyCache()
+            lastLoadedStyleRef = System.identityHashCode(style)
         }
 
         try {

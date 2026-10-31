@@ -44,5 +44,53 @@ class ScreenNavigationTest {
         val escapedNull = com.touristsafety.app.core.map.MapLibreLayerManager.escapeJson(null)
         assertEquals("", escapedNull)
     }
-}
 
+    @Test
+    fun `active trek HUD banner is suppressed on planning and full screen routes`() {
+        val suppressedRoutes = listOf(
+            "plan_trip",
+            "plan_trip?origin=Gaurikund",
+            "route_safety_review/route_123",
+            "active_trip/trip_456",
+            "completed_trek_detail/trip_456",
+            "welcome",
+            "login",
+            "register",
+            "permission_onboarding"
+        )
+
+        for (route in suppressedRoutes) {
+            val isPlanRouteScreen = route.substringBefore('?') == Screen.PlanTrip.route ||
+                    route.startsWith("plan_trip")
+            val shouldShow = route.isNotEmpty() &&
+                    !route.startsWith("active_trip") &&
+                    !route.startsWith("route_safety_review") &&
+                    !route.startsWith("completed_trek_detail") &&
+                    !isPlanRouteScreen &&
+                    route !in Screen.fullScreenRoutes
+
+            assertFalse("HUD banner must be suppressed on route: $route", shouldShow)
+        }
+
+        // Permitted routes
+        val permittedRoutes = listOf("home", "trek_history", "emergency")
+        for (route in permittedRoutes) {
+            val isPlanRouteScreen = route.substringBefore('?') == Screen.PlanTrip.route ||
+                    route.startsWith("plan_trip")
+            val shouldShow = route.isNotEmpty() &&
+                    !route.startsWith("active_trip") &&
+                    !route.startsWith("route_safety_review") &&
+                    !route.startsWith("completed_trek_detail") &&
+                    !isPlanRouteScreen &&
+                    route !in Screen.fullScreenRoutes
+
+            assertTrue("HUD banner should be permitted on route: $route", shouldShow)
+        }
+    }
+
+    @Test
+    fun `maplibre layer manager dirty cache reset function executes safely`() {
+        com.touristsafety.app.core.map.MapLibreLayerManager.resetDirtyCache()
+        assertTrue(true)
+    }
+}

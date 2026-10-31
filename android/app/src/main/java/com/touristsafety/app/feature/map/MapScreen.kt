@@ -162,13 +162,16 @@ fun MapScreen(
         }
 
         onDispose {
-            android.util.Log.d("MapScreen", "Disposing MapView effect, tearing down observer and MapView")
+            android.util.Log.d("MapScreen", "Disposing MapView effect, pausing/stopping MapView (preserving native GL surface for tab switching)")
             lifecycleOwner.lifecycle.removeObserver(observer)
             animationController.stop()
             try {
                 mapView.onPause()
                 mapView.onStop()
-                mapView.onDestroy()
+                if (lifecycleOwner.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.DESTROYED) {
+                    android.util.Log.d("MapScreen", "Lifecycle owner destroyed -> invoking mapView.onDestroy()")
+                    mapView.onDestroy()
+                }
             } catch (_: Throwable) {}
         }
     }

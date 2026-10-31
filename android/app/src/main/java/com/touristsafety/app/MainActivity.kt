@@ -90,11 +90,15 @@ class MainActivity : ComponentActivity() {
                         currentRoute.startsWith("active_trip") ||
                         currentRoute.startsWith("completed_trek_detail")
 
+                val isPlanRouteScreen = currentRoute?.substringBefore('?') == Screen.PlanTrip.route ||
+                        currentRoute?.startsWith("plan_trip") == true
+
                 val shouldShowHudBanner = !isBannerDismissed &&
                         currentRoute != null &&
                         !currentRoute.startsWith("active_trip") &&
                         !currentRoute.startsWith("route_safety_review") &&
-                        currentRoute != Screen.PlanTrip.route &&
+                        !currentRoute.startsWith("completed_trek_detail") &&
+                        !isPlanRouteScreen &&
                         currentRoute !in Screen.fullScreenRoutes
 
                 val startDestination = remember {
@@ -164,19 +168,23 @@ class MainActivity : ComponentActivity() {
                                 // Docked active trek HUD banner if active
                                 activeTrip?.let { trip ->
                                     if (shouldShowHudBanner) {
-                                        ActiveTrekHudBanner(
-                                            routeTitle = trip.routeTitle,
-                                            distanceMeters = trip.traveledDistanceMeters,
-                                            onResumeClick = {
-                                                navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId)) {
-                                                    launchSingleTop = true
-                                                }
-                                            },
-                                            onDismissClick = { isBannerDismissed = true },
+                                        Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        )
+                                                .heightIn(max = 52.dp)
+                                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        ) {
+                                            ActiveTrekHudBanner(
+                                                routeTitle = trip.routeTitle,
+                                                distanceMeters = trip.traveledDistanceMeters,
+                                                onResumeClick = {
+                                                    navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId)) {
+                                                        launchSingleTop = true
+                                                    }
+                                                },
+                                                onDismissClick = { isBannerDismissed = true }
+                                            )
+                                        }
                                     }
                                 }
 
@@ -196,19 +204,23 @@ class MainActivity : ComponentActivity() {
                                     Column(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                                         activeTrip?.let { trip ->
                                             if (shouldShowHudBanner) {
-                                                ActiveTrekHudBanner(
-                                                    routeTitle = trip.routeTitle,
-                                                    distanceMeters = trip.traveledDistanceMeters,
-                                                    onResumeClick = {
-                                                        navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId)) {
-                                                            launchSingleTop = true
-                                                        }
-                                                    },
-                                                    onDismissClick = { isBannerDismissed = true },
+                                                Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
+                                                        .heightIn(max = 52.dp)
                                                         .padding(horizontal = 12.dp, vertical = 4.dp)
-                                                )
+                                                ) {
+                                                    ActiveTrekHudBanner(
+                                                        routeTitle = trip.routeTitle,
+                                                        distanceMeters = trip.traveledDistanceMeters,
+                                                        onResumeClick = {
+                                                            navController.navigate(Screen.ActiveTrip.createRoute(trip.tripId)) {
+                                                                launchSingleTop = true
+                                                            }
+                                                        },
+                                                        onDismissClick = { isBannerDismissed = true }
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -289,7 +301,8 @@ private fun ActiveTrekHudBanner(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .height(44.dp)
                 .padding(horizontal = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically

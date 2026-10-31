@@ -160,7 +160,11 @@ fun AppNavGraph(
                     navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
                 },
                 onNavigateToDrawRoute = {
-                    navController.navigate(Screen.Map.createRoute(startDrawing = true))
+                    navController.navigate(Screen.Map.createRoute(startDrawing = true)) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 },
                 onNavigateToHistory = {
                     navController.navigate(Screen.TrekHistory.route) {
@@ -179,7 +183,11 @@ fun AppNavGraph(
                     navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
                 },
                 onNavigateToDrawRoute = {
-                    navController.navigate(Screen.Map.createRoute(startDrawing = true))
+                    navController.navigate(Screen.Map.createRoute(startDrawing = true)) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
@@ -197,7 +205,11 @@ fun AppNavGraph(
                     }
                 },
                 onNavigateToMap = {
-                    navController.navigate(Screen.Map.route)
+                    navController.navigate(Screen.Map.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
@@ -316,7 +328,11 @@ fun AppNavGraph(
                     navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
                 },
                 onNavigateToMap = {
-                    navController.navigate(Screen.Map.route)
+                    navController.navigate(Screen.Map.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
