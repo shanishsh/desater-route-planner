@@ -45,6 +45,10 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 
+@Deprecated(
+    message = "ActiveTripScreen has been unified into MapScreen.kt to provide a single authoritative MapView with 14 disaster layers and AI Safety Advisor.",
+    replaceWith = ReplaceWith("MapScreen", "com.touristsafety.app.feature.map.MapScreen")
+)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActiveTripScreen(

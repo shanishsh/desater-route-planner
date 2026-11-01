@@ -34,7 +34,7 @@ import com.touristsafety.app.feature.offline.SavedTripsViewModel
 import com.touristsafety.app.feature.onboarding.PermissionOnboardingScreen
 import com.touristsafety.app.feature.providers.ProviderStatusScreen
 import com.touristsafety.app.feature.providers.ProviderStatusViewModel
-import com.touristsafety.app.feature.trip.ActiveTripScreen
+
 import com.touristsafety.app.feature.trip.PlanTripScreen
 import com.touristsafety.app.feature.trip.RouteSafetyReviewScreen
 
