@@ -99,7 +99,8 @@ class ActiveTripViewModel @Inject constructor(
 ) : ViewModel() {
 
     val locationState = deviceLocationRepository.locationState
-    val tripId: String = checkNotNull(savedStateHandle["tripId"])
+    val configuredTripId: String? = savedStateHandle.get<String>("tripId") ?: savedStateHandle.get<String>("activeTripId")
+    val tripId: String get() = _uiState.value.tripId.ifBlank { configuredTripId ?: "" }
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
@@ -118,7 +119,7 @@ class ActiveTripViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         ActiveTripUiState(
-            tripId = tripId,
+            tripId = configuredTripId ?: "",
             assistantQueryHistory = savedStateHandle.get<String>(KEY_ASSISTANT_HISTORY)?.let { raw ->
                 decodeHistory(raw)
             } ?: emptyList()
@@ -136,13 +137,30 @@ class ActiveTripViewModel @Inject constructor(
     private var cachedTotalAscentM: Double = 0.0
     private var cachedMaxElevationM: Double = 0.0
 
+    private var trackPointsJob: kotlinx.coroutines.Job? = null
+
     init {
         observeTrip()
-        observeTrackPoints()
+        if (!configuredTripId.isNullOrBlank()) {
+            observeTrackPointsForTrip(configuredTripId)
+        }
         observeGpsLocation()
         observeHazardAlerts()
         observeLiveTrekEngine()
         observeCommunityReports()
+    }
+
+    private fun observeTrackPointsForTrip(activeId: String) {
+        if (activeId.isBlank()) return
+        trackPointsJob?.cancel()
+        trackPointsJob = viewModelScope.launch {
+            trekTrackPointDao.getAllAcceptedPointsFlow(activeId).collect { points ->
+                if (points.size != _uiState.value.traveledTrackCoordinates.size) {
+                    val coords = points.map { Pair(it.latitude, it.longitude) }
+                    _uiState.update { it.copy(traveledTrackCoordinates = coords) }
+                }
+            }
+        }
     }
 
     private fun observeCommunityReports() {
@@ -212,7 +230,12 @@ class ActiveTripViewModel @Inject constructor(
     private fun observeTrip() {
         viewModelScope.launch {
             routeRepository.activeTripFlow.collect { trip ->
-                if (trip != null && trip.tripId == tripId) {
+                val currentTargetId = configuredTripId ?: _uiState.value.tripId
+                val matches = trip != null && (currentTargetId.isBlank() || trip.tripId == currentTargetId)
+                if (matches && trip != null) {
+                    if (trip.tripId != _uiState.value.tripId) {
+                        observeTrackPointsForTrip(trip.tripId)
+                    }
                     // Load static route definition once into memory
                     if (cachedRouteId != trip.routeId) {
                         cachedRouteId = trip.routeId
@@ -279,17 +302,12 @@ class ActiveTripViewModel @Inject constructor(
                             isCompleted = trip.status == "COMPLETED"
                         )
                     }
-                }
-            }
-        }
-    }
-
-    private fun observeTrackPoints() {
-        viewModelScope.launch {
-            trekTrackPointDao.getAllAcceptedPointsFlow(tripId).collect { points ->
-                if (points.size != _uiState.value.traveledTrackCoordinates.size) {
-                    val coords = points.map { Pair(it.latitude, it.longitude) }
-                    _uiState.update { it.copy(traveledTrackCoordinates = coords) }
+                } else if (trip == null && configuredTripId.isNullOrBlank()) {
+                    trackPointsJob?.cancel()
+                    trackPointsJob = null
+                    if (_uiState.value.tripId.isNotBlank()) {
+                        _uiState.update { ActiveTripUiState() }
+                    }
                 }
             }
         }
@@ -338,8 +356,11 @@ class ActiveTripViewModel @Inject constructor(
     }
 
     fun endTrip(ctx: Context) {
+        val currentTripId = _uiState.value.tripId.ifBlank { configuredTripId ?: "" }
         viewModelScope.launch {
-            routeRepository.stopTrip(tripId)
+            if (currentTripId.isNotBlank()) {
+                routeRepository.stopTrip(currentTripId)
+            }
             ActiveTripTrackingService.stop(ctx)
             liveTrekContextEngine.stopTrekSession()
             hazardAlertEngine.dismissActiveAlert()
@@ -389,7 +410,7 @@ class ActiveTripViewModel @Inject constructor(
             val battery = getBatteryPercentage()
 
             val result = routeRepository.submitCheckIn(
-                tripId = tripId,
+                tripId = configuredTripId ?: "",
                 latitude = lat,
                 longitude = lon,
                 elevationM = elev,
@@ -427,7 +448,7 @@ class ActiveTripViewModel @Inject constructor(
             val battery = getBatteryPercentage()
 
             routeRepository.triggerEmergencySos(
-                tripId = tripId,
+                tripId = configuredTripId ?: "",
                 latitude = lat,
                 longitude = lon,
                 elevationM = elev,

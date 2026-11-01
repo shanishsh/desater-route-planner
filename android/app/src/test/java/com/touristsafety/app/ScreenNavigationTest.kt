@@ -93,4 +93,13 @@ class ScreenNavigationTest {
         com.touristsafety.app.core.map.MapLibreLayerManager.resetDirtyCache()
         assertTrue(true)
     }
+
+    @Test
+    fun `unified map route creator formats query parameters correctly`() {
+        assertEquals("map", Screen.Map.createRoute())
+        assertEquals("map?startDrawing=true", Screen.Map.createRoute(startDrawing = true))
+        assertEquals("map?activeTripId=trip_kedarnath_123", Screen.Map.createRoute(activeTripId = "trip_kedarnath_123"))
+        assertEquals("map?startDrawing=true&activeTripId=trip_kedarnath_123", Screen.Map.createRoute(startDrawing = true, activeTripId = "trip_kedarnath_123"))
+        assertEquals("active_trip/trip_999", Screen.ActiveTrip.createRoute("trip_999"))
+    }
 }

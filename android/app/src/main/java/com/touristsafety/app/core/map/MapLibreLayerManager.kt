@@ -1373,6 +1373,31 @@ object MapLibreLayerManager {
                 Log.w(TAG, "Failed updating community hazards GeoJSON: ${t.message}")
             }
 
+            // 7h. Update Traveled Track (Live GPS Breadcrumbs)
+            try {
+                if (state.liveRecordedTrackCoordinates.size >= 2) {
+                    updateTraveledTrack(style, state.liveRecordedTrackCoordinates)
+                } else {
+                    style.getSourceAs<GeoJsonSource>(SOURCE_TRAVELED_TRACK)?.setGeoJson(EMPTY_GEOJSON)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating traveled track GeoJSON: ${t.message}")
+            }
+
+            // 7i. Update Live Trekker Location Marker
+            try {
+                if (state.isRecordingTrek && state.userLocation.first != 0.0) {
+                    updateTrekCurrentPosition(
+                        style,
+                        state.userLocation.first,
+                        state.userLocation.second,
+                        state.userLocationAccuracyMeters ?: 10f
+                    )
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating trek current position: ${t.message}")
+            }
+
             // 8. Update Layer Visibilities according to state.layerVisibilities & selectedFilter chip
             try {
                 updateLayerVisibilities(style, state)
