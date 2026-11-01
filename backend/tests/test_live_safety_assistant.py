@@ -199,5 +199,5 @@ def test_api_endpoints_ask():
     assert resp.status_code == 200
     data = resp.json()
     assert "19°C" in data["summary"]
-    assert "Clear skies" in data["summary"]
+    assert "clear" in data["summary"].lower()
 

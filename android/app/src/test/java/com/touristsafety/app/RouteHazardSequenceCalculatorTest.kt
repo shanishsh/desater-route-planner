@@ -233,5 +233,34 @@ class RouteHazardSequenceCalculatorTest {
         val hospFeat = UnifiedMapFeature("h1", MapFeatureCategory.HOSPITAL, "Kedarnath Base Hospital", latitude = 0.0, longitude = 0.0)
         assertEquals(HazardCategoryType.SAFETY_FACILITY, HazardCategoryType.fromFeature(hospFeat))
     }
+
+    @Test
+    fun testCellularTowersStrictlyExcludedFromHazardSequence() {
+        val cellTower = UnifiedMapFeature(
+            id = "cell_tower_1",
+            category = MapFeatureCategory.CELL_TOWER,
+            title = "Jio 4G Tower Jungle Chatti",
+            latitude = 30.6800,
+            longitude = 79.0400
+        )
+        val communityHazard = UnifiedMapFeature(
+            id = "comm_1",
+            category = MapFeatureCategory.COMMUNITY_HAZARD,
+            title = "Fallen Tree on Trail",
+            latitude = 30.7100,
+            longitude = 79.0550
+        )
+
+        val sequence = RouteHazardSequenceCalculator.calculateSequence(
+            routePoints = kedarnathTrail,
+            features = listOf(cellTower, communityHazard),
+            corridorDistanceMeters = 5000.0
+        )
+
+        assertEquals("Cell towers must be completely excluded, only community hazard present", 1, sequence.size)
+        assertEquals("comm_1", sequence[0].feature.id)
+        assertEquals(HazardCategoryType.COMMUNITY_REPORT, sequence[0].categoryType)
+        assertFalse("Cell tower must not be in sequence", sequence.any { it.feature.category == MapFeatureCategory.CELL_TOWER })
+    }
 }
 
