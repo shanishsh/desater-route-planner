@@ -40,6 +40,11 @@ object MapLibreLayerManager {
     private var lastHistoricalLandslidesGeoJson: String? = null
     private var lastHazardSequenceGeoJson: String? = null
     private var lastCommunityGeoJson: String? = null
+    private var lastCellularRangeGeoJson: String? = null
+    private var lastCellSiteJson: String? = null
+    private var lastCellCovJson: String? = null
+    private var cachedSynthesizedRangeKey: Int = 0
+    private var cachedSynthesizedRangeJson: String? = null
 
     /**
      * Clears all GeoJSON change-detection hashes.
@@ -60,6 +65,11 @@ object MapLibreLayerManager {
         lastHistoricalLandslidesGeoJson = null
         lastHazardSequenceGeoJson = null
         lastCommunityGeoJson = null
+        lastCellularRangeGeoJson = null
+        lastCellSiteJson = null
+        lastCellCovJson = null
+        cachedSynthesizedRangeKey = 0
+        cachedSynthesizedRangeJson = null
     }
 
     // Sources
@@ -1310,13 +1320,23 @@ object MapLibreLayerManager {
                         getOrLoadCellTowersBaselineGeoJson(context)
                     } else cachedCellTowersBaselineGeoJson
                     if (!sitesJson.isNullOrBlank()) {
-                        rangeJson = synthesizeCellularRangeGeoJson(sitesJson)
+                        val siteHash = sitesJson.hashCode()
+                        if (cachedSynthesizedRangeKey == siteHash && cachedSynthesizedRangeJson != null) {
+                            rangeJson = cachedSynthesizedRangeJson
+                        } else {
+                            rangeJson = synthesizeCellularRangeGeoJson(sitesJson)
+                            cachedSynthesizedRangeKey = siteHash
+                            cachedSynthesizedRangeJson = rangeJson
+                        }
                     }
                 }
                 val finalRangeJson = if (!rangeJson.isNullOrBlank()) {
                     ensureFeatureCollection(rangeJson)
                 } else EMPTY_GEOJSON
-                rangeSource?.setGeoJson(finalRangeJson)
+                if (finalRangeJson != lastCellularRangeGeoJson) {
+                    rangeSource?.setGeoJson(finalRangeJson)
+                    lastCellularRangeGeoJson = finalRangeJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating cellular range GeoJSON: ${t.message}")
             }
@@ -1330,7 +1350,10 @@ object MapLibreLayerManager {
                 } else if (!baselineCellSites.isNullOrBlank()) {
                     baselineCellSites
                 } else EMPTY_GEOJSON
-                cellSiteSource?.setGeoJson(cellSiteJson)
+                if (cellSiteJson != lastCellSiteJson) {
+                    cellSiteSource?.setGeoJson(cellSiteJson)
+                    lastCellSiteJson = cellSiteJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating cellular sites GeoJSON: ${t.message}")
             }
@@ -1341,7 +1364,10 @@ object MapLibreLayerManager {
                 val cellCovJson = if (!state.cellularCoverageGeoJson.isNullOrBlank()) {
                     ensureFeatureCollection(state.cellularCoverageGeoJson)
                 } else EMPTY_GEOJSON
-                cellCovSource?.setGeoJson(cellCovJson)
+                if (cellCovJson != lastCellCovJson) {
+                    cellCovSource?.setGeoJson(cellCovJson)
+                    lastCellCovJson = cellCovJson
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed updating cellular coverage GeoJSON: ${t.message}")
             }

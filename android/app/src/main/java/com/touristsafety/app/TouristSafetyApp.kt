@@ -108,12 +108,7 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                 maxRequests = 32
                 maxRequestsPerHost = 8
             }
-            val loggingInterceptor = okhttp3.logging.HttpLoggingInterceptor { message ->
-                Log.d("MapLibreHttp", message)
-            }.apply {
-                level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
-            }
-
+            // High-performance network pipeline: disable tile request logcat spam and enable fast connection pooling
             val maplibreOkHttpClient = OkHttpClient.Builder()
                 .dispatcher(dispatcher)
                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -128,10 +123,9 @@ class TouristSafetyApp : Application(), Configuration.Provider {
                         .build()
                     chain.proceed(requestWithAgent)
                 }
-                .addInterceptor(loggingInterceptor)
                 .build()
 
-            HttpRequestUtil.setLogEnabled(true)
+            HttpRequestUtil.setLogEnabled(false)
             HttpRequestUtil.setPrintRequestUrlOnFailure(true)
             HttpRequestUtil.setOkHttpClient(maplibreOkHttpClient)
             Log.i("TouristSafetyApp", "MapLibre Native SDK and OkHttpClient initialized successfully")

@@ -153,19 +153,57 @@ class ActiveTripTrackingService : Service() {
                 return START_STICKY
             }
             else -> {
-                currentTripId = intent?.getStringExtra(EXTRA_TRIP_ID) ?: ""
-                currentRouteId = intent?.getStringExtra(EXTRA_ROUTE_ID) ?: ""
-                destinationName = intent?.getStringExtra(EXTRA_DEST_NAME) ?: "Destination"
+                val passedTripId = intent?.getStringExtra(EXTRA_TRIP_ID)
+                val passedRouteId = intent?.getStringExtra(EXTRA_ROUTE_ID)
+                val passedDest = intent?.getStringExtra(EXTRA_DEST_NAME)
 
-                startTimeEpochMs = System.currentTimeMillis()
-                startForegroundWithNotification("Active Trek Started", "Monitoring route to $destinationName")
+                if (!passedTripId.isNullOrBlank()) {
+                    currentTripId = passedTripId
+                    currentRouteId = passedRouteId ?: ""
+                    destinationName = passedDest ?: "Destination"
 
-                loadTripStateAndResume()
-                liveTrekContextEngine.startTrekSession(currentTripId, currentRouteId, destinationName)
-                startLocationUpdates()
-                startDurationTimer()
-                startPeriodicSync()
-                observeEngineContext()
+                    startTimeEpochMs = System.currentTimeMillis()
+                    startForegroundWithNotification("Active Trek Started", "Monitoring route to $destinationName")
+
+                    loadTripStateAndResume()
+                    liveTrekContextEngine.startTrekSession(currentTripId, currentRouteId, destinationName)
+                    startLocationUpdates()
+                    startDurationTimer()
+                    startPeriodicSync()
+                    observeEngineContext()
+                } else {
+                    // Service restarted by OS with intent == null; recover active session from Room database
+                    startForegroundWithNotification("Resuming Trek Tracking", "Restoring active trek session...")
+                    serviceScope.launch {
+                        val activeTrip = activeTripDao.getCurrentActiveTrip()
+                        if (activeTrip != null) {
+                            currentTripId = activeTrip.tripId
+                            currentRouteId = activeTrip.routeId
+                            if (activeTrip.destinationName.isNotBlank()) {
+                                destinationName = activeTrip.destinationName
+                            }
+                            cumulativeDistanceMeters = activeTrip.traveledDistanceMeters
+                            isPaused = activeTrip.isPaused
+                            if (activeTrip.lastLatitude != null && activeTrip.lastLongitude != null) {
+                                lastAcceptedLat = activeTrip.lastLatitude
+                                lastAcceptedLon = activeTrip.lastLongitude
+                                lastAcceptedEpochMs = activeTrip.lastSyncedAt
+                            }
+                            liveTrekContextEngine.startTrekSession(currentTripId, currentRouteId, destinationName)
+                            updateNotification(
+                                if (isPaused) "Trek Paused" else "Active Trek Monitored",
+                                "Route to $destinationName • ${String.format(java.util.Locale.US, "%.2f km", cumulativeDistanceMeters / 1000.0)}"
+                            )
+                            startLocationUpdates()
+                            startDurationTimer()
+                            startPeriodicSync()
+                            observeEngineContext()
+                        } else {
+                            Log.w(TAG, "No active trip session found in Room on restart. Stopping service.")
+                            stopSelf()
+                        }
+                    }
+                }
                 return START_STICKY
             }
         }

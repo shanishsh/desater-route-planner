@@ -584,6 +584,26 @@ class RouteRepository @Inject constructor(
     }
 
     suspend fun startTrip(routeId: String, deviceId: String? = null): Result<StartTripResponseDto> {
+        // Enforce state machine invariant: reuse existing active session for same route, or complete previous
+        val existingActive = activeTripDao.getCurrentActiveTrip()
+        if (existingActive != null) {
+            if (existingActive.routeId == routeId && existingActive.status == "ACTIVE") {
+                Log.i("RouteRepository", "Active trip already running for route $routeId (id=${existingActive.tripId}), reusing session")
+                return Result.success(
+                    StartTripResponseDto(
+                        trip_id = existingActive.tripId,
+                        route_id = existingActive.routeId,
+                        status = existingActive.status,
+                        started_at = existingActive.startedAt,
+                        message = "Active session resumed."
+                    )
+                )
+            } else if (existingActive.status == "ACTIVE") {
+                Log.i("RouteRepository", "Completing prior active trip ${existingActive.tripId} before starting route $routeId")
+                activeTripDao.completeTrip(existingActive.tripId)
+            }
+        }
+
         val routeEntity = plannedRouteDao.getRouteById(routeId)
         val title = routeEntity?.title ?: "Expedition Route"
         val orig = routeEntity?.originName ?: ""

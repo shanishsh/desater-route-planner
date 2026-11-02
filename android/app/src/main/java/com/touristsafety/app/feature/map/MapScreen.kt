@@ -478,6 +478,7 @@ fun MapScreen(
     }
 
     // Reactively update MapLibre vector layers, POI icons, and filters whenever features or filter selections update
+    // Note: state.liveRecordedTrackCoordinates is handled incrementally below by updateTraveledTrack to prevent full layer reconstruction on GPS ticks
     LaunchedEffect(
         state.allFeatures,
         state.facilitiesGeoJson,
@@ -488,7 +489,6 @@ fun MapScreen(
         state.draftPolyline,
         state.draftWaypoints,
         state.proposedConnectorCoordinates,
-        state.liveRecordedTrackCoordinates,
         baseMapStatus
     ) {
         if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
@@ -530,13 +530,23 @@ fun MapScreen(
         }
     }
 
-    // Animate camera when camera target is updated programmatically
-    LaunchedEffect(state.cameraTarget) {
+    // Animate camera when camera target is updated programmatically (guarded against idle feedback loops)
+    LaunchedEffect(state.cameraTarget, state.zoomLevel) {
         if (baseMapStatus == BaseMapStatus.READY || baseMapStatus == BaseMapStatus.FALLBACK_RASTER_ACTIVE) {
             maplibreMapInstance?.let { map ->
                 if (map.style?.isFullyLoaded == true) {
-                    val target = LatLng(state.cameraTarget.first, state.cameraTarget.second)
-                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, state.zoomLevel))
+                    val curPos = map.cameraPosition
+                    val curTarget = curPos.target
+                    val targetLat = state.cameraTarget.first
+                    val targetLon = state.cameraTarget.second
+                    val deltaLat = if (curTarget != null) Math.abs(curTarget.latitude - targetLat) else 1.0
+                    val deltaLon = if (curTarget != null) Math.abs(curTarget.longitude - targetLon) else 1.0
+                    val deltaZoom = Math.abs(curPos.zoom - state.zoomLevel)
+                    // Only invoke animateCamera if target was moved programmatically (significant delta from current camera viewport)
+                    if (deltaLat > 0.0005 || deltaLon > 0.0005 || deltaZoom > 0.15) {
+                        val target = LatLng(targetLat, targetLon)
+                        map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, state.zoomLevel))
+                    }
                 }
             }
         }
@@ -2085,7 +2095,7 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
 
         // High-performance selective marker update: avoids clearing all annotations and reallocating bitmaps
         try {
-            if (state.isUserLocationAcquired) {
+            if (state.isUserLocationAcquired && !state.isTrekActive) {
                 val userLatLng = LatLng(state.userLocation.first, state.userLocation.second)
                 val acc = state.userLocationAccuracyMeters?.toInt()?.let { " (±${it}m)" } ?: ""
                 val existing = mapboxMap.markers.firstOrNull { it.snippet == "GPS Location" }
@@ -2100,6 +2110,8 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
                             .snippet("GPS Location")
                     )
                 }
+            } else if (state.isTrekActive) {
+                mapboxMap.markers.firstOrNull { it.snippet == "GPS Location" }?.let { mapboxMap.removeMarker(it) }
             }
 
             if (state.routeCoordinates.size >= 2) {

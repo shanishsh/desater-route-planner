@@ -159,5 +159,63 @@ class ReportTrailConditionViewModelTest {
         assertTrue(viewModel.uiState.value.submitSuccess)
         assertTrue(viewModel.uiState.value.isOfflineQueued)
     }
-}
 
+    @Test
+    fun testMutationsPersistToSavedStateHandle() {
+        val stateHandle = SavedStateHandle()
+        val vm = ReportTrailConditionViewModel(
+            trailReportRepository = trailReportRepository,
+            context = context,
+            savedStateHandle = stateHandle
+        )
+
+        vm.setStep(ReportWizardStep.DETAILS)
+        vm.selectCategory("flash_flood")
+        vm.setSeverity("CRITICAL")
+        vm.setPassability("IMPASSABLE")
+        vm.setLocation(30.7339, 79.0669, "gps", 5.0)
+        vm.setDescription("Rising waters near river crossing")
+
+        assertEquals("DETAILS", stateHandle.get<String>("report_wizard_step"))
+        assertEquals("flash_flood", stateHandle.get<String>("report_category"))
+        assertEquals("CRITICAL", stateHandle.get<String>("report_severity"))
+        assertEquals("IMPASSABLE", stateHandle.get<String>("report_passability"))
+        assertEquals(30.7339, stateHandle.get<Double>("report_latitude") ?: 0.0, 0.0001)
+        assertEquals(79.0669, stateHandle.get<Double>("report_longitude") ?: 0.0, 0.0001)
+        assertEquals("Rising waters near river crossing", stateHandle.get<String>("report_description"))
+    }
+
+    @Test
+    fun testSavedStateHandleRestoresDraftAcrossProcessDeath() {
+        val prePopulatedHandle = SavedStateHandle().apply {
+            set("report_wizard_step", "EVIDENCE")
+            set("report_category", "landslide")
+            set("report_severity", "HIGH")
+            set("report_passability", "IMPASSABLE")
+            set("report_latitude", 30.7339)
+            set("report_longitude", 79.0669)
+            set("report_accuracy_meters", 8.0)
+            set("report_location_source", "manual_map")
+            set("report_description", "Heavy rockfall debris")
+            set("report_route_id", "route-kedarnath-101")
+        }
+
+        val restoredVm = ReportTrailConditionViewModel(
+            trailReportRepository = trailReportRepository,
+            context = context,
+            savedStateHandle = prePopulatedHandle
+        )
+
+        val restoredState = restoredVm.uiState.value
+        assertEquals(ReportWizardStep.EVIDENCE, restoredState.currentStep)
+        assertEquals("landslide", restoredState.category)
+        assertEquals("HIGH", restoredState.severity)
+        assertEquals("IMPASSABLE", restoredState.passability)
+        assertEquals(30.7339, restoredState.latitude, 0.0001)
+        assertEquals(79.0669, restoredState.longitude, 0.0001)
+        assertEquals(8.0, restoredState.accuracyMeters, 0.001)
+        assertEquals("manual_map", restoredState.locationSource)
+        assertEquals("Heavy rockfall debris", restoredState.description)
+        assertEquals("route-kedarnath-101", restoredState.routeId)
+    }
+}

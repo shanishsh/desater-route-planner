@@ -41,7 +41,7 @@ object NetworkModule {
 
         if (BuildConfig.DEBUG) {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
+                level = HttpLoggingInterceptor.Level.HEADERS
             }
             builder.addInterceptor(logging)
         }

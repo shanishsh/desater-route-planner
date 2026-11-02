@@ -7,6 +7,7 @@ import com.touristsafety.app.core.network.NetworkStatus
 import com.touristsafety.app.core.repository.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -100,10 +101,16 @@ class HomeViewModel @Inject constructor(
 
             connectivityMonitor.probeBackend()
 
-            val itinResult = itineraryRepository.refreshItineraries()
-            val alertResult = alertRepository.refreshAlerts()
-            val emergencyResult = emergencyRepository.refreshMapPoints()
-            providerStatusRepository.refreshStatuses()
+            // Execute network refreshes concurrently across thread pool
+            val itinDeferred = async { itineraryRepository.refreshItineraries() }
+            val alertDeferred = async { alertRepository.refreshAlerts() }
+            val emergencyDeferred = async { emergencyRepository.refreshMapPoints() }
+            val providerDeferred = async { providerStatusRepository.refreshStatuses() }
+
+            val itinResult = itinDeferred.await()
+            val alertResult = alertDeferred.await()
+            emergencyDeferred.await()
+            providerDeferred.await()
 
             val activeItin = _uiState.value.selectedItinerary
             if (activeItin != null) {

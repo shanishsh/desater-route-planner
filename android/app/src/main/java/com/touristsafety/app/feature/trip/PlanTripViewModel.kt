@@ -110,6 +110,8 @@ class PlanTripViewModel @Inject constructor(
 
     private var searchDestJob: Job? = null
     private var searchOriginJob: Job? = null
+    private var planningJob: Job? = null
+    private var planningRequestId: Long = 0L
 
     init {
         // Load recent endpoints from room database
@@ -568,7 +570,9 @@ class PlanTripViewModel @Inject constructor(
             return
         }
 
-        viewModelScope.launch {
+        planningJob?.cancel()
+        val currentReqId = ++planningRequestId
+        planningJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isPlanning = true,
@@ -577,8 +581,10 @@ class PlanTripViewModel @Inject constructor(
                 )
             }
             delay(350)
+            if (currentReqId != planningRequestId) return@launch
             _uiState.update { it.copy(planningPhase = "Correlating Open-Meteo hourly weather with estimated arrival times...") }
             delay(350)
+            if (currentReqId != planningRequestId) return@launch
             _uiState.update { it.copy(planningPhase = "Scanning NASA FIRMS fire anomalies, OSM facilities, and alerts...") }
 
             val result = routeRepository.planRoute(
@@ -591,6 +597,8 @@ class PlanTripViewModel @Inject constructor(
                 travelMode = state.travelMode,
                 corridorDistanceKm = state.corridorDistanceKm
             )
+
+            if (currentReqId != planningRequestId) return@launch
 
             result.fold(
                 onSuccess = { dto ->

@@ -55,6 +55,9 @@ object MapIconFactory {
 
     private const val ICON_SIZE = 64 // 64x64 px standard resolution for crisp DPI rendering
 
+    private val bitmapResourceCache = java.util.concurrent.ConcurrentHashMap<Int, Bitmap>()
+    private val programmaticBitmapCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+
     /**
      * Converts an Android Drawable into a hardware-independent ARGB_8888 Bitmap.
      */
@@ -70,17 +73,25 @@ object MapIconFactory {
     }
 
     private fun loadOrGenerateBitmap(context: Context?, resId: Int, fallback: () -> Bitmap): Bitmap {
+        val cached = bitmapResourceCache[resId]
+        if (cached != null && !cached.isRecycled) {
+            return cached
+        }
         if (context != null) {
             try {
                 val drawable = ContextCompat.getDrawable(context, resId)
                 if (drawable != null) {
-                    return drawableToBitmap(drawable)
+                    val bmp = drawableToBitmap(drawable)
+                    bitmapResourceCache[resId] = bmp
+                    return bmp
                 }
             } catch (t: Throwable) {
                 android.util.Log.w("MapIconFactory", "Failed to inflate drawable resource $resId: ${t.message}. Using fallback.")
             }
         }
-        return fallback()
+        val generated = fallback()
+        bitmapResourceCache[resId] = generated
+        return generated
     }
 
     /**
@@ -91,77 +102,94 @@ object MapIconFactory {
         if (!style.isFullyLoaded) return
 
         // Hospital (both canonical poi-* and legacy icon-*)
-        val hospitalBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_hospital) { createHospitalBitmap() }
-        if (style.getImage(ICON_HOSPITAL) == null) {
-            style.addImage(ICON_HOSPITAL, hospitalBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_HOSPITAL) == null) {
-            style.addImage(LEGACY_ICON_HOSPITAL, hospitalBitmap)
+        if (style.getImage(ICON_HOSPITAL) == null || style.getImage(LEGACY_ICON_HOSPITAL) == null) {
+            val hospitalBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_hospital) { createHospitalBitmap() }
+            if (style.getImage(ICON_HOSPITAL) == null) {
+                style.addImage(ICON_HOSPITAL, hospitalBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_HOSPITAL) == null) {
+                style.addImage(LEGACY_ICON_HOSPITAL, hospitalBitmap)
+            }
         }
 
         // Clinic
-        val clinicBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_clinic) { createClinicBitmap() }
-        if (style.getImage(ICON_CLINIC) == null) {
-            style.addImage(ICON_CLINIC, clinicBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_CLINIC) == null) {
-            style.addImage(LEGACY_ICON_CLINIC, clinicBitmap)
+        if (style.getImage(ICON_CLINIC) == null || style.getImage(LEGACY_ICON_CLINIC) == null) {
+            val clinicBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_clinic) { createClinicBitmap() }
+            if (style.getImage(ICON_CLINIC) == null) {
+                style.addImage(ICON_CLINIC, clinicBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_CLINIC) == null) {
+                style.addImage(LEGACY_ICON_CLINIC, clinicBitmap)
+            }
         }
 
         // Police
-        val policeBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_police) { createPoliceBitmap() }
-        if (style.getImage(ICON_POLICE) == null) {
-            style.addImage(ICON_POLICE, policeBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_POLICE) == null) {
-            style.addImage(LEGACY_ICON_POLICE, policeBitmap)
+        if (style.getImage(ICON_POLICE) == null || style.getImage(LEGACY_ICON_POLICE) == null) {
+            val policeBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_police) { createPoliceBitmap() }
+            if (style.getImage(ICON_POLICE) == null) {
+                style.addImage(ICON_POLICE, policeBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_POLICE) == null) {
+                style.addImage(LEGACY_ICON_POLICE, policeBitmap)
+            }
         }
 
         // Fuel / Petrol Pump
-        val fuelBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fuel) { createFuelBitmap() }
-        if (style.getImage(ICON_FUEL) == null) {
-            style.addImage(ICON_FUEL, fuelBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_FUEL) == null) {
-            style.addImage(LEGACY_ICON_FUEL, fuelBitmap)
+        if (style.getImage(ICON_FUEL) == null || style.getImage(LEGACY_ICON_FUEL) == null) {
+            val fuelBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fuel) { createFuelBitmap() }
+            if (style.getImage(ICON_FUEL) == null) {
+                style.addImage(ICON_FUEL, fuelBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_FUEL) == null) {
+                style.addImage(LEGACY_ICON_FUEL, fuelBitmap)
+            }
         }
 
         // Fire Station
-        val fireStationBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fire_station) { createFireStationBitmap() }
-        if (style.getImage(ICON_FIRE_STATION) == null) {
-            style.addImage(ICON_FIRE_STATION, fireStationBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_FIRE_STATION) == null) {
-            style.addImage(LEGACY_ICON_FIRE_STATION, fireStationBitmap)
+        if (style.getImage(ICON_FIRE_STATION) == null || style.getImage(LEGACY_ICON_FIRE_STATION) == null) {
+            val fireStationBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_fire_station) { createFireStationBitmap() }
+            if (style.getImage(ICON_FIRE_STATION) == null) {
+                style.addImage(ICON_FIRE_STATION, fireStationBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_FIRE_STATION) == null) {
+                style.addImage(LEGACY_ICON_FIRE_STATION, fireStationBitmap)
+            }
         }
 
         // Shelter
-        val shelterBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_shelter) { createShelterBitmap() }
-        if (style.getImage(ICON_SHELTER) == null) {
-            style.addImage(ICON_SHELTER, shelterBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_SHELTER) == null) {
-            style.addImage(LEGACY_ICON_SHELTER, shelterBitmap)
+        if (style.getImage(ICON_SHELTER) == null || style.getImage(LEGACY_ICON_SHELTER) == null) {
+            val shelterBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_shelter) { createShelterBitmap() }
+            if (style.getImage(ICON_SHELTER) == null) {
+                style.addImage(ICON_SHELTER, shelterBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_SHELTER) == null) {
+                style.addImage(LEGACY_ICON_SHELTER, shelterBitmap)
+            }
         }
 
         // Wildfire & Disaster Advisories
         if (style.getImage(ICON_WILDFIRE) == null) {
-            style.addImage(ICON_WILDFIRE, createWildfireBitmap())
+            val wildfireBmp = programmaticBitmapCache.getOrPut(ICON_WILDFIRE) { createWildfireBitmap() }
+            style.addImage(ICON_WILDFIRE, wildfireBmp)
         }
         if (style.getImage(ICON_DISASTER) == null) {
-            style.addImage(ICON_DISASTER, createDisasterBitmap())
+            val disasterBmp = programmaticBitmapCache.getOrPut(ICON_DISASTER) { createDisasterBitmap() }
+            style.addImage(ICON_DISASTER, disasterBmp)
         }
 
         // Cell Tower
-        val cellTowerBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_cell_tower) { createCellTowerBitmap() }
-        if (style.getImage(ICON_CELL_TOWER) == null) {
-            style.addImage(ICON_CELL_TOWER, cellTowerBitmap)
-        }
-        if (style.getImage(LEGACY_ICON_CELL_TOWER) == null) {
-            style.addImage(LEGACY_ICON_CELL_TOWER, cellTowerBitmap)
+        if (style.getImage(ICON_CELL_TOWER) == null || style.getImage(LEGACY_ICON_CELL_TOWER) == null) {
+            val cellTowerBitmap = loadOrGenerateBitmap(context, R.drawable.ic_poi_cell_tower) { createCellTowerBitmap() }
+            if (style.getImage(ICON_CELL_TOWER) == null) {
+                style.addImage(ICON_CELL_TOWER, cellTowerBitmap)
+            }
+            if (style.getImage(LEGACY_ICON_CELL_TOWER) == null) {
+                style.addImage(LEGACY_ICON_CELL_TOWER, cellTowerBitmap)
+            }
         }
         if (style.getImage(ICON_COMMUNITY_HAZARD) == null) {
-            style.addImage(ICON_COMMUNITY_HAZARD, createCommunityHazardBitmap())
+            val commHazardBmp = programmaticBitmapCache.getOrPut(ICON_COMMUNITY_HAZARD) { createCommunityHazardBitmap() }
+            style.addImage(ICON_COMMUNITY_HAZARD, commHazardBmp)
         }
 
         // Register Animated Category Icons (Initial Static Frame 0)
