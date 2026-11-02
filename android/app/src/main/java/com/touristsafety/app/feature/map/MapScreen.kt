@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +42,8 @@ import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.map.HazardAnimationController
 import com.touristsafety.app.feature.report.ReportTrailConditionBottomSheet
+import com.touristsafety.app.feature.trip.VerifiedCorridor
+import com.touristsafety.app.feature.trip.defaultVerifiedCorridors
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import org.maplibre.android.MapLibre
@@ -70,6 +74,7 @@ fun MapScreen(
     onNavigateToPlanTrip: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCompletedTrekDetail: (String) -> Unit = {},
+    onNavigateToSafetyReview: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -265,6 +270,9 @@ fun MapScreen(
                 mapboxMap.addOnMapClickListener { latLng ->
                     if (viewModel.uiState.value.isDrawingMode) {
                         viewModel.addDraftWaypoint(latLng.latitude, latLng.longitude)
+                        return@addOnMapClickListener true
+                    }
+                    if (viewModel.handleMapTapForRoute(latLng.latitude, latLng.longitude)) {
                         return@addOnMapClickListener true
                     }
                     try {
@@ -1122,9 +1130,161 @@ fun MapScreen(
                     analysisLimitations = state.analysisLimitations,
                     onOpenComparison = { viewModel.toggleComparisonSheet(true) },
                     onClearRoute = { viewModel.clearRoute() },
+                    onStartTrip = { viewModel.startLiveTrekRecording() },
+                    onSaveOffline = state.activeRouteId?.let { routeId ->
+                        { onNavigateToSafetyReview?.invoke(routeId) }
+                    },
                     verificationStatus = state.routeVerificationStatus,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+        } else if (state.isRouteChoosingActive && !state.isDrawingMode && !state.isRecordingTrek) {
+            // Live Route Choosing on the Original Map
+            Surface(
+                shape = ExpressiveShapes.largeIncreased,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Terrain,
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Choose Route on Original Map",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.exitRouteChoosingMode() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = state.isTapToRouteMode,
+                            onClick = { viewModel.toggleTapToRouteMode() },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (state.isTapToRouteMode) Icons.Default.TouchApp else Icons.Default.AddLocation,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    if (state.isTapToRouteMode) {
+                                        if (state.tapOrigin == null) "Tap Start on Map" else "Tap Destination"
+                                    } else "Tap to Route"
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = ForestGreenPrimary,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+
+                        OutlinedButton(
+                            onClick = { viewModel.enterDrawingMode("TRAIL_FOLLOWING") },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.Gesture, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Draw on Map", fontSize = 11.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onNavigateToPlanTrip,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Expedition Search", fontSize = 11.sp)
+                        }
+                    }
+
+                    if (state.isTapToRouteMode) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (state.tapOrigin == null) "👉 Tap anywhere on the map to place start pin" else "👉 Tap your destination on the map to calculate trail route",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ForestGreenPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        "Verified Himalayan Trails",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(
+                            items = defaultVerifiedCorridors,
+                            key = { it.label }
+                        ) { corridor ->
+                            val isSelected = state.selectedPresetCorridor == corridor.label
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) SageContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = if (isSelected) BorderStroke(1.5.dp, ForestGreenPrimary) else null,
+                                modifier = Modifier.clickable {
+                                    viewModel.selectVerifiedPreset(corridor)
+                                }
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                    Text(
+                                        corridor.label,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "${corridor.originName} → ${corridor.destName}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } else if (!state.isDrawingMode && !state.isRecordingTrek) {
             // 3-Mode Entry Card when exploring the map without active route
@@ -1143,11 +1303,11 @@ fun MapScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Mode 1: Find Trail Route
+                    // Mode 1: Choose Trail on Original Map
                     Surface(
                         shape = ExpressiveShapes.mediumIncreased,
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.weight(1f).clickable { onNavigateToPlanTrip() }
+                        modifier = Modifier.weight(1f).clickable { viewModel.enterRouteChoosingMode() }
                     ) {
                         Column(
                             modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
@@ -1155,7 +1315,7 @@ fun MapScreen(
                         ) {
                             Icon(Icons.Default.DirectionsWalk, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("Find Trail", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Choose Route", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
 

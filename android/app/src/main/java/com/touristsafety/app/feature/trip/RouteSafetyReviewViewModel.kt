@@ -43,6 +43,7 @@ data class RouteSafetyReviewUiState(
     val selectedAlternativeId: String? = null,
     val isOfflineSaved: Boolean = false,
     val currentEntity: PlannedRouteEntity? = null,
+    val plannedRouteCoordinates: List<Pair<Double, Double>> = emptyList(),
     val isLoading: Boolean = true,
     val isStartingTrip: Boolean = false,
     val message: String? = null
@@ -130,6 +131,24 @@ class RouteSafetyReviewViewModel @Inject constructor(
             activeDto?.analysis_limitations ?: emptyList()
         }
 
+        val plannedCoords = mutableListOf<Pair<Double, Double>>()
+        entity.routeGeoJson?.let { geoJson ->
+            try {
+                val obj = org.json.JSONObject(geoJson)
+                val coordsArr = obj.optJSONArray("coordinates")
+                if (coordsArr != null) {
+                    for (i in 0 until coordsArr.length()) {
+                        val pt = coordsArr.getJSONArray(i)
+                        plannedCoords.add(pt.getDouble(1) to pt.getDouble(0))
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (plannedCoords.isEmpty() && entity.originLat != 0.0 && entity.destLat != 0.0) {
+            plannedCoords.add(entity.originLat to entity.originLon)
+            plannedCoords.add(entity.destLat to entity.destLon)
+        }
+
         _uiState.update {
             it.copy(
                 routeId = entity.routeId,
@@ -153,6 +172,7 @@ class RouteSafetyReviewViewModel @Inject constructor(
                 groundedSummary = activeDto?.grounded_summary,
                 isOfflineSaved = entity.isSavedOffline,
                 currentEntity = entity,
+                plannedRouteCoordinates = plannedCoords,
                 isLoading = false
             )
         }

@@ -433,7 +433,15 @@ fun HomeContent(
                     )
                 }
 
-                if (state.alerts.isEmpty() && !state.isLoading) {
+                if (state.isLoading && state.alerts.isEmpty()) {
+                    items(
+                        count = 3,
+                        key = { "skeleton_alert_$it" },
+                        contentType = { "skeleton_advisory_item" }
+                    ) {
+                        SkeletonHazardAlertCard()
+                    }
+                } else if (state.alerts.isEmpty()) {
                     item(key = "empty_alerts_state", contentType = "empty_state") {
                         AppEmptyState(
                             title = "All Clear on Monitored Trails",
@@ -526,7 +534,7 @@ private fun AlpineWeatherGlance(weather: Weather?, isLoading: Boolean) {
     ) {
         if (weather == null) {
             if (isLoading) {
-                LoadingSkeletonCard(height = 80.dp)
+                SkeletonAlpineWeather()
             } else {
                 Text(
                     "Weather forecast unavailable",

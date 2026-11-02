@@ -50,6 +50,8 @@ fun RouteSummaryCard(
     analysisLimitations: List<String> = emptyList(),
     onOpenComparison: () -> Unit = {},
     onClearRoute: (() -> Unit)? = null,
+    onStartTrip: (() -> Unit)? = null,
+    onSaveOffline: (() -> Unit)? = null,
     verificationStatus: String = "MAPPED_TRAIL",
     unverifiedReason: String? = null,
     modifier: Modifier = Modifier
@@ -212,6 +214,45 @@ fun RouteSummaryCard(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                }
+            }
+
+            // Quick Action CTA Bar: Start Hike & Save Offline
+            if (onStartTrip != null || onSaveOffline != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onStartTrip != null) {
+                        Button(
+                            onClick = onStartTrip,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2E7D32),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Start Monitored Trek", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    if (onSaveOffline != null) {
+                        FilledTonalButton(
+                            onClick = onSaveOffline,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save Offline", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

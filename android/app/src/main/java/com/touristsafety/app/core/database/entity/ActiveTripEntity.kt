@@ -1,9 +1,16 @@
 package com.touristsafety.app.core.database.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "active_trips")
+@Entity(
+    tableName = "active_trips",
+    indices = [
+        Index(value = ["status", "lastSyncedAt"]),
+        Index(value = ["lastSyncedAt"])
+    ]
+)
 data class ActiveTripEntity(
     @PrimaryKey val tripId: String,
     val routeId: String,

@@ -14,11 +14,16 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     // 5 Permanent Navigation Pillars (Clean, Predictable, Never Shifting)
     data object Home : Screen("home", "Explore", AppIcons.Home)
     data object PlanTrip : Screen("plan_trip", "Plan", AppIcons.PlanTrip)
-    data object Map : Screen("map?startDrawing={startDrawing}&activeTripId={activeTripId}", "Live Map", AppIcons.Map) {
-        fun createRoute(startDrawing: Boolean = false, activeTripId: String? = null): String {
+    data object Map : Screen("map?startDrawing={startDrawing}&activeTripId={activeTripId}&chooseRoute={chooseRoute}", "Live Map", AppIcons.Map) {
+        fun createRoute(
+            startDrawing: Boolean = false,
+            activeTripId: String? = null,
+            chooseRoute: Boolean = false
+        ): String {
             val params = mutableListOf<String>()
             if (startDrawing) params.add("startDrawing=true")
             if (!activeTripId.isNullOrBlank()) params.add("activeTripId=$activeTripId")
+            if (chooseRoute) params.add("chooseRoute=true")
             return if (params.isEmpty()) "map" else "map?" + params.joinToString("&")
         }
     }

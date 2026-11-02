@@ -44,8 +44,8 @@ class ActiveTrip(Base, TimestampMixin):
     route_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("planned_routes.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(50), default="ACTIVE", nullable=False, index=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

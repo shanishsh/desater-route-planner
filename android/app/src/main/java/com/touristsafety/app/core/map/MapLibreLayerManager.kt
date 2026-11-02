@@ -5,6 +5,9 @@ import android.util.Log
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import com.touristsafety.app.feature.map.MapUiState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression.*
 import org.maplibre.android.style.layers.CircleLayer
@@ -70,6 +73,31 @@ object MapLibreLayerManager {
         lastCellCovJson = null
         cachedSynthesizedRangeKey = 0
         cachedSynthesizedRangeJson = null
+    }
+
+    /**
+     * Asynchronously pre-warms multi-megabyte GeoJSON baseline assets on Dispatchers.IO
+     * so that style initialization and layer configuration on the Main thread occur instantaneously
+     * with zero synchronous disk I/O.
+     */
+    fun preloadBaselineAssetsAsync(
+        context: android.content.Context,
+        scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    ) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                getOrLoadMaskGeoJson(context)
+                getOrLoadForestsBaselineGeoJson(context)
+                getOrLoadWaterwaysBaselineGeoJson(context)
+                getOrLoadHazardZonesBaselineGeoJson(context)
+                getOrLoadHistoricalLandslidesBaselineGeoJson(context)
+                getOrLoadVerifiedTrailsGeoJson(context)
+                getOrLoadCellTowersBaselineGeoJson(context)
+                getOrLoadBoundaryGeoJson(context)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Baseline assets async pre-warming warning: ${t.message}")
+            }
+        }
     }
 
     // Sources

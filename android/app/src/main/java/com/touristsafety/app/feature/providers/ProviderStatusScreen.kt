@@ -314,11 +314,17 @@ fun ProviderStatusScreen(
             }
 
             // 4. Provider Status Items
-            items(uiState.providers) { provider ->
-                ProviderCard(provider = provider) { url ->
-                    if (url.isNotBlank()) {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        context.startActivity(intent)
+            if (uiState.isLoading && uiState.providers.isEmpty()) {
+                items(count = 4) {
+                    com.touristsafety.app.core.designsystem.components.SkeletonProviderStatusCard()
+                }
+            } else {
+                items(uiState.providers) { provider ->
+                    ProviderCard(provider = provider) { url ->
+                        if (url.isNotBlank()) {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            context.startActivity(intent)
+                        }
                     }
                 }
             }

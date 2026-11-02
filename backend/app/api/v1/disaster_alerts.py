@@ -22,6 +22,7 @@ from app.schemas.disaster import (
     TestAlarmRequest,
 )
 from app.jobs.outbox_processor import process_outbox_events
+from app.cache.redis_cache import cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,19 @@ async def list_disaster_alerts(
     db: AsyncSession = Depends(get_db),
 ):
     """List genuine active and updated disaster alerts, optionally filtered by category and severity."""
+    is_default_query = (
+        hazard_category is None
+        and severity is None
+        and not include_cancelled
+        and not include_simulated
+        and not include_expired
+    )
+    cache_key = "disaster_alerts:active:default"
+    if is_default_query:
+        cached = await cache_service.get(cache_key)
+        if cached is not None:
+            return cached
+
     now = datetime.now(timezone.utc)
     stmt = select(DisasterAlert)
     if not include_cancelled:
@@ -74,7 +88,14 @@ async def list_disaster_alerts(
 
     stmt = stmt.order_by(desc(DisasterAlert.published_at))
     result = await db.execute(stmt)
-    return result.scalars().all()
+    alerts = result.scalars().all()
+    if is_default_query:
+        try:
+            serialized = [DisasterAlertResponse.model_validate(a).model_dump(mode="json") for a in alerts]
+            await cache_service.set(cache_key, serialized, ttl_seconds=30)
+        except Exception as ex:
+            logger.warning("Failed to cache disaster alerts in Redis: %s", ex)
+    return alerts
 
 
 @router.get("/{alert_id}", response_model=DisasterAlertResponse)
@@ -139,6 +160,11 @@ async def create_disaster_alert(
     except Exception as ex:
         logger.warning("Immediate outbox dispatch error (will be retried by worker): %s", ex)
 
+    try:
+        await cache_service.delete("disaster_alerts:active:default")
+    except Exception:
+        pass
+
     return alert
 
 
@@ -189,6 +215,11 @@ async def update_disaster_alert(
     except Exception as ex:
         logger.warning("Immediate outbox update dispatch error: %s", ex)
 
+    try:
+        await cache_service.delete("disaster_alerts:active:default")
+    except Exception:
+        pass
+
     return alert
 
 
@@ -219,6 +250,11 @@ async def cancel_disaster_alert(
         await process_outbox_events(session=db)
     except Exception as ex:
         logger.warning("Immediate outbox cancel dispatch error: %s", ex)
+
+    try:
+        await cache_service.delete("disaster_alerts:active:default")
+    except Exception:
+        pass
 
     return alert
 

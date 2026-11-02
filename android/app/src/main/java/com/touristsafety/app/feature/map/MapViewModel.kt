@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.touristsafety.app.core.spatial.UttarakhandBoundaryValidator
 import com.touristsafety.app.core.spatial.RouteHazardSequenceCalculator
 import com.touristsafety.app.core.map.MapConfig
+import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.map.ClusterItem
 import com.touristsafety.app.core.map.MapClusterHelper
 import com.touristsafety.app.core.model.*
@@ -105,6 +106,11 @@ data class MapUiState(
     val showComparisonSheet: Boolean = false,
     val selectedComparisonPreference: String = "balanced",
     val isBottomRouteExpanded: Boolean = false,
+    val isRouteChoosingActive: Boolean = false,
+    val selectedPresetCorridor: String? = null,
+    val isTapToRouteMode: Boolean = false,
+    val tapOrigin: Pair<Double, Double>? = null,
+    val tapDestination: Pair<Double, Double>? = null,
     val searchQuery: String = "",
     val searchResults: List<PlaceSearchResultDto> = emptyList(),
     val isSearching: Boolean = false,
@@ -307,6 +313,10 @@ class MapViewModel @Inject constructor(
     private var activeAnalysisRequestId: String? = null
 
     init {
+        val appContext = context
+        if (appContext != null) {
+            MapLibreLayerManager.preloadBaselineAssetsAsync(appContext, viewModelScope)
+        }
         observeConnectivity()
         observeDeviceLocation()
         observeData()
@@ -2171,6 +2181,122 @@ class MapViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    fun enterRouteChoosingMode() {
+        _uiState.update {
+            it.copy(
+                isRouteChoosingActive = true,
+                isDrawingMode = false,
+                isTapToRouteMode = false
+            )
+        }
+    }
+
+    fun exitRouteChoosingMode() {
+        _uiState.update {
+            it.copy(
+                isRouteChoosingActive = false,
+                isTapToRouteMode = false,
+                tapOrigin = null,
+                tapDestination = null
+            )
+        }
+    }
+
+    fun toggleTapToRouteMode() {
+        _uiState.update {
+            val next = !it.isTapToRouteMode
+            it.copy(
+                isTapToRouteMode = next,
+                tapOrigin = if (next) it.tapOrigin else null,
+                tapDestination = if (next) it.tapDestination else null
+            )
+        }
+    }
+
+    fun selectVerifiedPreset(corridor: com.touristsafety.app.feature.trip.VerifiedCorridor) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isRouteChoosingActive = true,
+                    selectedPresetCorridor = corridor.label,
+                    routeTitle = corridor.label,
+                    routeLifecycleState = RouteLifecycleState.CALCULATING_ROUTE,
+                    isBottomRouteExpanded = true,
+                    cameraTarget = corridor.originLat to corridor.originLon,
+                    zoomLevel = 12.0
+                )
+            }
+            val res = routeRepository.planRoute(
+                originLat = corridor.originLat,
+                originLon = corridor.originLon,
+                originName = corridor.originName,
+                destLat = corridor.destLat,
+                destLon = corridor.destLon,
+                destName = corridor.destName,
+                corridorDistanceKm = _uiState.value.corridorDistanceKm
+            )
+            res.onSuccess { dto ->
+                val pts = parseGeoJsonCoordinates(dto.geometry_geojson?.toString())
+                if (pts.isNotEmpty()) {
+                    val centerLat = pts.map { p -> p.first }.average()
+                    val centerLon = pts.map { p -> p.second }.average()
+                    _uiState.update { curr ->
+                        curr.copy(
+                            cameraTarget = centerLat to centerLon,
+                            zoomLevel = 12.0
+                        )
+                    }
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        routeLifecycleState = RouteLifecycleState.ANALYSIS_FAILED,
+                        locationErrorMessage = "Failed to calculate route for ${corridor.label}: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun handleMapTapForRoute(lat: Double, lon: Double): Boolean {
+        if (!_uiState.value.isTapToRouteMode) return false
+
+        val currentOrigin = _uiState.value.tapOrigin
+        if (currentOrigin == null) {
+            _uiState.update { it.copy(tapOrigin = lat to lon) }
+            return true
+        } else {
+            _uiState.update { it.copy(tapDestination = lat to lon, isTapToRouteMode = false) }
+            viewModelScope.launch {
+                _uiState.update {
+                    it.copy(
+                        routeTitle = "Custom Route (${String.format(java.util.Locale.US, "%.3f, %.3f", currentOrigin.first, currentOrigin.second)} to ${String.format(java.util.Locale.US, "%.3f, %.3f", lat, lon)})",
+                        routeLifecycleState = RouteLifecycleState.CALCULATING_ROUTE,
+                        isBottomRouteExpanded = true
+                    )
+                }
+                val res = routeRepository.planRoute(
+                    originLat = currentOrigin.first,
+                    originLon = currentOrigin.second,
+                    originName = "Starting Point",
+                    destLat = lat,
+                    destLon = lon,
+                    destName = "Destination Point",
+                    corridorDistanceKm = _uiState.value.corridorDistanceKm
+                )
+                res.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            routeLifecycleState = RouteLifecycleState.ANALYSIS_FAILED,
+                            locationErrorMessage = "Failed to plan custom route: ${err.message}"
+                        )
+                    }
+                }
+            }
+            return true
         }
     }
 

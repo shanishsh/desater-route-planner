@@ -17,14 +17,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
+import com.touristsafety.app.core.map.MapConfig
+import com.touristsafety.app.core.map.MapLibreLayerManager
 import com.touristsafety.app.core.network.dto.RouteWaypointConditionDto
 import com.touristsafety.app.core.network.dto.SafeHavenInfoDto
 import com.touristsafety.app.core.offline.OfflineTrekPackDialog
 import com.touristsafety.app.core.util.TrekShareHelper
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -112,14 +121,7 @@ fun RouteSafetyReviewScreen(
         }
     ) { padding ->
         if (state.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            SkeletonRouteReviewLayout(modifier = Modifier.padding(padding))
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -224,6 +226,17 @@ fun RouteSafetyReviewScreen(
                             }
                         }
                     }
+                }
+
+                // 2. Original Interactive Map Route Preview
+                item {
+                    RouteReviewMapPreviewCard(
+                        plannedRouteCoordinates = state.plannedRouteCoordinates,
+                        safetyStatus = state.overallSafetyStatus,
+                        originName = state.originName,
+                        destinationName = state.destinationName,
+                        onViewFullscreen = { viewModel.viewOnMap() }
+                    )
                 }
 
                                 // Authoritative Grounded Route Briefing (REM-07)
@@ -765,6 +778,130 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
                             Text(alert.required_protective_instructions, fontSize = 11.sp, color = Color(0xFFEF6C00))
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteReviewMapPreviewCard(
+    plannedRouteCoordinates: List<Pair<Double, Double>>,
+    safetyStatus: String,
+    originName: String,
+    destinationName: String,
+    onViewFullscreen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var maplibreMapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    var isMapStyleReady by remember { mutableStateOf(false) }
+
+    val mapView = remember {
+        MapView(context).apply {
+            onCreate(null)
+            getMapAsync { map ->
+                maplibreMapInstance = map
+                try {
+                    map.setStyle(Style.Builder().fromUri(MapConfig.DEFAULT_STYLE_URL)) { style ->
+                        MapLibreLayerManager.setupSourcesAndLayers(style, context)
+                        isMapStyleReady = true
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("RouteSafetyReview", "Failed loading map style: ${t.message}", t)
+                }
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        mapView.onStart()
+        mapView.onResume()
+        onDispose {
+            try {
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+            } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(isMapStyleReady, plannedRouteCoordinates) {
+        if (!isMapStyleReady) return@LaunchedEffect
+        val map = maplibreMapInstance ?: return@LaunchedEffect
+        val style = map.style ?: return@LaunchedEffect
+
+        if (plannedRouteCoordinates.isNotEmpty()) {
+            MapLibreLayerManager.updatePrimaryRoute(style, plannedRouteCoordinates)
+            val boundsBuilder = LatLngBounds.Builder()
+            plannedRouteCoordinates.forEach { (lat, lon) ->
+                boundsBuilder.include(LatLng(lat, lon))
+            }
+            try {
+                val bounds = boundsBuilder.build()
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 80), 1000)
+            } catch (_: Exception) {}
+        }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(230.dp),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Overlay badge and Fullscreen CTA
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+                    .align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = null,
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Original Map Preview",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ForestGreenPrimary
+                        )
+                    }
+                }
+
+                FilledTonalButton(
+                    onClick = onViewFullscreen,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Fullscreen", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -1,9 +1,16 @@
 package com.touristsafety.app.core.database.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "trail_reports")
+@Entity(
+    tableName = "trail_reports",
+    indices = [
+        Index(value = ["syncStatus"]),
+        Index(value = ["observationTimeEpochMs"])
+    ]
+)
 data class TrailReportEntity(
     @PrimaryKey val id: String,
     val category: String,

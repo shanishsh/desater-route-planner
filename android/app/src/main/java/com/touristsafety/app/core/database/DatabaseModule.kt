@@ -2,6 +2,7 @@ package com.touristsafety.app.core.database
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.touristsafety.app.core.database.dao.*
@@ -10,6 +11,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import javax.inject.Singleton
 
 @Module
@@ -105,6 +108,16 @@ object DatabaseModule {
         }
     }
 
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_routes_cachedAt` ON `planned_routes` (`cachedAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_active_trips_status_lastSyncedAt` ON `active_trips` (`status`, `lastSyncedAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_active_trips_lastSyncedAt` ON `active_trips` (`lastSyncedAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_trail_reports_syncStatus` ON `trail_reports` (`syncStatus`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_trail_reports_observationTimeEpochMs` ON `trail_reports` (`observationTimeEpochMs`)")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -113,7 +126,18 @@ object DatabaseModule {
             AppDatabase::class.java,
             "tourist_safety.db"
         )
-            .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+            .addMigrations(
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+                MIGRATION_12_13,
+                MIGRATION_13_14,
+                MIGRATION_14_15,
+                MIGRATION_15_16
+            )
+            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+            .setQueryExecutor(Dispatchers.IO.asExecutor())
+            .setTransactionExecutor(Dispatchers.IO.asExecutor())
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()

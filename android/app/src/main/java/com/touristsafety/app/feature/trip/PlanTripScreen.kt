@@ -163,6 +163,7 @@ fun PlanTripScreen(
     onNavigateBack: () -> Unit,
     onNavigateToReview: (String) -> Unit,
     onNavigateToDrawRoute: () -> Unit = {},
+    onNavigateToChooseOnMap: () -> Unit = {},
     viewModel: PlanTripViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -181,6 +182,7 @@ fun PlanTripScreen(
         verifiedCorridors = defaultVerifiedCorridors,
         onNavigateBack = onNavigateBack,
         onNavigateToDrawRoute = onNavigateToDrawRoute,
+        onNavigateToChooseOnMap = onNavigateToChooseOnMap,
         onClearError = { viewModel.clearError() },
         onRetryWithTravelMode = { mode -> viewModel.retryWithTravelMode(mode) },
         onSwitchToRenderAndRetry = { viewModel.switchToRenderAndRetry() },
@@ -245,6 +247,7 @@ fun PlanTripContent(
     verifiedCorridors: List<VerifiedCorridor>,
     onNavigateBack: () -> Unit,
     onNavigateToDrawRoute: () -> Unit,
+    onNavigateToChooseOnMap: () -> Unit = {},
     onClearError: () -> Unit,
     onRetryWithTravelMode: (String) -> Unit,
     onSwitchToRenderAndRetry: () -> Unit,
@@ -396,6 +399,51 @@ fun PlanTripContent(
                                 selectedLabelColor = ForestGreenPrimary
                             )
                         )
+                    }
+                }
+            }
+
+            // Choose Route on Live Map Card
+            item(key = "choose_on_map_card", contentType = "choose_map") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = ExpressiveShapes.largeIncreased,
+                    colors = CardDefaults.cardColors(
+                        containerColor = SageContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🗺️ Choose Directly on Live Map",
+                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                fontWeight = FontWeight.Bold,
+                                color = ForestGreenPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Browse verified trails on the 3D topographic map or tap origin and destination points directly on terrain.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Button(
+                            onClick = onNavigateToChooseOnMap,
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            shape = ExpressiveShapes.pill,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(AppIcons.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open Map", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

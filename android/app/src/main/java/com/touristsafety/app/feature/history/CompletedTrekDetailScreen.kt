@@ -20,6 +20,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.touristsafety.app.core.designsystem.ForestGreenDark
 import com.touristsafety.app.core.designsystem.ForestGreenPrimary
+import com.touristsafety.app.core.designsystem.components.SkeletonLine
+import com.touristsafety.app.core.designsystem.components.shimmerEffect
 import com.touristsafety.app.core.map.MapConfig
 import com.touristsafety.app.core.map.MapLibreLayerManager
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -185,7 +187,25 @@ fun CompletedTrekDetailScreen(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 shadowElevation = 8.dp
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                if (state.isLoading) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        SkeletonLine(widthFraction = 0.5f, height = 18.dp)
+                        SkeletonLine(widthFraction = 0.8f, height = 14.dp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(modifier = Modifier.weight(1f).height(32.dp).shimmerEffect())
+                            Box(modifier = Modifier.weight(1f).height(32.dp).shimmerEffect())
+                            Box(modifier = Modifier.weight(1f).height(32.dp).shimmerEffect())
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -285,4 +305,5 @@ fun CompletedTrekDetailScreen(
             }
         }
     }
+}
 }

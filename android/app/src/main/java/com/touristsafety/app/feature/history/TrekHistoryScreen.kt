@@ -25,6 +25,7 @@ import com.touristsafety.app.core.designsystem.SageContainer
 import com.touristsafety.app.core.designsystem.components.AppEmptyState
 import com.touristsafety.app.core.designsystem.components.AppPrimaryButton
 import com.touristsafety.app.core.designsystem.components.AppSectionHeader
+import com.touristsafety.app.core.designsystem.components.SkeletonTrekHistoryCard
 import com.touristsafety.app.core.model.Itinerary
 import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,7 +96,18 @@ fun TrekHistoryScreen(
 
             if (state.selectedTab == 0) {
                 // Completed Treks List
-                if (state.completedTrips.isEmpty()) {
+                if (state.isLoading && state.completedTrips.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SkeletonTrekHistoryCard()
+                        SkeletonTrekHistoryCard()
+                        SkeletonTrekHistoryCard()
+                    }
+                } else if (state.completedTrips.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()

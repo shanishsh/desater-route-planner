@@ -23,7 +23,7 @@ import com.touristsafety.app.core.database.entity.*
         TrekTrackPointEntity::class,
         TrailReportEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

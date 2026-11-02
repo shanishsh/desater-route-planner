@@ -86,9 +86,9 @@ fun AlertsScreen(
 
             if (state.isLoading && state.alerts.isEmpty()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LoadingSkeletonCard(height = 90.dp)
-                    LoadingSkeletonCard(height = 90.dp)
-                    LoadingSkeletonCard(height = 90.dp)
+                    SkeletonHazardAlertCard()
+                    SkeletonHazardAlertCard()
+                    SkeletonHazardAlertCard()
                 }
             } else if (state.filteredAlerts.isEmpty()) {
                 AppEmptyState(

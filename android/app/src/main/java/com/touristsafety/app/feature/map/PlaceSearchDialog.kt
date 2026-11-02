@@ -65,13 +65,13 @@ fun PlaceSearchDialog(
             Spacer(modifier = Modifier.height(14.dp))
 
             if (isSearching) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                    com.touristsafety.app.core.designsystem.components.SkeletonPlaceSearchResult()
+                    com.touristsafety.app.core.designsystem.components.SkeletonPlaceSearchResult()
+                    com.touristsafety.app.core.designsystem.components.SkeletonPlaceSearchResult()
                 }
             } else if (results.isEmpty() && query.trim().length >= 2) {
                 Box(

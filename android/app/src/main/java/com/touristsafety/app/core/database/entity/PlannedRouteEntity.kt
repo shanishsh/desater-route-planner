@@ -1,9 +1,13 @@
 package com.touristsafety.app.core.database.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "planned_routes")
+@Entity(
+    tableName = "planned_routes",
+    indices = [Index(value = ["cachedAt"])]
+)
 data class PlannedRouteEntity(
     @PrimaryKey val routeId: String,
     val title: String,

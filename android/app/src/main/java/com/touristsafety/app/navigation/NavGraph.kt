@@ -193,6 +193,13 @@ fun AppNavGraph(
                         launchSingleTop = true
                         restoreState = true
                     }
+                },
+                onNavigateToChooseOnMap = {
+                    navController.navigate(Screen.Map.createRoute(chooseRoute = true)) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }
@@ -269,7 +276,7 @@ fun AppNavGraph(
         }
 
         composable(
-            route = "map?startDrawing={startDrawing}&activeTripId={activeTripId}",
+            route = "map?startDrawing={startDrawing}&activeTripId={activeTripId}&chooseRoute={chooseRoute}",
             arguments = listOf(
                 navArgument("startDrawing") {
                     type = NavType.BoolType
@@ -279,15 +286,25 @@ fun AppNavGraph(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("chooseRoute") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
             val startDrawing = backStackEntry.arguments?.getBoolean("startDrawing") ?: false
             val activeTripId = backStackEntry.arguments?.getString("activeTripId")
+            val chooseRoute = backStackEntry.arguments?.getBoolean("chooseRoute") ?: false
             val viewModel: MapViewModel = hiltViewModel()
             LaunchedEffect(startDrawing) {
                 if (startDrawing && !viewModel.uiState.value.isDrawingMode) {
                     viewModel.enterDrawingMode("TRAIL_FOLLOWING")
+                }
+            }
+            LaunchedEffect(chooseRoute) {
+                if (chooseRoute && !viewModel.uiState.value.isRouteChoosingActive) {
+                    viewModel.enterRouteChoosingMode()
                 }
             }
             MapScreen(
@@ -309,6 +326,9 @@ fun AppNavGraph(
                 },
                 onNavigateToCompletedTrekDetail = { tripId ->
                     navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+                },
+                onNavigateToSafetyReview = { routeId ->
+                    navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
                 }
             )
         }
