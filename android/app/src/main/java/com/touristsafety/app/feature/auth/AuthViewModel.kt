@@ -45,6 +45,13 @@ class AuthViewModel @Inject constructor(
     val isLoggedIn: Boolean
         get() = authRepository.isLoggedIn()
 
+    val isGuest: Boolean
+        get() = authRepository.isGuest()
+
+    fun continueAsGuest() {
+        authRepository.setGuestMode(true)
+    }
+
     val hasCompletedOnboarding: Boolean
         get() = authRepository.hasCompletedPermissionsOnboarding()
 

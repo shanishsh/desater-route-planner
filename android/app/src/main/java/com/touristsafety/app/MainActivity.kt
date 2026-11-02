@@ -208,7 +208,7 @@ class MainActivity : ComponentActivity() {
 
                     try {
 
-                        if (tokenManager.isLoggedIn()) {
+                        if (tokenManager.isLoggedIn() || tokenManager.isGuest()) {
 
                             if (tokenManager.hasCompletedPermissionsOnboarding()) {
 

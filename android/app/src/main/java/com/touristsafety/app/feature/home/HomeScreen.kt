@@ -63,10 +63,19 @@ fun HomeScreen(
         state = state,
         isSirenPlaying = isSirenPlaying,
         userEmail = viewModel.getUserEmail(),
+        isGuest = viewModel.isGuest(),
         showProfileDialog = showProfileDialog,
         onShowProfileDialogChange = { showProfileDialog = it },
         onRefresh = { viewModel.refreshAll() },
         onStopDisasterSiren = { viewModel.stopDisasterSiren() },
+        onLogout = {
+            viewModel.logout()
+            onNavigateToWelcome()
+        },
+        onSignInOrRegister = {
+            viewModel.logout()
+            onNavigateToWelcome()
+        },
         onNavigateToMap = onNavigateToMap,
         onNavigateToAlerts = onNavigateToAlerts,
         onNavigateToEmergency = onNavigateToEmergency,
@@ -90,10 +99,13 @@ fun HomeContent(
     state: HomeUiState,
     isSirenPlaying: Boolean,
     userEmail: String?,
+    isGuest: Boolean = false,
     showProfileDialog: Boolean,
     onShowProfileDialogChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onStopDisasterSiren: () -> Unit,
+    onLogout: () -> Unit = {},
+    onSignInOrRegister: () -> Unit = {},
     onNavigateToMap: () -> Unit,
     onNavigateToAlerts: () -> Unit,
     onNavigateToEmergency: () -> Unit,
@@ -109,36 +121,15 @@ fun HomeContent(
     val context = LocalContext.current
 
     if (showProfileDialog) {
-        AlertDialog(
-            onDismissRequest = { onShowProfileDialogChange(false) },
-            icon = { Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(36.dp), tint = ForestGreenPrimary) },
-            title = { Text("Trekker Account", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        "Logged in as:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        userEmail ?: "Field Explorer (Guest)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "TrailGuard session active. Offline safety caches and planned routes are synchronized with on-device Room storage.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { onShowProfileDialogChange(false) }) {
-                    Text("CLOSE", fontWeight = FontWeight.Bold, color = ForestGreenPrimary)
-                }
-            },
-            shape = ExpressiveShapes.largeIncreased
+        AccountProfileDialog(
+            userEmail = userEmail,
+            isGuest = isGuest,
+            isOffline = state.isOffline,
+            lastSyncTimestamp = state.lastSyncTimestamp,
+            onDismiss = { onShowProfileDialogChange(false) },
+            onLogout = onLogout,
+            onSignInOrRegister = onSignInOrRegister,
+            onViewDiagnostics = onNavigateToProviders
         )
     }
 

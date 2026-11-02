@@ -52,10 +52,12 @@ fun AppNavGraph(
         modifier = modifier.padding(paddingValues)
     ) {
         composable(Screen.Welcome.route) {
+            val authViewModel: AuthViewModel = hiltViewModel()
             WelcomeScreen(
                 onNavigateToLogin = { navController.navigate(Screen.Login.route) },
                 onNavigateToRegister = { navController.navigate(Screen.Register.route) },
                 onContinueAsGuest = {
+                    authViewModel.continueAsGuest()
                     navController.navigate(Screen.PermissionOnboarding.route)
                 }
             )
@@ -220,25 +222,14 @@ fun AppNavGraph(
         composable(
             route = Screen.ActiveTrip.route,
             arguments = listOf(navArgument("tripId") { type = NavType.StringType })
-        ) {
-            ActiveTripScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToUnifiedMap = { activeId ->
-                    navController.navigate(Screen.Map.createRoute(activeTripId = activeId)) {
-                        launchSingleTop = true
-                    }
-                },
-                onNavigateToHistory = {
-                    navController.navigate(Screen.TrekHistory.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-                onNavigateToCompletedTrekDetail = { tripId ->
-                    navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
+        ) { backStackEntry ->
+            val tripId = backStackEntry.arguments?.getString("tripId") ?: ""
+            LaunchedEffect(tripId) {
+                navController.navigate(Screen.Map.createRoute(activeTripId = tripId)) {
+                    popUpTo(Screen.ActiveTrip.route) { inclusive = true }
+                    launchSingleTop = true
                 }
-            )
+            }
         }
 
         composable(Screen.TrekHistory.route) {
@@ -324,37 +315,37 @@ fun AppNavGraph(
 
         composable(Screen.Alerts.route) {
             val viewModel: AlertsViewModel = hiltViewModel()
-            AlertsScreen(viewModel = viewModel)
+            AlertsScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
 
         composable(Screen.Emergency.route) {
             val viewModel: EmergencyViewModel = hiltViewModel()
             EmergencyScreen(
                 viewModel = viewModel,
-                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) }
+                onNavigateToAlerts = { navController.navigate(Screen.Alerts.route) },
+                onNavigateToDisasterSafety = { navController.navigate(Screen.DisasterSafety.route) },
+                onNavigateToProviders = { navController.navigate(Screen.ProviderStatus.route) }
             )
         }
 
         composable(Screen.Saved.route) {
-            val viewModel: SavedTripsViewModel = hiltViewModel()
-            SavedTripsScreen(
-                viewModel = viewModel,
-                onNavigateToReview = { routeId ->
-                    navController.navigate(Screen.RouteSafetyReview.createRoute(routeId))
-                },
-                onNavigateToMap = {
-                    navController.navigate(Screen.Map.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+            LaunchedEffect(Unit) {
+                navController.navigate(Screen.TrekHistory.route) {
+                    popUpTo(Screen.Saved.route) { inclusive = true }
+                    launchSingleTop = true
                 }
-            )
+            }
         }
 
         composable(Screen.DisasterSafety.route) {
             val viewModel: DisasterSafetyViewModel = hiltViewModel()
-            DisasterSafetyScreen(viewModel = viewModel)
+            DisasterSafetyScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
 
         composable(Screen.ProviderStatus.route) {

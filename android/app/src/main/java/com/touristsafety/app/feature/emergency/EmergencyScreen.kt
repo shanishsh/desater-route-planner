@@ -34,7 +34,9 @@ import com.touristsafety.app.core.model.PointCategory
 @Composable
 fun EmergencyScreen(
     viewModel: EmergencyViewModel,
+    onNavigateToAlerts: () -> Unit = {},
     onNavigateToDisasterSafety: () -> Unit = {},
+    onNavigateToProviders: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -43,7 +45,7 @@ fun EmergencyScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Assistance & Emergency", fontWeight = FontWeight.Bold) },
+                title = { Text("Safety Hub & Emergency", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
@@ -257,18 +259,51 @@ fun EmergencyScreen(
                 )
             }
 
-            // 5. Offline Safety Center & SMS Geofence Link
+            // 5. Safety & Operational Modules (Centralized Hub)
             item {
                 Spacer(modifier = Modifier.height(4.dp))
+                AppSectionHeader(
+                    title = "Safety & Operational Modules",
+                    subtitle = "Real-time advisories, offline survival protocols, and system diagnostics"
+                )
+            }
+
+            item {
                 AppListItem(
-                    title = "Disaster Safety & Offline SMS Registration",
-                    subtitle = "Manage emergency SMS contacts and offline corridor geofences",
+                    title = "Live Weather & Disaster Advisories",
+                    subtitle = "Real-time IMD rain, flood warnings, avalanche & landslide bulletins",
+                    leadingIcon = AppIcons.Alerts,
+                    leadingIconTint = WarningAmber,
+                    leadingIconBg = SageContainer,
+                    showChevron = true,
+                    showDivider = true,
+                    onClick = onNavigateToAlerts
+                )
+            }
+
+            item {
+                AppListItem(
+                    title = "Disaster Safety Protocols & Geofence SMS",
+                    subtitle = "Offline survival checklists, emergency SMS contacts, and corridor geofences",
                     leadingIcon = AppIcons.DisasterSafety,
                     leadingIconTint = ForestGreenPrimary,
                     leadingIconBg = SageContainer,
                     showChevron = true,
                     showDivider = true,
                     onClick = onNavigateToDisasterSafety
+                )
+            }
+
+            item {
+                AppListItem(
+                    title = "Data Providers & System Diagnostics",
+                    subtitle = "Live status of OpenFreeMap, IMD weather, USGS elevation, and telemetry sync",
+                    leadingIcon = AppIcons.ProviderStatus,
+                    leadingIconTint = ForestGreenPrimary,
+                    leadingIconBg = SageContainer,
+                    showChevron = true,
+                    showDivider = true,
+                    onClick = onNavigateToProviders
                 )
             }
 

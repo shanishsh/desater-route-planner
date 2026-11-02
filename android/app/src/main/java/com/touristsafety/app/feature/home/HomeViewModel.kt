@@ -31,6 +31,8 @@ class HomeViewModel @Inject constructor(
 
     fun getUserEmail(): String? = authRepository.getUserEmail()
 
+    fun isGuest(): Boolean = authRepository.isGuest()
+
     fun logout() {
         authRepository.logout()
     }

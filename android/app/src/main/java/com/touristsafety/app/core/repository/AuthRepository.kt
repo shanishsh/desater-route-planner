@@ -20,6 +20,10 @@ class AuthRepository @Inject constructor(
 
     fun isLoggedIn(): Boolean = tokenManager.isLoggedIn()
 
+    fun isGuest(): Boolean = tokenManager.isGuest()
+
+    fun setGuestMode(isGuest: Boolean) = tokenManager.setGuestMode(isGuest)
+
     fun getUserEmail(): String? = tokenManager.getUserEmail()
 
     fun hasCompletedPermissionsOnboarding(): Boolean = tokenManager.hasCompletedPermissionsOnboarding()

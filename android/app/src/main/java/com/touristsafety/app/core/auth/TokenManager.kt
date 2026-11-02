@@ -20,6 +20,7 @@ class TokenManager @Inject constructor(
         private const val KEY_USER_ROLE = "auth_user_role"
         private const val KEY_USER_ID = "auth_user_id"
         private const val KEY_PERMISSIONS_ONBOARDED = "permissions_onboarded"
+        private const val KEY_IS_GUEST = "auth_is_guest"
     }
 
     private val prefs: SharedPreferences =
@@ -34,6 +35,7 @@ class TokenManager @Inject constructor(
             .putString(KEY_USER_EMAIL, email)
             .putString(KEY_USER_ROLE, role)
             .putString(KEY_USER_ID, userId)
+            .putBoolean(KEY_IS_GUEST, false)
             .apply()
         _authState.value = true
     }
@@ -57,8 +59,15 @@ class TokenManager @Inject constructor(
             .remove(KEY_USER_EMAIL)
             .remove(KEY_USER_ROLE)
             .remove(KEY_USER_ID)
+            .remove(KEY_IS_GUEST)
             .apply()
         _authState.value = false
+    }
+
+    fun isGuest(): Boolean = prefs.getBoolean(KEY_IS_GUEST, false)
+
+    fun setGuestMode(isGuest: Boolean) {
+        prefs.edit().putBoolean(KEY_IS_GUEST, isGuest).apply()
     }
 
     fun hasCompletedPermissionsOnboarding(): Boolean {
