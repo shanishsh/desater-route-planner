@@ -108,7 +108,7 @@ fun RouteSafetyReviewScreen(
                 shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.navigationBarsPadding().padding(16.dp)) {
                     AppPrimaryButton(
                         text = "Start Monitored Trip",
                         icon = AppIcons.StartTrek,

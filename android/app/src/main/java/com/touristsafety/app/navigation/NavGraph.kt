@@ -1,6 +1,7 @@
 package com.touristsafety.app.navigation
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,7 +50,7 @@ fun AppNavGraph(
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        modifier = modifier.padding(paddingValues)
+        modifier = modifier.padding(paddingValues).consumeWindowInsets(paddingValues)
     ) {
         composable(Screen.Welcome.route) {
             val authViewModel: AuthViewModel = hiltViewModel()

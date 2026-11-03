@@ -22,13 +22,13 @@ interface ActiveTripDao {
     @Query("UPDATE active_trips SET status = 'COMPLETED' WHERE tripId = :tripId")
     suspend fun completeTrip(tripId: String)
 
-    @Query("SELECT * FROM active_trips WHERE status = 'COMPLETED' ORDER BY lastSyncedAt DESC")
+    @Query("SELECT * FROM active_trips WHERE status = 'COMPLETED' ORDER BY COALESCE(completedAtEpochMs, lastSyncedAt) DESC")
     fun getCompletedTripsFlow(): Flow<List<ActiveTripEntity>>
 
     @Query("SELECT * FROM active_trips ORDER BY lastSyncedAt DESC")
     fun getAllTripsFlow(): Flow<List<ActiveTripEntity>>
 
-    @Query("UPDATE active_trips SET status = 'COMPLETED', completedAtEpochMs = :completedAt, traveledDistanceMeters = :distanceMeters, elapsedDurationSeconds = :durationSeconds, recordedPointsCount = :pointsCount WHERE tripId = :tripId")
+    @Query("UPDATE active_trips SET status = 'COMPLETED', completedAtEpochMs = :completedAt, lastSyncedAt = :completedAt, traveledDistanceMeters = :distanceMeters, elapsedDurationSeconds = :durationSeconds, recordedPointsCount = :pointsCount WHERE tripId = :tripId")
     suspend fun completeTripWithMetrics(
         tripId: String,
         completedAt: Long,

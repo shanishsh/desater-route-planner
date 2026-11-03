@@ -517,7 +517,7 @@ fun ActiveTrekAiSafetyPanel(
                                         value = assistantInputText,
                                         onValueChange = { assistantInputText = it },
                                         placeholder = { Text("Ask trek safety assistant...", style = MaterialTheme.typography.bodySmall) },
-                                        modifier = Modifier.weight(1f).height(46.dp),
+                                        modifier = Modifier.weight(1f).defaultMinSize(minHeight = 44.dp),
                                         shape = RoundedCornerShape(8.dp),
                                         singleLine = true,
                                         textStyle = MaterialTheme.typography.bodySmall

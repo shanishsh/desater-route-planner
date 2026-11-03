@@ -155,6 +155,9 @@ fun TrekHistoryScreen(
                                 onClick = { onNavigateToCompletedTrekDetail(trip.tripId) }
                             )
                         }
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                     }
                 }
             } else {
@@ -279,6 +282,10 @@ fun TrekHistoryScreen(
                                 onSave = { viewModel.toggleOfflineSave(itin.id, true) }
                             )
                         }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }

@@ -177,6 +177,7 @@ data class MapUiState(
     val basemapMode: com.touristsafety.app.core.map.BasemapMode = com.touristsafety.app.core.map.BasemapMode.STREETS_TRAILS,
     val showBasemapSelector: Boolean = false,
     val isTrekActive: Boolean = false,
+    val lastCompletedTripId: String? = null,
     val activeTrekSessionStatus: com.touristsafety.app.core.model.TrekSessionStatus = com.touristsafety.app.core.model.TrekSessionStatus.IDLE,
     val activeTrekDestinationName: String = "",
     val traveledDistanceKm: Double = 0.0,
@@ -2929,20 +2930,57 @@ class MapViewModel @Inject constructor(
     }
 
     fun endActiveTrek(ctx: Context, onComplete: () -> Unit = {}) {
-        val tripId = _uiState.value.activeTrekTripId ?: return
+        val currentState = _uiState.value
+        val tripId = currentState.activeTrekTripId ?: return
+        val finalDistanceMeters = currentState.traveledDistanceKm * 1000.0
+        val finalDurationSeconds = currentState.recordedTrekDurationSeconds.takeIf { it > 0 }
+            ?: (liveTrekContextEngine?.liveContext?.value?.progress?.elapsedDurationSeconds ?: 0L)
+
         viewModelScope.launch {
-            routeRepository.stopTrip(tripId)
+            // 1. Stop background tracking and live engine first to flush points & avoid status='ACTIVE' overwrite
             ActiveTripTrackingService.stop(ctx)
             liveTrekContextEngine?.stopTrekSession()
             hazardAlertEngine?.dismissActiveAlert()
+
+            // 2. Finalize trip in Room database with accurate final metrics
+            routeRepository.stopTrip(
+                tripId = tripId,
+                finalDistanceMeters = finalDistanceMeters,
+                finalDurationSeconds = finalDurationSeconds
+            )
+
+            // 3. Update UI state while preserving lastCompletedTripId for navigation to CompletedTrekDetailScreen
             _uiState.update {
                 it.copy(
                     isRecordingTrek = false,
                     isTrekActive = false,
-                    activeTrekTripId = null
+                    activeTrekTripId = null,
+                    lastCompletedTripId = tripId
                 )
             }
             onComplete()
+        }
+    }
+
+    fun clearActiveRouteAndTrek() {
+        _uiState.update {
+            it.copy(
+                activeRouteId = null,
+                routeCoordinates = emptyList(),
+                primaryRouteCoordinates = emptyList(),
+                routeTitle = "Explore Map",
+                routeLifecycleState = RouteLifecycleState.NO_ROUTE_SELECTED,
+                routeHazardSequence = emptyList(),
+                liveRecordedTrackCoordinates = emptyList(),
+                proposedConnectorCoordinates = emptyList(),
+                draftPolyline = emptyList(),
+                draftWaypoints = emptyList(),
+                selectedHazardSequenceItem = null,
+                isRouteChoosingActive = false,
+                isTrekActive = false,
+                activeTrekTripId = null,
+                lastCompletedTripId = null
+            )
         }
     }
 

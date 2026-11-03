@@ -786,17 +786,23 @@ suspend fun syncTrackPointsBatch(
         }
     }
 
-    suspend fun stopTrip(tripId: String): Result<Unit> {
+    suspend fun stopTrip(
+        tripId: String,
+        finalDistanceMeters: Double? = null,
+        finalDurationSeconds: Long? = null
+    ): Result<Unit> {
         return try {
             try { apiService.stopTrip(tripId) } catch (_: Exception) {}
             val existing = activeTripDao.getTripById(tripId)
             val points = trekTrackPointDao.getAllPointsForTrip(tripId)
             val now = System.currentTimeMillis()
+            val totalDistance = maxOf(existing?.traveledDistanceMeters ?: 0.0, finalDistanceMeters ?: 0.0)
+            val totalDuration = maxOf(existing?.elapsedDurationSeconds ?: 0L, finalDurationSeconds ?: 0L)
             activeTripDao.completeTripWithMetrics(
                 tripId = tripId,
                 completedAt = now,
-                distanceMeters = existing?.traveledDistanceMeters ?: 0.0,
-                durationSeconds = existing?.elapsedDurationSeconds ?: 0L,
+                distanceMeters = totalDistance,
+                durationSeconds = totalDuration,
                 pointsCount = points.size
             )
             Result.success(Unit)

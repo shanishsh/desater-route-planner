@@ -538,6 +538,13 @@ class ActiveTripTrackingService : Service() {
             flushPointBuffer()
             syncPendingPointsBatch()
         }
+        try {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.cancel(NOTIFICATION_ID)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Notification teardown failed safely: ${t.message}")
+        }
         serviceJob.cancel()
     }
 
