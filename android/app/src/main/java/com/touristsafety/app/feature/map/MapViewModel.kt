@@ -238,6 +238,8 @@ class MapViewModel @Inject constructor(
         private const val KEY_DRAWING_TYPE = "map_drawing_type"
         private const val KEY_DRAFT_WAYPOINTS_JSON = "map_draft_waypoints"
 
+        private val parsedGeoJsonCache = java.util.concurrent.ConcurrentHashMap<Int, List<Pair<Double, Double>>>()
+
         fun encodeWaypoints(wpts: List<Pair<Double, Double>>): String =
             wpts.joinToString(";") { "${it.first},${it.second}" }
 
@@ -286,8 +288,11 @@ class MapViewModel @Inject constructor(
     private var rawWeatherPoints: List<UnifiedMapFeature> = emptyList()
     private var rawWaterwayFeatures: List<UnifiedMapFeature> = emptyList()
     private var rawCommunityReports: List<com.touristsafety.app.core.database.entity.TrailReportEntity> = emptyList()
+    private var rawCellularFeatures: List<UnifiedMapFeature> = emptyList()
+    private var lastParsedCellularGeoJson: String? = null
     private var selectionGenerationToken: Long = 0L
     private var pointContextJob: Job? = null
+    private var liveTrekTimerJob: Job? = null
 
     fun saveCameraState(lat: Double, lon: Double, zoom: Double, bearing: Double) {
         savedStateHandle[KEY_CAM_LAT] = lat
@@ -1333,9 +1338,6 @@ class MapViewModel @Inject constructor(
         }
         rebuildUnifiedFeatures()
     }
-
-    private var rawCellularFeatures: List<UnifiedMapFeature> = emptyList()
-    private var lastParsedCellularGeoJson: String? = null
 
     private fun rebuildUnifiedFeatures() {
         val userLoc = _uiState.value.userLocation
@@ -2498,8 +2500,6 @@ class MapViewModel @Inject constructor(
         return parseRouteGeoJson(geoJsonString)
     }
 
-    private val parsedGeoJsonCache = java.util.concurrent.ConcurrentHashMap<Int, List<Pair<Double, Double>>>()
-
     private fun parseRouteGeoJson(geoJsonString: String?): List<Pair<Double, Double>> {
         if (geoJsonString.isNullOrBlank()) return emptyList()
         val hash = geoJsonString.hashCode()
@@ -2549,8 +2549,6 @@ class MapViewModel @Inject constructor(
         }
         return result
     }
-
-    private var liveTrekTimerJob: Job? = null
 
     fun enterDrawingMode(type: String = "FREEHAND", resetIfActive: Boolean = false) {
         val currentState = _uiState.value
