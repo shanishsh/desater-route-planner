@@ -50,10 +50,15 @@ fun RouteSummaryCard(
     analysisLimitations: List<String> = emptyList(),
     onOpenComparison: () -> Unit = {},
     onClearRoute: (() -> Unit)? = null,
+    onEndRoute: (() -> Unit)? = null,
     onStartTrip: (() -> Unit)? = null,
     onSaveOffline: (() -> Unit)? = null,
     verificationStatus: String = "MAPPED_TRAIL",
     unverifiedReason: String? = null,
+    landslideProbabilityPct: Double? = null,
+    landslideRiskLevel: String? = null,
+    heavyRainfallWarning: Boolean = false,
+    maxPrecipitationMm: Double? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -150,8 +155,10 @@ fun RouteSummaryCard(
                         modifier = Modifier.padding(top = 2.dp)
                     ) {
                         if (distanceKm != null && durationHours != null) {
+                            val distFmt = String.format(Locale.US, "%.2f km", distanceKm)
+                            val durFmt = String.format(Locale.US, "%.2f hrs", durationHours)
                             Text(
-                                text = "${distanceKm} km • ${durationHours} hrs",
+                                text = "$distFmt • $durFmt",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -218,8 +225,8 @@ fun RouteSummaryCard(
                 }
             }
 
-            // Quick Action CTA Bar: Start Hike & Save Offline
-            if (onStartTrip != null || onSaveOffline != null) {
+            // Quick Action CTA Bar: Start Hike, End/Archive & Save Offline
+            if (onStartTrip != null || onSaveOffline != null || onEndRoute != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -236,18 +243,34 @@ fun RouteSummaryCard(
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Start Monitored Trek", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Start Trek", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    if (onEndRoute != null) {
+                        Button(
+                            onClick = onEndRoute,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFDC2626),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("End Route", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                     if (onSaveOffline != null) {
                         FilledTonalButton(
                             onClick = onSaveOffline,
                             shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -352,8 +375,8 @@ fun RouteSummaryCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val isPrimarySelected = selectedAlternativeId == null
-                            val primaryHoursStr = String.format(Locale.US, "%.1f", durationHours ?: 0.0)
-                            val primaryDistStr = String.format(Locale.US, "%.1f", distanceKm ?: 0.0)
+                            val primaryHoursStr = String.format(Locale.US, "%.2f", durationHours ?: 0.0)
+                            val primaryDistStr = String.format(Locale.US, "%.2f", distanceKm ?: 0.0)
 
                             RouteOptionChip(
                                 title = "Shortest Path",
@@ -380,16 +403,42 @@ fun RouteSummaryCard(
 
                             plannedRouteAlternatives.forEach { alt ->
                                 val isAltSelected = selectedAlternativeId == alt.id
-                                val altHoursStr = String.format(Locale.US, "%.1f", alt.duration_minutes / 60.0)
-                                val altDistStr = String.format(Locale.US, "%.1f", alt.distance_km)
+                                val altHoursStr = String.format(Locale.US, "%.2f", alt.duration_minutes / 60.0)
+                                val altDistStr = String.format(Locale.US, "%.2f", alt.distance_km)
 
                                 RouteOptionChip(
                                     title = alt.title,
                                     subtitle = "$altDistStr km • $altHoursStr hrs",
-                                    badge = "${alt.safety_label} (Risk ${alt.hazard_score.toInt()})",
+                                    badge = "${alt.safety_label} (Risk ${String.format(Locale.US, "%.2f", alt.hazard_score)})",
                                     isSelected = isAltSelected,
                                     isAlternative = true,
                                     onClick = { onSelectAlternative(alt.id) }
+                                )
+                            }
+                        }
+                    }
+
+                    // Heavy Rainfall Warning Banner
+                    if (heavyRainfallWarning || (maxPrecipitationMm != null && maxPrecipitationMm >= 10.0)) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFEF2F2),
+                            border = BorderStroke(1.dp, Color(0xFFF87171)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                val rainAmt = maxPrecipitationMm?.let { " (${String.format(Locale.US, "%.2f mm", it)})" } ?: ""
+                                Text(
+                                    text = "Heavy Rainfall Alert$rainAmt • Flash Flood & Landslide Watch",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF991B1B)
                                 )
                             }
                         }
@@ -415,8 +464,26 @@ fun RouteSummaryCard(
                             title = "Weather",
                             icon = Icons.Default.WbSunny,
                             iconColor = Color(0xFF0288D1),
-                            primaryText = if (weather != null) "${weather.temperatureC}°C, ${weather.weatherDescription}" else "Checking...",
-                            secondaryText = if (weather != null) "Rain: ${weather.precipitationMm} mm • Wind: ${weather.windSpeedKmh} km/h" else "Open-Meteo"
+                            primaryText = if (weather != null) "${String.format(Locale.US, "%.2f°C", weather.temperatureC)}, ${weather.weatherDescription}" else "Checking...",
+                            secondaryText = if (weather != null) "Rain: ${String.format(Locale.US, "%.2f mm", weather.precipitationMm)} • Wind: ${String.format(Locale.US, "%.2f km/h", weather.windSpeedKmh)}" else "Open-Meteo"
+                        )
+
+                        // 1b. Landslide Risk & Slope Stability Card
+                        ConditionCard(
+                            title = "Landslide Risk",
+                            icon = Icons.Default.Terrain,
+                            iconColor = when (landslideRiskLevel) {
+                                "SEVERE" -> Color(0xFFB71C1C)
+                                "HIGH" -> Color(0xFFE65100)
+                                "MODERATE" -> Color(0xFFF57F17)
+                                else -> Color(0xFF2E7D32)
+                            },
+                            primaryText = if (landslideProbabilityPct != null) {
+                                "${String.format(Locale.US, "%.2f%%", landslideProbabilityPct)} Probability (${landslideRiskLevel ?: "LOW"})"
+                            } else "Slope Stability Monitored",
+                            secondaryText = if (landslideProbabilityPct != null && landslideProbabilityPct >= 30.0) {
+                                "Active steep slope & chronic mass-movement zone"
+                            } else "GSI Bhukosh & Satellite Slope Analysis"
                         )
 
                         // 2. Forest & Fire Card

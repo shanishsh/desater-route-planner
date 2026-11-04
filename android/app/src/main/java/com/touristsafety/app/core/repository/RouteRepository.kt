@@ -798,19 +798,106 @@ suspend fun syncTrackPointsBatch(
             val now = System.currentTimeMillis()
             val totalDistance = maxOf(existing?.traveledDistanceMeters ?: 0.0, finalDistanceMeters ?: 0.0)
             val totalDuration = maxOf(existing?.elapsedDurationSeconds ?: 0L, finalDurationSeconds ?: 0L)
-            activeTripDao.completeTripWithMetrics(
-                tripId = tripId,
-                completedAt = now,
-                distanceMeters = totalDistance,
-                durationSeconds = totalDuration,
-                pointsCount = points.size
-            )
+            val pointsCount = points.size
+
+            if (existing != null) {
+                activeTripDao.completeTripWithMetrics(
+                    tripId = tripId,
+                    completedAt = now,
+                    distanceMeters = totalDistance,
+                    durationSeconds = totalDuration,
+                    pointsCount = pointsCount
+                )
+            } else {
+                val activeRoute = _activeRouteFlow.value
+                val newTrip = ActiveTripEntity(
+                    tripId = tripId,
+                    routeId = activeRoute?.route_id ?: tripId,
+                    status = "COMPLETED",
+                    startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+                        .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                        .format(java.util.Date(now - totalDuration * 1000L)),
+                    completedAtEpochMs = now,
+                    lastSyncedAt = now,
+                    routeTitle = activeRoute?.title ?: "Completed Expedition",
+                    originName = activeRoute?.origin_name ?: "Start Point",
+                    destinationName = activeRoute?.destination_name ?: "Destination",
+                    traveledDistanceMeters = totalDistance,
+                    elapsedDurationSeconds = totalDuration,
+                    recordedPointsCount = pointsCount
+                )
+                activeTripDao.insertOrUpdate(newTrip)
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("RouteRepository", "Error stopping trip $tripId: ${e.message}", e)
-            activeTripDao.completeTrip(tripId)
+            try {
+                val now = System.currentTimeMillis()
+                val existing = activeTripDao.getTripById(tripId)
+                if (existing != null) {
+                    activeTripDao.completeTrip(tripId)
+                } else {
+                    val activeRoute = _activeRouteFlow.value
+                    val fallbackTrip = ActiveTripEntity(
+                        tripId = tripId,
+                        routeId = activeRoute?.route_id ?: tripId,
+                        status = "COMPLETED",
+                        startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+                            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                            .format(java.util.Date(now)),
+                        completedAtEpochMs = now,
+                        lastSyncedAt = now,
+                        routeTitle = activeRoute?.title ?: "Completed Expedition",
+                        originName = activeRoute?.origin_name ?: "Start Point",
+                        destinationName = activeRoute?.destination_name ?: "Destination",
+                        traveledDistanceMeters = finalDistanceMeters ?: 0.0,
+                        elapsedDurationSeconds = finalDurationSeconds ?: 0L,
+                        recordedPointsCount = 0
+                    )
+                    activeTripDao.insertOrUpdate(fallbackTrip)
+                }
+            } catch (inner: Exception) {
+                Log.e("RouteRepository", "Fatal fallback completing trip $tripId: ${inner.message}", inner)
+            }
             Result.success(Unit)
         }
+    }
+
+    suspend fun completeActiveRoute(
+        route: PlannedRouteResponseDto,
+        distanceKm: Double? = null,
+        durationHours: Double? = null
+    ): String {
+        val tripId = "route-completed-" + System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        val distMeters = (distanceKm ?: route.distance_km) * 1000.0
+        val durSeconds = if (durationHours != null) {
+            (durationHours * 3600).toLong()
+        } else if (route.duration_seconds > 0) {
+            route.duration_seconds.toLong()
+        } else {
+            (route.duration_minutes * 60).toLong()
+        }
+
+        val entity = ActiveTripEntity(
+            tripId = tripId,
+            routeId = route.route_id,
+            status = "COMPLETED",
+            startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+                .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                .format(java.util.Date(now - durSeconds * 1000L)),
+            completedAtEpochMs = now,
+            lastSyncedAt = now,
+            routeTitle = route.title.ifBlank { "Completed Route" },
+            originName = route.origin_name.ifBlank { "Start Point" },
+            destinationName = route.destination_name.ifBlank { "Destination" },
+            traveledDistanceMeters = distMeters,
+            elapsedDurationSeconds = durSeconds,
+            recordedPointsCount = route.conditions.size.coerceAtLeast(1)
+        )
+        activeTripDao.insertOrUpdate(entity)
+        clearActiveRoute()
+        return tripId
     }
 
     suspend fun submitCheckIn(

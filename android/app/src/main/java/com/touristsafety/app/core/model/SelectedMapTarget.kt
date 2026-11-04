@@ -23,7 +23,12 @@ sealed interface SelectedMapTarget {
         override val latitude: Double,
         override val longitude: Double,
         val distanceAlongRouteKm: Double,
-        val weather: RouteWeatherConditionDto
+        val weather: RouteWeatherConditionDto,
+        val elevationM: Double = 0.0,
+        val slopeDegrees: Double = 0.0,
+        val landslideProbabilityPct: Double = 0.0,
+        val landslideRiskLevel: String = "LOW",
+        val heavyRainfallWarning: Boolean = false
     ) : SelectedMapTarget {
         override val targetId: String get() = sampleId
     }

@@ -411,7 +411,7 @@ private fun PlannedRouteHistoryItem(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text("${String.format(Locale.US, "%.1f", route.distanceKm)} km", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Text("${String.format(Locale.US, "%.2f", route.distanceKm)} km", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Text("Ascent: ${route.totalAscentM.toInt()} m", style = MaterialTheme.typography.labelMedium)
                 Text(route.overallSafetyStatus, style = MaterialTheme.typography.labelMedium, color = ForestGreenPrimary, fontWeight = FontWeight.Bold)
             }
@@ -451,7 +451,7 @@ private fun SavedItineraryHistoryItem(itinerary: Itinerary, onRemove: () -> Unit
                 Text("Saved Offline", color = ForestGreenPrimary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.height(4.dp))
-            Text("${itinerary.distanceKm} km • ${itinerary.region}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${String.format(Locale.US, "%.2f km", itinerary.distanceKm)} • ${itinerary.region}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(10.dp))
             OutlinedButton(onClick = onRemove, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
                 Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))

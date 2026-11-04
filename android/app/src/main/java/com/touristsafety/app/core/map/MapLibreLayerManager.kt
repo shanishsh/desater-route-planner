@@ -984,9 +984,9 @@ object MapLibreLayerManager {
                 val weatherCircle = CircleLayer(LAYER_WEATHER_POINTS_CIRCLE, SOURCE_WEATHER_POINTS).apply {
                     setProperties(
                         circleColor(Color.rgb(2, 136, 209)), // Cyan Blue #0288D1
-                        circleRadius(6.0f),
+                        circleRadius(7.5f),
                         circleStrokeColor(Color.WHITE),
-                        circleStrokeWidth(1.5f)
+                        circleStrokeWidth(2.0f)
                     )
                 }
                 style.addLayer(weatherCircle)
@@ -1266,11 +1266,45 @@ object MapLibreLayerManager {
             // 7. Update Weather Points
             try {
                 val weatherSource = style.getSourceAs<GeoJsonSource>(SOURCE_WEATHER_POINTS)
-                val weatherJson = if (!state.weatherGeoJson.isNullOrBlank()) {
-                    state.weatherGeoJson
+                val weatherJson = if (hasFeatures(state.weatherGeoJson)) {
+                    state.weatherGeoJson!!
                 } else {
                     val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
-                    buildPointFeatureCollection(weatherFeatures)
+                    if (weatherFeatures.isNotEmpty()) {
+                        buildPointFeatureCollection(weatherFeatures)
+                    } else if (state.routeWeatherSamples.isNotEmpty()) {
+                        val root = org.json.JSONObject()
+                        root.put("type", "FeatureCollection")
+                        val arr = org.json.JSONArray()
+                        state.routeWeatherSamples.forEach { s ->
+                            val feat = org.json.JSONObject()
+                            feat.put("type", "Feature")
+                            feat.put("id", s.sampleId)
+                            val geom = org.json.JSONObject()
+                            geom.put("type", "Point")
+                            geom.put("coordinates", org.json.JSONArray(listOf(s.longitude, s.latitude)))
+                            feat.put("geometry", geom)
+                            val props = org.json.JSONObject()
+                            props.put("id", s.sampleId)
+                            props.put("sample_id", s.sampleId)
+                            props.put("name", s.name)
+                            props.put("category", "WEATHER_POINT")
+                            props.put("category_enum", "WEATHER_POINT")
+                            props.put("temperature_c", s.weather.temperature_c)
+                            props.put("precipitation_mm", s.weather.precipitation_mm)
+                            props.put("precipitation_probability_pct", s.weather.precipitation_probability_pct)
+                            props.put("wind_speed_kmh", s.weather.wind_speed_kmh)
+                            props.put("weather_description", s.weather.weather_description)
+                            props.put("landslide_prob_pct", s.landslideProbabilityPct)
+                            props.put("distance_km", s.distanceAlongRouteKm)
+                            feat.put("properties", props)
+                            arr.put(feat)
+                        }
+                        root.put("features", arr)
+                        root.toString()
+                    } else {
+                        EMPTY_GEOJSON
+                    }
                 }
                 if (weatherJson != lastWeatherGeoJson) {
                     weatherSource?.setGeoJson(weatherJson)

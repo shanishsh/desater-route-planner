@@ -44,7 +44,7 @@ data class RouteOrderedHazardItem(
         return if (distanceAlongRouteMeters < 1000.0) {
             "${distanceAlongRouteMeters.toInt()} m from start"
         } else {
-            String.format(java.util.Locale.US, "%.1f km from start", distanceAlongRouteMeters / 1000.0)
+            String.format(java.util.Locale.US, "%.2f km from start", distanceAlongRouteMeters / 1000.0)
         }
     }
 
@@ -54,7 +54,7 @@ data class RouteOrderedHazardItem(
         return if (ahead < 1000.0) {
             "${ahead.toInt()} m ahead"
         } else {
-            String.format(java.util.Locale.US, "%.1f km ahead", ahead / 1000.0)
+            String.format(java.util.Locale.US, "%.2f km ahead", ahead / 1000.0)
         }
     }
 }

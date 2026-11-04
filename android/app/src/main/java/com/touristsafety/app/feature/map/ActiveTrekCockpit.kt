@@ -74,7 +74,7 @@ fun ActiveTrekTopHud(
                 )
                 VerticalDivider(modifier = Modifier.height(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 AppMetricDisplay(
-                    value = String.format(java.util.Locale.US, "%.1f km", state.remainingDistanceKm),
+                    value = String.format(java.util.Locale.US, "%.2f km", state.remainingDistanceKm),
                     label = "Remaining",
                     valueColor = MaterialTheme.colorScheme.onSurface
                 )
@@ -277,7 +277,7 @@ fun ActiveHazardAlertBanner(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${alert.distanceKm} km away • ${alert.instructions}",
+                    text = "${String.format(java.util.Locale.US, "%.2f km", alert.distanceKm)} away • ${alert.instructions}",
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = 11.sp,
                     maxLines = 2
@@ -822,7 +822,7 @@ fun FacilityListItemRow(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${facility.category.replace('_', ' ')} • ${String.format(java.util.Locale.US, "%.1f km away", facility.distance_km)}",
+                    text = "${facility.category.replace('_', ' ')} • ${String.format(java.util.Locale.US, "%.2f km away", facility.distance_km)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

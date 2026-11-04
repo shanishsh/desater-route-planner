@@ -82,6 +82,7 @@ fun MapScreen(
     LaunchedEffect(activeTripId) {
         if (!activeTripId.isNullOrBlank()) {
             android.util.Log.i("MapScreen", "Unified MapScreen activated with activeTripId: $activeTripId")
+            viewModel.bindActiveTripId(activeTripId)
             viewModel.recenterToUserLocation()
         }
     }
@@ -94,6 +95,7 @@ fun MapScreen(
     var userToggledCanvas by remember { mutableStateOf(false) }
     var showReportConditionSheet by remember { mutableStateOf(false) }
     var showEndTrekDialog by remember { mutableStateOf(false) }
+    var showEndRouteDialog by remember { mutableStateOf(false) }
     var showTrekSummaryDialog by remember { mutableStateOf(false) }
     var completedTripIdForDetail by remember { mutableStateOf<String?>(null) }
     var lastRenderedRouteId by remember { mutableStateOf<String?>(null) }
@@ -441,6 +443,14 @@ fun MapScreen(
                 mapboxMap.setOnMarkerClickListener { marker ->
                     try {
                         val snippet = marker.snippet ?: ""
+                        if (snippet.startsWith("route_sample_")) {
+                            val sampleId = snippet.substringBefore(" • ").removePrefix("route_sample_")
+                            val sample = state.routeWeatherSamples.firstOrNull { it.sampleId == sampleId }
+                            if (sample != null) {
+                                viewModel.selectTarget(sample)
+                                return@setOnMarkerClickListener true
+                            }
+                        }
                         val clicked = state.visibleFeatures.firstOrNull { it.id == snippet }
                         if (clicked != null) {
                             viewModel.selectFeature(clicked)
@@ -1141,8 +1151,13 @@ fun MapScreen(
                     isAnalyzingCorridor = state.isAnalyzingCorridor,
                     onSelectCorridorDistance = { viewModel.setCorridorDistance(it) },
                     analysisLimitations = state.analysisLimitations,
+                    landslideProbabilityPct = state.routeLandslideProbabilityPct,
+                    landslideRiskLevel = state.routeLandslideRiskLevel,
+                    heavyRainfallWarning = state.routeHeavyRainfallWarning,
+                    maxPrecipitationMm = state.routeMaxPrecipitationMm,
                     onOpenComparison = { viewModel.toggleComparisonSheet(true) },
                     onClearRoute = { viewModel.clearRoute() },
+                    onEndRoute = { showEndRouteDialog = true },
                     onStartTrip = {
                         val routeId = state.activeRouteId
                         if (!routeId.isNullOrBlank() && onNavigateToSafetyReview != null) {
@@ -1715,7 +1730,9 @@ fun MapScreen(
                     confirmButton = {
                         Button(onClick = {
                             showStopTrekDialog = false
-                            viewModel.stopAndSaveLiveTrek(trekTitle)
+                            viewModel.stopAndSaveLiveTrek(trekTitle) {
+                                showTrekSummaryDialog = true
+                            }
                         }) {
                             Text("Save Trek")
                         }
@@ -1727,6 +1744,39 @@ fun MapScreen(
                     }
                 )
             }
+        }
+
+        // Active Route Confirmation Dialog
+        if (showEndRouteDialog) {
+            AlertDialog(
+                onDismissRequest = { showEndRouteDialog = false },
+                icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(32.dp)) },
+                title = { Text("End & Complete Route?", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        "This will mark your route as completed, archive your expedition metrics to local Room storage, and make it viewable in Trek History.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showEndRouteDialog = false
+                            viewModel.endActiveRoute(context) {
+                                showTrekSummaryDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                    ) {
+                        Text("End & Save to History", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEndRouteDialog = false }) {
+                        Text("Continue Exploring")
+                    }
+                }
+            )
         }
 
         // Active Trek Confirmation Dialog
@@ -1744,9 +1794,10 @@ fun MapScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            completedTripIdForDetail = state.activeTrekTripId ?: activeTripId
+                            val targetId = state.activeTrekTripId ?: activeTripId
+                            completedTripIdForDetail = targetId
                             showEndTrekDialog = false
-                            viewModel.endActiveTrek(context) {
+                            viewModel.endActiveTrek(context, targetId) {
                                 showTrekSummaryDialog = true
                             }
                         },
@@ -1766,6 +1817,18 @@ fun MapScreen(
         // Active Trek Post-Summary Dialog
         if (showTrekSummaryDialog) {
             val targetTripId = state.lastCompletedTripId ?: completedTripIdForDetail
+            val displayDistanceKm = if (state.traveledDistanceKm > 0) {
+                state.traveledDistanceKm
+            } else if (state.recordedTrekDistanceKm > 0) {
+                state.recordedTrekDistanceKm
+            } else {
+                state.routeDistanceKm ?: 0.0
+            }
+            val displayPointsCount = if (state.liveRecordedTrackCoordinates.isNotEmpty()) {
+                state.liveRecordedTrackCoordinates.size
+            } else {
+                state.routeCoordinates.size
+            }
             AlertDialog(
                 onDismissRequest = {
                     showTrekSummaryDialog = false
@@ -1776,7 +1839,7 @@ fun MapScreen(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = state.activeTrekDestinationName.ifBlank { "Expedition Route" },
+                            text = state.activeTrekDestinationName.ifBlank { state.routeTitle.ifBlank { "Expedition Route" } },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -1791,7 +1854,7 @@ fun MapScreen(
                             horizontalArrangement = Arrangement.SpaceAround
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(String.format(java.util.Locale.US, "%.2f km", state.traveledDistanceKm), fontWeight = FontWeight.Bold, color = ForestGreenPrimary, fontSize = 16.sp)
+                                Text(String.format(java.util.Locale.US, "%.2f km", displayDistanceKm), fontWeight = FontWeight.Bold, color = ForestGreenPrimary, fontSize = 16.sp)
                                 Text("Distance", style = MaterialTheme.typography.labelSmall)
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1799,7 +1862,7 @@ fun MapScreen(
                                 Text("Time", style = MaterialTheme.typography.labelSmall)
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${state.liveRecordedTrackCoordinates.size}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
+                                Text("$displayPointsCount", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
                                 Text("GPS Points", style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -1827,8 +1890,9 @@ fun MapScreen(
                     TextButton(onClick = {
                         showTrekSummaryDialog = false
                         viewModel.clearActiveRouteAndTrek()
+                        onNavigateToHistory()
                     }) {
-                        Text("Close & Return to Map")
+                        Text("View Trek History")
                     }
                 }
             )
@@ -1904,6 +1968,19 @@ fun MapScreen(
             FeatureDetailBottomSheet(
                 feature = state.selectedFeature!!,
                 onDismiss = { viewModel.selectFeature(null) }
+            )
+        }
+
+        // A2. Route Hazard Sequence Timeline Sheet
+        if (state.isHazardTimelineExpanded && state.routeHazardSequence.isNotEmpty()) {
+            RouteHazardTimelineModalSheet(
+                hazardSequence = state.routeHazardSequence,
+                selectedItem = state.selectedHazardSequenceItem,
+                isAnimationEnabled = state.isAnimationEnabled,
+                onToggleAnimation = { viewModel.toggleAnimation() },
+                onSelectItem = { item -> viewModel.selectHazardSequenceItem(item) },
+                onRecenterTrek = { viewModel.requestCurrentLocationFix(recenter = true) },
+                onDismiss = { viewModel.toggleHazardTimelineExpanded(false) }
             )
         }
 
@@ -2346,8 +2423,40 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
                             .snippet(state.routeTitle)
                     )
                 }
+
+                // Distributed route checkpoints along the path
+                val activeSampleTags = mutableSetOf<String>()
+                state.routeWeatherSamples.forEach { sample ->
+                    val markerTag = "route_sample_${sample.sampleId}"
+                    activeSampleTags.add(markerTag)
+                    val sLatLng = LatLng(sample.latitude, sample.longitude)
+                    val rainWarning = if (sample.heavyRainfallWarning) "⚠️ Heavy Rain " else ""
+                    val title = "${sample.name} (${String.format(java.util.Locale.US, "%.2f km", sample.distanceAlongRouteKm)})"
+                    val snippet = "$markerTag • $rainWarning${String.format(java.util.Locale.US, "%.2f°C", sample.weather.temperature_c)} • Rain: ${String.format(java.util.Locale.US, "%.2f mm", sample.weather.precipitation_mm)} • Landslide: ${String.format(java.util.Locale.US, "%.2f%%", sample.landslideProbabilityPct)}"
+
+                    val existing = mapboxMap.markers.firstOrNull { it.snippet?.startsWith(markerTag) == true }
+                    if (existing != null) {
+                        if (existing.position != sLatLng) existing.position = sLatLng
+                        existing.title = title
+                        existing.snippet = snippet
+                    } else {
+                        mapboxMap.addMarker(
+                            MarkerOptions()
+                                .position(sLatLng)
+                                .title(title)
+                                .snippet(snippet)
+                        )
+                    }
+                }
+                val obsoleteMarkers = mapboxMap.markers.filter { m ->
+                    m.snippet?.startsWith("route_sample_") == true &&
+                    !activeSampleTags.any { tag -> m.snippet?.startsWith(tag) == true }
+                }
+                obsoleteMarkers.forEach { mapboxMap.removeMarker(it) }
             } else {
-                val toRemove = mapboxMap.markers.filter { it.title == "Route Start" || it.title == "Route Destination" }
+                val toRemove = mapboxMap.markers.filter {
+                    it.title == "Route Start" || it.title == "Route Destination" || it.snippet?.startsWith("route_sample_") == true
+                }
                 toRemove.forEach { mapboxMap.removeMarker(it) }
             }
         } catch (t: Throwable) {

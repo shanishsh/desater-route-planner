@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -263,17 +264,68 @@ private fun RouteWeatherDetailSection(target: SelectedMapTarget.RouteWeather) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = "Atmospheric Forecast for Waypoint",
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Atmospheric & Terrain Forecast",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = when (target.landslideRiskLevel) {
+                        "SEVERE" -> Color(0xFFFFEBEE)
+                        "HIGH" -> Color(0xFFFFF3E0)
+                        "MODERATE" -> Color(0xFFFFFDE7)
+                        else -> Color(0xFFE8F5E9)
+                    }
+                ) {
+                    Text(
+                        text = "Landslide: ${target.landslideRiskLevel}",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when (target.landslideRiskLevel) {
+                            "SEVERE" -> Color(0xFFC62828)
+                            "HIGH" -> Color(0xFFE65100)
+                            "MODERATE" -> Color(0xFFF57F17)
+                            else -> Color(0xFF2E7D32)
+                        },
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            if (target.heavyRainfallWarning || w.precipitation_mm >= 10.0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFF87171)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "⚠️ Heavy Rainfall Alert (${String.format(Locale.US, "%.2f mm", w.precipitation_mm)}) • Elevated Landslide Risk",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF991B1B)
+                        )
+                    }
+                }
+            }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DetailMetric(
                     label = "Temperature",
-                    value = "${w.temperature_c}°C",
+                    value = String.format(Locale.US, "%.2f°C", w.temperature_c),
                     icon = Icons.Default.Thermostat,
                     color = Color(0xFFD32F2F)
                 )
@@ -285,7 +337,7 @@ private fun RouteWeatherDetailSection(target: SelectedMapTarget.RouteWeather) {
                 )
                 DetailMetric(
                     label = "Rainfall",
-                    value = "${w.precipitation_mm} mm",
+                    value = String.format(Locale.US, "%.2f mm", w.precipitation_mm),
                     icon = Icons.Default.WaterDrop,
                     color = Color(0xFF00796B)
                 )
@@ -296,7 +348,7 @@ private fun RouteWeatherDetailSection(target: SelectedMapTarget.RouteWeather) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DetailMetric(
                     label = "Wind Speed",
-                    value = "${w.wind_speed_kmh} km/h",
+                    value = String.format(Locale.US, "%.2f km/h", w.wind_speed_kmh),
                     icon = Icons.Default.Air,
                     color = Color(0xFF5D4037)
                 )
@@ -308,9 +360,32 @@ private fun RouteWeatherDetailSection(target: SelectedMapTarget.RouteWeather) {
                 )
                 DetailMetric(
                     label = "Along Route",
-                    value = String.format(Locale.US, "%.1f km", target.distanceAlongRouteKm),
+                    value = String.format(Locale.US, "%.2f km", target.distanceAlongRouteKm),
                     icon = Icons.Default.Straighten,
                     color = Color(0xFF7B1FA2)
+                )
+            }
+
+            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DetailMetric(
+                    label = "Landslide Prob.",
+                    value = String.format(Locale.US, "%.2f%%", target.landslideProbabilityPct),
+                    icon = Icons.Default.Terrain,
+                    color = Color(0xFFD84315)
+                )
+                DetailMetric(
+                    label = "Terrain Slope",
+                    value = String.format(Locale.US, "%.2f°", target.slopeDegrees),
+                    icon = Icons.Default.ShowChart,
+                    color = Color(0xFF6D4C41)
+                )
+                DetailMetric(
+                    label = "Elevation",
+                    value = String.format(Locale.US, "%.2f m", target.elevationM),
+                    icon = Icons.Default.Landscape,
+                    color = Color(0xFF2E7D32)
                 )
             }
 
@@ -423,7 +498,7 @@ private fun ArbitraryPointContextSection(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         DetailMetric(
                             label = "Temperature",
-                            value = "${w.temperature_c}°C",
+                            value = String.format(Locale.US, "%.2f°C", w.temperature_c),
                             icon = Icons.Default.Thermostat,
                             color = Color(0xFFD32F2F)
                         )
@@ -435,7 +510,7 @@ private fun ArbitraryPointContextSection(
                         )
                         DetailMetric(
                             label = "Precipitation",
-                            value = "${w.precipitation_mm} mm",
+                            value = String.format(Locale.US, "%.2f mm", w.precipitation_mm),
                             icon = Icons.Default.WaterDrop,
                             color = Color(0xFF00796B)
                         )
@@ -444,7 +519,7 @@ private fun ArbitraryPointContextSection(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         DetailMetric(
                             label = "Wind Speed",
-                            value = "${w.wind_speed_kmh} km/h",
+                            value = String.format(Locale.US, "%.2f km/h", w.wind_speed_kmh),
                             icon = Icons.Default.Air,
                             color = Color(0xFF5D4037)
                         )

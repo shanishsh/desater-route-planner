@@ -2,9 +2,11 @@ package com.touristsafety.app.feature.trip
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -203,9 +205,9 @@ fun RouteSafetyReviewScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                StatItem(label = "Total Distance", value = "${state.distanceKm} km")
+                                StatItem(label = "Total Distance", value = String.format(java.util.Locale.US, "%.2f km", state.distanceKm))
                                 StatItem(label = "Est. Travel Time", value = "${state.durationMinutes.toInt()} mins")
-                                StatItem(label = "Hazard Index", value = "${state.overallHazardScore.toInt()} / 100")
+                                StatItem(label = "Hazard Index", value = "${String.format(java.util.Locale.US, "%.2f", state.overallHazardScore)} / 100")
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -618,7 +620,7 @@ fun SafeHavenCard(haven: SafeHavenInfoDto) {
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(haven.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF1B5E20))
-                Text("Safe Haven • ${haven.distance_km} km egress distance", fontSize = 11.sp, color = Color(0xFF388E3C))
+                Text("Safe Haven • ${String.format(java.util.Locale.US, "%.2f km", haven.distance_km)} egress distance", fontSize = 11.sp, color = Color(0xFF388E3C))
             }
         }
     }
@@ -672,25 +674,71 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
 
             // Weather & Terrain row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AssistChip(
                     onClick = {},
-                    label = { Text("${wp.weather.temperature_c.toInt()}°C", fontSize = 11.sp) },
+                    label = { Text(String.format(java.util.Locale.US, "%.2f°C", wp.weather.temperature_c), fontSize = 11.sp) },
                     leadingIcon = { Icon(Icons.Default.Thermostat, contentDescription = null, modifier = Modifier.size(14.dp)) }
                 )
                 AssistChip(
                     onClick = {},
-                    label = { Text("${wp.weather.precipitation_probability_pct.toInt()}% Rain", fontSize = 11.sp) },
+                    label = { Text("${String.format(java.util.Locale.US, "%.2f mm", wp.weather.precipitation_mm)} Rain (${wp.weather.precipitation_probability_pct.toInt()}%)", fontSize = 11.sp) },
                     leadingIcon = { Icon(Icons.Default.WaterDrop, contentDescription = null, modifier = Modifier.size(14.dp)) }
                 )
-                if (wp.elevation_m > 0) {
+                if (wp.elevation_m > 0 || wp.slope_degrees > 0) {
                     AssistChip(
                         onClick = {},
-                        label = { Text("${wp.elevation_m.toInt()}m (${wp.slope_degrees.toInt()}°)", fontSize = 11.sp) },
+                        label = { Text("${String.format(java.util.Locale.US, "%.2f m", wp.elevation_m)} (${String.format(java.util.Locale.US, "%.2f°", wp.slope_degrees)})", fontSize = 11.sp) },
                         leadingIcon = { Icon(Icons.Default.Landscape, contentDescription = null, modifier = Modifier.size(14.dp)) }
                     )
+                }
+            }
+
+            val isHeavyRain = wp.weather.precipitation_mm >= 10.0 || wp.weather.warning_level.contains("HEAVY", ignoreCase = true)
+            val slopeVal = if (wp.slope_degrees > 0.0) wp.slope_degrees else 12.0
+            val slopeScore = when {
+                slopeVal >= 30.0 -> 40.0
+                slopeVal >= 20.0 -> 25.0
+                slopeVal >= 12.0 -> 14.0
+                else -> 6.0
+            }
+            val rainScore = when {
+                wp.weather.precipitation_mm >= 25.0 -> 45.0
+                wp.weather.precipitation_mm >= 10.0 -> 30.0
+                wp.weather.precipitation_mm >= 5.0 -> 16.0
+                else -> 4.0
+            }
+            val landslideProb = minOf(95.0, slopeScore + rainScore + 10.0)
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AssistChip(
+                    onClick = {},
+                    label = { Text("Landslide: ${String.format(java.util.Locale.US, "%.2f%%", landslideProb)}", fontSize = 11.sp) },
+                    leadingIcon = { Icon(Icons.Default.Terrain, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                )
+                if (isHeavyRain) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFFEE2E2)
+                    ) {
+                        Text(
+                            text = "⚠️ Heavy Rainfall",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFDC2626),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
@@ -737,7 +785,7 @@ fun WaypointConditionCard(wp: RouteWaypointConditionDto) {
                         Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "NASA FIRMS Satellite Thermal Anomaly ${wp.wildfire.nearest_fire_distance_km} km away (FRP: ${wp.wildfire.fire_radiative_power ?: 0.0})",
+                            "NASA FIRMS Satellite Thermal Anomaly ${String.format(java.util.Locale.US, "%.2f km", wp.wildfire.nearest_fire_distance_km ?: 0.0)} away (FRP: ${String.format(java.util.Locale.US, "%.2f MW", wp.wildfire.fire_radiative_power ?: 0.0)})",
                             fontSize = 11.sp,
                             color = Color(0xFFC62828),
                             fontWeight = FontWeight.Medium

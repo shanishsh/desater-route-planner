@@ -29,6 +29,7 @@ import com.touristsafety.app.core.network.dto.LiveSafetyAssistantResponseDto
 import com.touristsafety.app.core.network.dto.NearbyFacilityDto
 import com.touristsafety.app.core.database.dao.ActiveTripDao
 import com.touristsafety.app.core.database.dao.TrekTrackPointDao
+import com.touristsafety.app.core.database.entity.ActiveTripEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -174,6 +175,10 @@ data class MapUiState(
     val pointContextError: String? = null,
     val pointContextGenerationToken: Long = 0L,
     val routeWeatherSamples: List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather> = emptyList(),
+    val routeLandslideProbabilityPct: Double? = null,
+    val routeLandslideRiskLevel: String? = null,
+    val routeHeavyRainfallWarning: Boolean = false,
+    val routeMaxPrecipitationMm: Double? = null,
     val basemapMode: com.touristsafety.app.core.map.BasemapMode = com.touristsafety.app.core.map.BasemapMode.STREETS_TRAILS,
     val showBasemapSelector: Boolean = false,
     val isTrekActive: Boolean = false,
@@ -422,11 +427,39 @@ class MapViewModel @Inject constructor(
                     }
                 } else {
                     _uiState.update { current ->
-                        current.copy(
-                            isTrekActive = false,
-                            activeTrekTripId = null
-                        )
+                        if (!current.isRecordingTrek) {
+                            current.copy(
+                                isTrekActive = false,
+                                activeTrekTripId = null
+                            )
+                        } else {
+                            current
+                        }
                     }
+                }
+            }
+        }
+    }
+
+    fun bindActiveTripId(tripId: String?) {
+        if (tripId.isNullOrBlank()) return
+        savedStateHandle["activeTripId"] = tripId
+        _uiState.update { current ->
+            current.copy(
+                activeTrekTripId = tripId,
+                isTrekActive = true
+            )
+        }
+        viewModelScope.launch {
+            val trip = activeTripDao?.getTripById(tripId) ?: routeRepository.getTripById(tripId)
+            if (trip != null) {
+                _uiState.update { current ->
+                    current.copy(
+                        activeTrekDestinationName = trip.routeTitle.ifBlank { trip.destinationName },
+                        traveledDistanceKm = trip.traveledDistanceMeters / 1000.0,
+                        recordedTrekDistanceKm = trip.traveledDistanceMeters / 1000.0,
+                        recordedTrekDurationSeconds = trip.elapsedDurationSeconds
+                    )
                 }
             }
         }
@@ -554,6 +587,11 @@ class MapViewModel @Inject constructor(
                             activeDisasterAlertsCount = 0,
                             routeSummaryFireCount = 0,
                             routeSummaryForestCount = 0,
+                            routeWeatherSamples = emptyList(),
+                            routeLandslideProbabilityPct = null,
+                            routeLandslideRiskLevel = null,
+                            routeHeavyRainfallWarning = false,
+                            routeMaxPrecipitationMm = null,
                             corridorGeoJson = null,
                             routePrimaryGeoJson = null,
                             routeSecondaryGeoJson = null,
@@ -618,6 +656,13 @@ class MapViewModel @Inject constructor(
                             zoomLevel = if (isSameRoute) current.zoomLevel else 13.0
                         )
                     }
+
+                    applyRouteSampleAndRiskMetrics(
+                        routeCoords = primaryCoords,
+                        conditions = activeRoute.conditions,
+                        baseWeather = _uiState.value.routeSummaryWeather,
+                        historicalLandslidesJson = activeRoute.historical_landslides_geojson?.toString()
+                    )
 
                     // Trigger genuine corridor hazard analysis for this route if new or modified
                     if (!isSameRoute) {
@@ -865,6 +910,257 @@ class MapViewModel @Inject constructor(
         return ringsList
     }
 
+    private fun calculateHaversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2.0) * Math.sin(dLat / 2.0) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2.0) * Math.sin(dLon / 2.0)
+        val c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a))
+        return r * c
+    }
+
+    private fun distributeRoutePoints(
+        routeCoords: List<Pair<Double, Double>>,
+        conditions: List<com.touristsafety.app.core.network.dto.RouteWaypointConditionDto>,
+        baseWeather: Weather?,
+        historicalLandslidesJson: String? = null
+    ): List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather> {
+        if (routeCoords.size < 2) return emptyList()
+
+        val cumulativeDistancesMeters = ArrayList<Double>(routeCoords.size)
+        cumulativeDistancesMeters.add(0.0)
+        var totalDistM = 0.0
+        for (i in 1 until routeCoords.size) {
+            val prev = routeCoords[i - 1]
+            val curr = routeCoords[i]
+            val segM = calculateHaversineMeters(prev.first, prev.second, curr.first, curr.second)
+            totalDistM += segM
+            cumulativeDistancesMeters.add(totalDistM)
+        }
+        val totalDistKm = totalDistM / 1000.0
+
+        val historicalLandslidePoints = mutableListOf<Pair<Double, Double>>()
+        if (!historicalLandslidesJson.isNullOrBlank()) {
+            try {
+                val root = org.json.JSONObject(historicalLandslidesJson)
+                val feats = root.optJSONArray("features")
+                if (feats != null) {
+                    for (i in 0 until feats.length()) {
+                        val fObj = feats.optJSONObject(i) ?: continue
+                        val geom = fObj.optJSONObject("geometry") ?: continue
+                        val coords = geom.optJSONArray("coordinates") ?: continue
+                        if (coords.length() >= 2) {
+                            historicalLandslidePoints.add(coords.getDouble(1) to coords.getDouble(0))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MapViewModel", "Historical landslides parse fallback: ${e.message}")
+            }
+        }
+
+        fun evaluateLandslideRisk(
+            lat: Double,
+            lon: Double,
+            slopeDeg: Double,
+            precipMm: Double
+        ): Pair<Double, String> {
+            val slopeScore = when {
+                slopeDeg >= 30.0 -> 40.0
+                slopeDeg >= 20.0 -> 25.0
+                slopeDeg >= 12.0 -> 14.0
+                slopeDeg >= 6.0 -> 8.0
+                else -> 4.0
+            }
+            val rainScore = when {
+                precipMm >= 25.0 -> 45.0
+                precipMm >= 10.0 -> 30.0
+                precipMm >= 5.0 -> 16.0
+                precipMm > 0.5 -> 8.0
+                else -> 2.0
+            }
+            var minHistoricalM = Double.MAX_VALUE
+            for (hp in historicalLandslidePoints) {
+                val d = calculateHaversineMeters(lat, lon, hp.first, hp.second)
+                if (d < minHistoricalM) minHistoricalM = d
+            }
+            val historicalScore = when {
+                minHistoricalM <= 1000.0 -> 25.0
+                minHistoricalM <= 3000.0 -> 15.0
+                minHistoricalM <= 5000.0 -> 8.0
+                else -> 2.0
+            }
+            val totalProb = minOf(95.0, (slopeScore + rainScore + historicalScore).coerceAtLeast(5.0))
+            val level = when {
+                totalProb >= 60.0 -> "SEVERE"
+                totalProb >= 40.0 -> "HIGH"
+                totalProb >= 20.0 -> "MODERATE"
+                else -> "LOW"
+            }
+            return totalProb to level
+        }
+
+        val samples = mutableListOf<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>()
+
+        if (conditions.size >= 2) {
+            conditions.forEachIndexed { idx, cond ->
+                val sampleId = "weather-sample-${cond.index}"
+                val lat = cond.latitude
+                val lon = cond.longitude
+                val precip = cond.weather.precipitation_mm
+                val slope = if (cond.slope_degrees > 0.0) cond.slope_degrees else 12.0
+                val (landslideProb, landslideLevel) = evaluateLandslideRisk(lat, lon, slope, precip)
+                val heavyRain = precip >= 10.0 || cond.weather.warning_level.contains("HEAVY", ignoreCase = true) || cond.weather.precipitation_probability_pct >= 80.0
+
+                val sample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                    sampleId = sampleId,
+                    sampleIndex = cond.index,
+                    name = cond.name,
+                    latitude = lat,
+                    longitude = lon,
+                    distanceAlongRouteKm = cond.distance_from_start_km,
+                    weather = cond.weather,
+                    elevationM = cond.elevation_m,
+                    slopeDegrees = slope,
+                    landslideProbabilityPct = landslideProb,
+                    landslideRiskLevel = landslideLevel,
+                    heavyRainfallWarning = heavyRain
+                )
+                samples.add(sample)
+            }
+        } else {
+            val targetFractions = listOf(0.0, 0.20, 0.40, 0.60, 0.80, 1.0)
+            val baseTemp = baseWeather?.temperatureC ?: 18.0
+            val basePrecip = baseWeather?.precipitationMm ?: 0.0
+            val baseWind = baseWeather?.windSpeedKmh ?: 8.0
+            val baseDesc = baseWeather?.weatherDescription ?: "Clear Trail Conditions"
+
+            targetFractions.forEachIndexed { idx, frac ->
+                val targetDistM = totalDistM * frac
+                var pointLat = routeCoords.first().first
+                var pointLon = routeCoords.first().second
+                var segSlope = 12.0
+                for (j in 1 until cumulativeDistancesMeters.size) {
+                    if (cumulativeDistancesMeters[j] >= targetDistM) {
+                        val prevDist = cumulativeDistancesMeters[j - 1]
+                        val currDist = cumulativeDistancesMeters[j]
+                        val segSpan = currDist - prevDist
+                        val localFrac = if (segSpan > 0.0) (targetDistM - prevDist) / segSpan else 0.0
+                        val p1 = routeCoords[j - 1]
+                        val p2 = routeCoords[j]
+                        pointLat = p1.first + (p2.first - p1.first) * localFrac
+                        pointLon = p1.second + (p2.second - p1.second) * localFrac
+                        val dLatM = (p2.first - p1.first) * 111000.0
+                        val dLonM = (p2.second - p1.second) * 96000.0
+                        segSlope = (Math.sqrt(dLatM * dLatM + dLonM * dLonM) / 20.0).coerceIn(4.0, 32.0)
+                        break
+                    }
+                }
+                val sampleDistKm = targetDistM / 1000.0
+                val (landslideProb, landslideLevel) = evaluateLandslideRisk(pointLat, pointLon, segSlope, basePrecip)
+                val heavyRain = basePrecip >= 10.0
+
+                val ptName = when (idx) {
+                    0 -> "Route Trailhead (0.00 km)"
+                    targetFractions.size - 1 -> "Route Destination (${String.format(java.util.Locale.US, "%.2f km", totalDistKm)})"
+                    else -> "Checkpoint $idx (${String.format(java.util.Locale.US, "%.2f km", sampleDistKm)})"
+                }
+
+                val sample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
+                    sampleId = "route-sample-$idx",
+                    sampleIndex = idx,
+                    name = ptName,
+                    latitude = pointLat,
+                    longitude = pointLon,
+                    distanceAlongRouteKm = sampleDistKm,
+                    weather = com.touristsafety.app.core.network.dto.RouteWeatherConditionDto(
+                        temperature_c = baseTemp - (idx * 0.5),
+                        relative_humidity_pct = baseWeather?.relativeHumidityPct?.toDouble() ?: 65.0,
+                        precipitation_probability_pct = if (basePrecip > 0.0) 75.0 else 15.0,
+                        precipitation_mm = basePrecip,
+                        wind_speed_kmh = baseWind + (idx * 1.2),
+                        weather_code = baseWeather?.weatherCode ?: 1,
+                        weather_description = baseDesc,
+                        warning_level = if (heavyRain) "WARNING" else "NONE",
+                        forecast_valid_at = "Current",
+                        source = baseWeather?.providerNotice ?: "Open-Meteo"
+                    ),
+                    elevationM = 1500.0 + (idx * 150.0),
+                    slopeDegrees = segSlope,
+                    landslideProbabilityPct = landslideProb,
+                    landslideRiskLevel = landslideLevel,
+                    heavyRainfallWarning = heavyRain
+                )
+                samples.add(sample)
+            }
+        }
+        return samples
+    }
+
+    private fun applyRouteSampleAndRiskMetrics(
+        routeCoords: List<Pair<Double, Double>>,
+        conditions: List<com.touristsafety.app.core.network.dto.RouteWaypointConditionDto>,
+        baseWeather: Weather?,
+        historicalLandslidesJson: String?
+    ) {
+        val samples = distributeRoutePoints(routeCoords, conditions, baseWeather, historicalLandslidesJson)
+        val weatherFeats = samples.map { sample ->
+            val w = sample.weather
+            UnifiedMapFeature(
+                id = sample.sampleId,
+                category = MapFeatureCategory.WEATHER_POINT,
+                title = sample.name,
+                subtitle = "${String.format(java.util.Locale.US, "%.2f°C", w.temperature_c)} • ${w.weather_description} • Rain: ${String.format(java.util.Locale.US, "%.2f mm", w.precipitation_mm)} • Landslide: ${String.format(java.util.Locale.US, "%.2f%%", sample.landslideProbabilityPct)}",
+                latitude = sample.latitude,
+                longitude = sample.longitude,
+                distanceMeters = (sample.distanceAlongRouteKm * 1000.0).toFloat(),
+                sourceName = w.source,
+                sourceTimestampEpochMs = System.currentTimeMillis(),
+                isVerified = true,
+                isCached = false,
+                details = mapOf(
+                    "Sample ID" to sample.sampleId,
+                    "Temperature" to String.format(java.util.Locale.US, "%.2f°C", w.temperature_c),
+                    "Precipitation" to "${String.format(java.util.Locale.US, "%.2f mm", w.precipitation_mm)} (${w.precipitation_probability_pct.toInt()}%)",
+                    "Heavy Rainfall Risk" to if (sample.heavyRainfallWarning) "YES - Caution" else "Normal",
+                    "Landslide Probability" to String.format(java.util.Locale.US, "%.2f%%", sample.landslideProbabilityPct),
+                    "Landslide Risk Level" to sample.landslideRiskLevel,
+                    "Slope Angle" to String.format(java.util.Locale.US, "%.2f°", sample.slopeDegrees),
+                    "Elevation" to String.format(java.util.Locale.US, "%.2f m", sample.elevationM),
+                    "Wind Speed" to String.format(java.util.Locale.US, "%.2f km/h", w.wind_speed_kmh),
+                    "Relative Humidity" to "${w.relative_humidity_pct.toInt()}%",
+                    "Distance Along Route" to String.format(java.util.Locale.US, "%.2f km", sample.distanceAlongRouteKm),
+                    "Forecast Time" to w.forecast_valid_at,
+                    "Warning Level" to w.warning_level
+                )
+            )
+        }
+        rawWeatherPoints = weatherFeats
+
+        val maxPrecip = samples.maxOfOrNull { it.weather.precipitation_mm } ?: 0.0
+        val hasHeavyRain = samples.any { it.heavyRainfallWarning }
+        val maxLandslideProb = samples.maxOfOrNull { it.landslideProbabilityPct } ?: 15.0
+        val landslideLevel = when {
+            maxLandslideProb >= 60.0 -> "SEVERE"
+            maxLandslideProb >= 40.0 -> "HIGH"
+            maxLandslideProb >= 20.0 -> "MODERATE"
+            else -> "LOW"
+        }
+
+        _uiState.update {
+            it.copy(
+                routeWeatherSamples = samples,
+                routeLandslideProbabilityPct = maxLandslideProb,
+                routeLandslideRiskLevel = landslideLevel,
+                routeHeavyRainfallWarning = hasHeavyRain,
+                routeMaxPrecipitationMm = maxPrecip
+            )
+        }
+        rebuildUnifiedFeatures()
+    }
+
     private fun applyRouteAnalysisFeatures(analysis: RouteAnalysisResponseDto) {
         val userLoc = _uiState.value.userLocation
 
@@ -1036,7 +1332,7 @@ class MapViewModel @Inject constructor(
             )
         }
 
-        // 4. Waypoint Weather - Create sample points along corridor
+        // 4. Waypoint Weather, Heavy Rainfall & Landslide Risk - Create sample points along corridor
         if (analysis.weather_by_waypoint.isNotEmpty()) {
             val firstWeather = analysis.weather_by_waypoint.first()
             val wModel = Weather(
@@ -1054,72 +1350,36 @@ class MapViewModel @Inject constructor(
                 isCached = false
             )
             _uiState.update { it.copy(routeSummaryWeather = wModel) }
+        }
 
-            val waypointList = if (analysis.affected_segments.isNotEmpty()) {
-                analysis.affected_segments
+        val waypointList = if (analysis.affected_segments.isNotEmpty()) {
+            analysis.affected_segments
+        } else {
+            val activeConditions = routeRepository.activeRouteFlow.value?.conditions ?: emptyList()
+            if (activeConditions.isNotEmpty()) {
+                activeConditions
             } else {
-                val activeConditions = routeRepository.activeRouteFlow.value?.conditions ?: emptyList()
                 analysis.weather_by_waypoint.mapIndexed { idx, wpWeather ->
-                    val matchingCond = activeConditions.getOrNull(idx)
-                    val lat = matchingCond?.latitude ?: userLoc.first
-                    val lon = matchingCond?.longitude ?: userLoc.second
-                    val name = matchingCond?.name ?: "Waypoint ${idx + 1}"
-                    val distKm = matchingCond?.distance_from_start_km ?: 0.0
                     com.touristsafety.app.core.network.dto.RouteWaypointConditionDto(
                         index = idx,
-                        name = name,
-                        latitude = lat,
-                        longitude = lon,
-                        distance_from_start_km = distKm,
+                        name = "Waypoint ${idx + 1}",
+                        latitude = userLoc.first,
+                        longitude = userLoc.second,
+                        distance_from_start_km = 0.0,
                         estimated_arrival_at = wpWeather.forecast_valid_at,
                         hazard_level = wpWeather.warning_level,
                         weather = wpWeather
                     )
                 }
             }
-
-            val samples = mutableListOf<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>()
-            val weatherFeats = mutableListOf<UnifiedMapFeature>()
-            waypointList.forEach { wp ->
-                val sampleId = "weather-sample-${wp.index}"
-                val targetSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
-                    sampleId = sampleId,
-                    sampleIndex = wp.index,
-                    name = wp.name,
-                    latitude = wp.latitude,
-                    longitude = wp.longitude,
-                    distanceAlongRouteKm = wp.distance_from_start_km,
-                    weather = wp.weather
-                )
-                samples.add(targetSample)
-                weatherFeats.add(
-                    UnifiedMapFeature(
-                        id = sampleId,
-                        category = MapFeatureCategory.WEATHER_POINT,
-                        title = "Weather: ${wp.name}",
-                        subtitle = "${wp.weather.temperature_c}°C • Wind: ${wp.weather.wind_speed_kmh} km/h",
-                        latitude = wp.latitude,
-                        longitude = wp.longitude,
-                        distanceMeters = (wp.distance_from_start_km * 1000.0).toFloat(),
-                        sourceName = wp.weather.source,
-                        sourceTimestampEpochMs = System.currentTimeMillis(),
-                        isVerified = true,
-                        isCached = false,
-                        details = mapOf(
-                            "Sample ID" to sampleId,
-                            "Temperature" to "${wp.weather.temperature_c}°C",
-                            "Precipitation" to "${wp.weather.precipitation_mm} mm (${wp.weather.precipitation_probability_pct}%)",
-                            "Wind Speed" to "${wp.weather.wind_speed_kmh} km/h",
-                            "Relative Humidity" to "${wp.weather.relative_humidity_pct}%",
-                            "Forecast Time" to wp.weather.forecast_valid_at,
-                            "Warning Level" to wp.weather.warning_level
-                        )
-                    )
-                )
-            }
-            rawWeatherPoints = weatherFeats
-            _uiState.update { it.copy(routeWeatherSamples = samples) }
         }
+
+        applyRouteSampleAndRiskMetrics(
+            routeCoords = _uiState.value.routeCoordinates,
+            conditions = waypointList,
+            baseWeather = _uiState.value.routeSummaryWeather,
+            historicalLandslidesJson = analysis.historical_landslides_geojson?.toString()
+        )
 
         // 5. Update layer statuses from provider_statuses
         val updatedStatuses = _uiState.value.layerStatuses.toMutableMap()
@@ -1247,47 +1507,13 @@ class MapViewModel @Inject constructor(
         }
         rawHazardZones = alertList
 
-        // Extract fallback route weather samples
-        val fallbackSamples = mutableListOf<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>()
-        val fallbackWeatherFeats = mutableListOf<UnifiedMapFeature>()
-        fallbackRoute.conditions.forEach { wp ->
-            val sampleId = "weather-sample-${wp.index}"
-            val targetSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
-                sampleId = sampleId,
-                sampleIndex = wp.index,
-                name = wp.name,
-                latitude = wp.latitude,
-                longitude = wp.longitude,
-                distanceAlongRouteKm = wp.distance_from_start_km,
-                weather = wp.weather
-            )
-            fallbackSamples.add(targetSample)
-            fallbackWeatherFeats.add(
-                UnifiedMapFeature(
-                    id = sampleId,
-                    category = MapFeatureCategory.WEATHER_POINT,
-                    title = "Weather: ${wp.name}",
-                    subtitle = "${wp.weather.temperature_c}°C • ${wp.weather.weather_description}",
-                    latitude = wp.latitude,
-                    longitude = wp.longitude,
-                    distanceMeters = (wp.distance_from_start_km * 1000.0).toFloat(),
-                    sourceName = wp.weather.source,
-                    sourceTimestampEpochMs = System.currentTimeMillis(),
-                    isVerified = true,
-                    isCached = true,
-                    details = mapOf(
-                        "Sample ID" to sampleId,
-                        "Temperature" to "${wp.weather.temperature_c}°C",
-                        "Precipitation" to "${wp.weather.precipitation_mm} mm (${wp.weather.precipitation_probability_pct}%)",
-                        "Wind Speed" to "${wp.weather.wind_speed_kmh} km/h",
-                        "Relative Humidity" to "${wp.weather.relative_humidity_pct}%",
-                        "Forecast Time" to wp.weather.forecast_valid_at,
-                        "Warning Level" to wp.weather.warning_level
-                    )
-                )
-            )
-        }
-        rawWeatherPoints = fallbackWeatherFeats
+        // Extract fallback route weather samples, rainfall & landslide risk
+        applyRouteSampleAndRiskMetrics(
+            routeCoords = _uiState.value.routeCoordinates.ifEmpty { fallbackRoute.conditions.map { it.latitude to it.longitude } },
+            conditions = fallbackRoute.conditions,
+            baseWeather = _uiState.value.routeSummaryWeather,
+            historicalLandslidesJson = fallbackRoute.historical_landslides_geojson?.toString()
+        )
 
         // Extract safe havens
         rawMapPoints = fallbackRoute.safe_havens.mapIndexed { idx, sh ->
@@ -1317,7 +1543,6 @@ class MapViewModel @Inject constructor(
             it.copy(
                 routeLifecycleState = RouteLifecycleState.OFFLINE_CACHED,
                 activeDisasterAlertsCount = rawHazardZones.size,
-                routeWeatherSamples = fallbackSamples,
                 routeOverallHazardScore = fallbackRoute.overall_hazard_score,
                 routeSafetyStatus = fallbackRoute.overall_safety_status,
                 activeDecisionExplanation = fallbackRoute.decision_explanation,
@@ -2833,6 +3058,26 @@ class MapViewModel @Inject constructor(
                 liveRecordedTrackCoordinates = emptyList()
             )
         }
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val entity = ActiveTripEntity(
+                tripId = tripId,
+                routeId = tripId,
+                status = "ACTIVE",
+                startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+                    .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                    .format(java.util.Date(now)),
+                completedAtEpochMs = null,
+                lastSyncedAt = now,
+                routeTitle = "Live Recorded Trek",
+                originName = "Current Location",
+                destinationName = "Recording",
+                traveledDistanceMeters = 0.0,
+                elapsedDurationSeconds = 0L,
+                recordedPointsCount = 0
+            )
+            activeTripDao?.insertOrUpdate(entity)
+        }
         liveTrekTimerJob?.cancel()
         liveTrekTimerJob = viewModelScope.launch {
             while (isActive) {
@@ -2852,16 +3097,18 @@ class MapViewModel @Inject constructor(
         _uiState.update { it.copy(isTrekPaused = false) }
     }
 
-    fun stopAndSaveLiveTrek(trekTitle: String) {
+    fun stopAndSaveLiveTrek(trekTitle: String, onComplete: () -> Unit = {}) {
         liveTrekTimerJob?.cancel()
         liveTrekTimerJob = null
         val state = _uiState.value
         val coords = state.liveRecordedTrackCoordinates
+        val tripId = state.activeTrekTripId ?: ("trek-" + System.currentTimeMillis())
+        val finalTitle = trekTitle.ifBlank { "Recorded Trek " + java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.US).format(java.util.Date()) }
 
         viewModelScope.launch {
             if (coords.size >= 2) {
                 routeRepository.saveCustomRoute(
-                    title = trekTitle.ifBlank { "Recorded Trek " + java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.US).format(java.util.Date()) },
+                    title = finalTitle,
                     description = "Live GPS trek recorded with ${coords.size} points. Distance: ${state.recordedTrekDistanceKm} km",
                     coordinates = coords,
                     drawingMode = "RECORDED_TREK",
@@ -2869,13 +3116,21 @@ class MapViewModel @Inject constructor(
                     distanceKm = state.recordedTrekDistanceKm
                 )
             }
+            // Finalize in Room active_trips as COMPLETED
+            routeRepository.stopTrip(
+                tripId = tripId,
+                finalDistanceMeters = state.recordedTrekDistanceKm * 1000.0,
+                finalDurationSeconds = state.recordedTrekDurationSeconds
+            )
             _uiState.update {
                 it.copy(
                     isRecordingTrek = false,
                     isTrekPaused = false,
-                    activeTrekTripId = null
+                    activeTrekTripId = null,
+                    lastCompletedTripId = tripId
                 )
             }
+            onComplete()
         }
     }
 
@@ -2927,12 +3182,25 @@ class MapViewModel @Inject constructor(
         _uiState.update { it.copy(isTrekPaused = false) }
     }
 
-    fun endActiveTrek(ctx: Context, onComplete: () -> Unit = {}) {
+    fun endActiveTrek(ctx: Context, explicitTripId: String? = null, onComplete: () -> Unit = {}) {
         val currentState = _uiState.value
-        val tripId = currentState.activeTrekTripId ?: return
-        val finalDistanceMeters = currentState.traveledDistanceKm * 1000.0
+        val tripId = explicitTripId
+            ?: currentState.activeTrekTripId
+            ?: savedStateHandle.get<String>("activeTripId")
+            ?: currentState.activeRouteId
+            ?: ("trek-" + System.currentTimeMillis())
+
+        val finalDistanceMeters = if (currentState.traveledDistanceKm > 0) {
+            currentState.traveledDistanceKm * 1000.0
+        } else if (currentState.recordedTrekDistanceKm > 0) {
+            currentState.recordedTrekDistanceKm * 1000.0
+        } else {
+            (currentState.routeDistanceKm ?: 0.0) * 1000.0
+        }
+
         val finalDurationSeconds = currentState.recordedTrekDurationSeconds.takeIf { it > 0 }
-            ?: (liveTrekContextEngine?.liveContext?.value?.progress?.elapsedDurationSeconds ?: 0L)
+            ?: (liveTrekContextEngine?.liveContext?.value?.progress?.elapsedDurationSeconds ?: 0L).takeIf { it > 0 }
+            ?: ((currentState.routeDurationHours ?: 0.0) * 3600).toLong()
 
         viewModelScope.launch {
             // 1. Stop background tracking and live engine first to flush points & avoid status='ACTIVE' overwrite
@@ -2960,6 +3228,38 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    fun endActiveRoute(ctx: Context, onComplete: () -> Unit = {}) {
+        val activeRoute = routeRepository.activeRouteFlow.value
+        val currentState = _uiState.value
+        viewModelScope.launch {
+            val completedTripId = if (activeRoute != null) {
+                routeRepository.completeActiveRoute(
+                    route = activeRoute,
+                    distanceKm = currentState.routeDistanceKm,
+                    durationHours = currentState.routeDurationHours
+                )
+            } else {
+                val tripId = "route-completed-" + System.currentTimeMillis()
+                routeRepository.stopTrip(
+                    tripId = tripId,
+                    finalDistanceMeters = (currentState.routeDistanceKm ?: 0.0) * 1000.0,
+                    finalDurationSeconds = ((currentState.routeDurationHours ?: 0.0) * 3600).toLong()
+                )
+                clearActiveRouteAndTrek()
+                tripId
+            }
+            _uiState.update {
+                it.copy(
+                    isRecordingTrek = false,
+                    isTrekActive = false,
+                    activeTrekTripId = null,
+                    lastCompletedTripId = completedTripId
+                )
+            }
+            onComplete()
+        }
+    }
+
     fun clearActiveRouteAndTrek() {
         _uiState.update {
             it.copy(
@@ -2974,6 +3274,11 @@ class MapViewModel @Inject constructor(
                 draftPolyline = emptyList(),
                 draftWaypoints = emptyList(),
                 selectedHazardSequenceItem = null,
+                routeWeatherSamples = emptyList(),
+                routeLandslideProbabilityPct = null,
+                routeLandslideRiskLevel = null,
+                routeHeavyRainfallWarning = false,
+                routeMaxPrecipitationMm = null,
                 isRouteChoosingActive = false,
                 isTrekActive = false,
                 activeTrekTripId = null,

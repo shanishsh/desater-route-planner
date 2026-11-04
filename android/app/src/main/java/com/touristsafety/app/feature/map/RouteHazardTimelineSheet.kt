@@ -392,7 +392,7 @@ fun RouteHazardItemCard(
                         color = Color(0xFFFEF3C7)
                     ) {
                         Text(
-                            text = "↔ ${(item.crossTrackDistanceMeters / 1000.0).format(1)} km in Corridor",
+                            text = "↔ ${(item.crossTrackDistanceMeters / 1000.0).format(2)} km in Corridor",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF92400E),
@@ -515,10 +515,10 @@ private fun buildProgressSubtitle(item: RouteOrderedHazardItem): String {
     val directText = if (item.intersectionType == RouteIntersectionType.DIRECT_INTERSECTION) {
         "Directly on route"
     } else {
-        "${(item.crossTrackDistanceMeters / 1000.0).format(1)} km right of trail"
+        "${(item.crossTrackDistanceMeters / 1000.0).format(2)} km right of trail"
     }
     val aheadText = item.distanceAheadMeters?.let {
-        if (it < 1000.0) "${it.toInt()}m ahead" else "${(it / 1000.0).format(1)}km ahead"
+        if (it < 1000.0) "${it.toInt()}m ahead" else "${(it / 1000.0).format(2)}km ahead"
     } ?: item.formattedDistanceAlongRoute()
 
     return "$aheadText • $directText"
