@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +29,13 @@ import com.touristsafety.app.core.designsystem.components.*
 import com.touristsafety.app.core.location.ActiveHazardAlert
 import com.touristsafety.app.core.model.RouteOrderedHazardItem
 import com.touristsafety.app.core.network.dto.NearbyFacilityDto
+
+private val TREK_ASSISTANT_PROMPT_CHIPS = listOf(
+    "What is the next hazard?",
+    "What's the weather ahead?",
+    "Nearest medical clinic?",
+    "Is there an alternative trail?"
+)
 
 /**
  * Top HUD displaying live trek odometer, elapsed duration, progress, live weather, network connectivity,
@@ -484,14 +492,7 @@ fun ActiveTrekAiSafetyPanel(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    val chips = listOf(
-                                        "What is the next hazard?",
-                                        "What's the weather ahead?",
-                                        "Nearest medical clinic?",
-                                        "Is there an alternative trail?"
-                                    )
-                                    items(chips.size) { idx ->
-                                        val chipText = chips[idx]
+                                    items(TREK_ASSISTANT_PROMPT_CHIPS, key = { it }) { chipText ->
                                         Surface(
                                             shape = RoundedCornerShape(14.dp),
                                             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -558,8 +559,7 @@ fun ActiveTrekAiSafetyPanel(
                                     )
                                 }
                             } else {
-                                items(state.upcomingHazards.size) { idx ->
-                                    val item = state.upcomingHazards[idx]
+                                items(state.upcomingHazards, key = { it.feature.id }) { item ->
                                     HazardListItemRow(
                                         item = item,
                                         onClick = { onHazardClick(item) }
@@ -578,15 +578,13 @@ fun ActiveTrekAiSafetyPanel(
                                         color = EmergencyRed
                                     )
                                 }
-                                items(state.nearbyHazards.size) { idx ->
-                                    val item = state.nearbyHazards[idx]
+                                items(state.nearbyHazards, key = { it.feature.id }) { item ->
                                     HazardListItemRow(
                                         item = item,
                                         onClick = { onHazardClick(item) }
                                     )
                                 }
-                                items(state.nearbyFacilities.size) { idx ->
-                                    val facility = state.nearbyFacilities[idx]
+                                items(state.nearbyFacilities, key = { it.id }) { facility ->
                                     FacilityListItemRow(facility = facility)
                                 }
                             }
@@ -602,8 +600,7 @@ fun ActiveTrekAiSafetyPanel(
                                         color = ForestGreenPrimary
                                     )
                                 }
-                                items(state.passedHazards.size) { idx ->
-                                    val passed = state.passedHazards[idx]
+                                items(state.passedHazards, key = { it.feature.id }) { passed ->
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),

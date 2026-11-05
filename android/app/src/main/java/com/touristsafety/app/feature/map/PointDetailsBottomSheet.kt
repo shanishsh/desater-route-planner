@@ -39,12 +39,15 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PointDetailsBottomSheet(
-    uiState: MapUiState,
+    target: SelectedMapTarget?,
+    pointContextData: PointContextDto?,
+    pointContextLoading: Boolean,
+    pointContextError: String?,
     onDismiss: () -> Unit,
     onSelectHazard: ((UnifiedMapFeature) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val target = uiState.selectedTarget ?: return
+    val currentTarget = target ?: return
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -60,8 +63,8 @@ fun PointDetailsBottomSheet(
         ) {
             // 1. Header Bar: Coordinate Readout & Title
             PointDetailsHeader(
-                target = target,
-                pointContext = uiState.pointContextData,
+                target = currentTarget,
+                pointContext = pointContextData,
                 onCopyCoordinates = { lat, lon ->
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("Coordinates", "$lat, $lon"))
@@ -72,24 +75,24 @@ fun PointDetailsBottomSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             // 2. Content depending on Target Type
-            when (target) {
+            when (currentTarget) {
                 is SelectedMapTarget.RouteWeather -> {
-                    RouteWeatherDetailSection(target = target)
+                    RouteWeatherDetailSection(target = currentTarget)
                 }
                 is SelectedMapTarget.Hazard -> {
-                    HazardDetailSection(feature = target.feature)
+                    HazardDetailSection(feature = currentTarget.feature)
                 }
                 is SelectedMapTarget.HazardPolygon -> {
-                    HazardDetailSection(feature = target.feature)
+                    HazardDetailSection(feature = currentTarget.feature)
                 }
                 is SelectedMapTarget.Facility -> {
-                    FacilityDetailSection(feature = target.feature)
+                    FacilityDetailSection(feature = currentTarget.feature)
                 }
                 is SelectedMapTarget.ArbitraryPoint -> {
                     ArbitraryPointContextSection(
-                        isLoading = uiState.pointContextLoading,
-                        error = uiState.pointContextError,
-                        pointData = uiState.pointContextData,
+                        isLoading = pointContextLoading,
+                        error = pointContextError,
+                        pointData = pointContextData,
                         onSelectHazard = onSelectHazard
                     )
                 }
@@ -112,14 +115,14 @@ fun PointDetailsBottomSheet(
 
                 Button(
                     onClick = {
-                        val lat = target.latitude
-                        val lon = target.longitude
-                        val label = when (target) {
-                            is SelectedMapTarget.RouteWeather -> target.name
-                            is SelectedMapTarget.Hazard -> target.feature.title
-                            is SelectedMapTarget.HazardPolygon -> target.feature.title
-                            is SelectedMapTarget.Facility -> target.feature.title
-                            is SelectedMapTarget.ArbitraryPoint -> uiState.pointContextData?.nearest_settlement ?: "Point Inspection"
+                        val lat = currentTarget.latitude
+                        val lon = currentTarget.longitude
+                        val label = when (currentTarget) {
+                            is SelectedMapTarget.RouteWeather -> currentTarget.name
+                            is SelectedMapTarget.Hazard -> currentTarget.feature.title
+                            is SelectedMapTarget.HazardPolygon -> currentTarget.feature.title
+                            is SelectedMapTarget.Facility -> currentTarget.feature.title
+                            is SelectedMapTarget.ArbitraryPoint -> pointContextData?.nearest_settlement ?: "Point Inspection"
                         }
                         val geoUri = Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(label)})")
                         val mapIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
@@ -146,6 +149,20 @@ fun PointDetailsBottomSheet(
         }
     }
 }
+
+@Composable
+fun PointDetailsBottomSheet(
+    uiState: MapUiState,
+    onDismiss: () -> Unit,
+    onSelectHazard: ((UnifiedMapFeature) -> Unit)? = null
+) = PointDetailsBottomSheet(
+    target = uiState.selectedTarget,
+    pointContextData = uiState.pointContextData,
+    pointContextLoading = uiState.pointContextLoading,
+    pointContextError = uiState.pointContextError,
+    onDismiss = onDismiss,
+    onSelectHazard = onSelectHazard
+)
 
 @Composable
 private fun PointDetailsHeader(

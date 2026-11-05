@@ -451,49 +451,28 @@ class MainActivity : ComponentActivity() {
 
 
                                         NavigationBar(
-
-                                            containerColor = MaterialTheme.colorScheme.surface,
-
-                                            tonalElevation = 6.dp
-
+                                            containerColor = DarkBackground,
+                                            tonalElevation = 0.dp
                                         ) {
-
                                             Screen.bottomNavScreens.filterNotNull().forEach { screen ->
-
+                                                val isSelected = currentRoute?.substringBefore('?') == screen.route.substringBefore('?')
                                                 NavigationBarItem(
-
                                                     icon = { Icon(screen.icon, contentDescription = screen.title) },
-
                                                     label = {
-
                                                         Text(
-
                                                             screen.title,
-
                                                             style = MaterialTheme.typography.labelSmall,
-
-                                                            fontWeight = if (currentRoute == screen.route) FontWeight.Bold else FontWeight.Medium
-
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                                         )
-
                                                     },
-
-                                                    selected = currentRoute?.substringBefore('?') == screen.route.substringBefore('?'),
-
+                                                    selected = isSelected,
                                                     colors = NavigationBarItemDefaults.colors(
-
-                                                        selectedIconColor = ForestGreenPrimary,
-
-                                                        selectedTextColor = ForestGreenPrimary,
-
-                                                        indicatorColor = SageContainer,
-
-                                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-
-                                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-
+                                                        selectedIconColor = DarkBackground,
+                                                        selectedTextColor = MintPrimary,
+                                                        indicatorColor = MintPrimary,
+                                                        unselectedIconColor = TextSecondary,
+                                                        unselectedTextColor = TextSecondary
                                                     ),
-
                                                     onClick = {
 
                                                         val targetRoute = if (screen == Screen.Map) "map" else screen.route

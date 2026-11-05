@@ -5,6 +5,7 @@ import android.util.Log
 import com.touristsafety.app.core.model.MapFeatureCategory
 import com.touristsafety.app.core.model.UnifiedMapFeature
 import com.touristsafety.app.feature.map.MapUiState
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,6 +43,7 @@ object MapLibreLayerManager {
     private var lastSelectedPointGeoJson: String? = null
     private var lastHistoricalLandslidesGeoJson: String? = null
     private var lastHazardSequenceGeoJson: String? = null
+    private var lastRouteWeatherGeoJson: String? = null
     private var lastCommunityGeoJson: String? = null
     private var lastCellularRangeGeoJson: String? = null
     private var lastCellSiteJson: String? = null
@@ -62,6 +64,7 @@ object MapLibreLayerManager {
         lastFireGeoJson = null
         lastHavenGeoJson = null
         lastWeatherGeoJson = null
+        lastRouteWeatherGeoJson = null
         lastSlopeGeoJson = null
         lastWaterwayGeoJson = null
         lastSelectedPointGeoJson = null
@@ -176,6 +179,12 @@ object MapLibreLayerManager {
     // Ordered Route Hazard Sequence (Animated Icons & Sequence Badges)
     const val SOURCE_ROUTE_HAZARD_SEQUENCE = "source-route-hazard-sequence"
     const val LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL = "layer-route-hazard-sequence-symbol"
+
+    // Dedicated Route Weather Checkpoints (Rainfall, Landslide, Weather Dots)
+    const val SOURCE_ROUTE_WEATHER_POINTS = "source-route-weather-points"
+    const val LAYER_ROUTE_WEATHER_PULSE = "layer-route-weather-pulse"
+    const val LAYER_ROUTE_WEATHER_CIRCLE = "layer-route-weather-circle"
+    const val LAYER_ROUTE_WEATHER_SYMBOL = "layer-route-weather-symbol"
 
     // Active Trek Layers
     // Verified Himalayan Trails
@@ -1072,6 +1081,67 @@ object MapLibreLayerManager {
                 style.addLayer(seqSymbol)
             }
 
+            // 9. Dedicated Route Weather Checkpoints (Dots of weather info, rainfall alerts & landslide probability)
+            if (style.getSource(SOURCE_ROUTE_WEATHER_POINTS) == null) {
+                style.addSource(GeoJsonSource(SOURCE_ROUTE_WEATHER_POINTS, EMPTY_GEOJSON))
+            }
+            if (style.getLayer(LAYER_ROUTE_WEATHER_PULSE) == null) {
+                val pulse = CircleLayer(LAYER_ROUTE_WEATHER_PULSE, SOURCE_ROUTE_WEATHER_POINTS).apply {
+                    setProperties(
+                        circleRadius(interpolate(linear(), zoom(), stop(8.0f, 13.0f), stop(12.0f, 16.0f), stop(16.0f, 20.0f))),
+                        circleColor(
+                            match(
+                                get("risk_level"),
+                                literal("SEVERE"), color(Color.rgb(220, 38, 38)),
+                                literal("HIGH"), color(Color.rgb(234, 88, 12)),
+                                literal("MODERATE"), color(Color.rgb(245, 158, 11)),
+                                color(Color.rgb(2, 132, 199))
+                            )
+                        ),
+                        circleOpacity(0.35f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(1.5f),
+                        circleStrokeOpacity(0.55f)
+                    )
+                }
+                style.addLayer(pulse)
+            }
+            if (style.getLayer(LAYER_ROUTE_WEATHER_CIRCLE) == null) {
+                val circle = CircleLayer(LAYER_ROUTE_WEATHER_CIRCLE, SOURCE_ROUTE_WEATHER_POINTS).apply {
+                    setProperties(
+                        circleRadius(interpolate(linear(), zoom(), stop(8.0f, 8.0f), stop(12.0f, 10.5f), stop(16.0f, 13.5f))),
+                        circleColor(
+                            match(
+                                get("risk_level"),
+                                literal("SEVERE"), color(Color.rgb(220, 38, 38)),
+                                literal("HIGH"), color(Color.rgb(234, 88, 12)),
+                                literal("MODERATE"), color(Color.rgb(245, 158, 11)),
+                                color(Color.rgb(2, 132, 199))
+                            )
+                        ),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(2.5f)
+                    )
+                }
+                style.addLayer(circle)
+            }
+            if (style.getLayer(LAYER_ROUTE_WEATHER_SYMBOL) == null) {
+                val symbol = SymbolLayer(LAYER_ROUTE_WEATHER_SYMBOL, SOURCE_ROUTE_WEATHER_POINTS).apply {
+                    setProperties(
+                        textField(get("badge_text")),
+                        textSize(interpolate(linear(), zoom(), stop(8.0f, 9.5f), stop(12.0f, 10.5f), stop(16.0f, 12.0f))),
+                        textColor(Color.WHITE),
+                        textHaloColor(Color.BLACK),
+                        textHaloWidth(2.0f),
+                        textOffset(arrayOf(0f, -1.6f)),
+                        textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+                        textAllowOverlap(true),
+                        textIgnorePlacement(false)
+                    )
+                }
+                style.addLayer(symbol)
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing MapLibre sources and layers: ${e.message}", e)
         }
@@ -1272,36 +1342,6 @@ object MapLibreLayerManager {
                     val weatherFeatures = state.allFeatures.filter { it.category == MapFeatureCategory.WEATHER_POINT }
                     if (weatherFeatures.isNotEmpty()) {
                         buildPointFeatureCollection(weatherFeatures)
-                    } else if (state.routeWeatherSamples.isNotEmpty()) {
-                        val root = org.json.JSONObject()
-                        root.put("type", "FeatureCollection")
-                        val arr = org.json.JSONArray()
-                        state.routeWeatherSamples.forEach { s ->
-                            val feat = org.json.JSONObject()
-                            feat.put("type", "Feature")
-                            feat.put("id", s.sampleId)
-                            val geom = org.json.JSONObject()
-                            geom.put("type", "Point")
-                            geom.put("coordinates", org.json.JSONArray(listOf(s.longitude, s.latitude)))
-                            feat.put("geometry", geom)
-                            val props = org.json.JSONObject()
-                            props.put("id", s.sampleId)
-                            props.put("sample_id", s.sampleId)
-                            props.put("name", s.name)
-                            props.put("category", "WEATHER_POINT")
-                            props.put("category_enum", "WEATHER_POINT")
-                            props.put("temperature_c", s.weather.temperature_c)
-                            props.put("precipitation_mm", s.weather.precipitation_mm)
-                            props.put("precipitation_probability_pct", s.weather.precipitation_probability_pct)
-                            props.put("wind_speed_kmh", s.weather.wind_speed_kmh)
-                            props.put("weather_description", s.weather.weather_description)
-                            props.put("landslide_prob_pct", s.landslideProbabilityPct)
-                            props.put("distance_km", s.distanceAlongRouteKm)
-                            feat.put("properties", props)
-                            arr.put(feat)
-                        }
-                        root.put("features", arr)
-                        root.toString()
                     } else {
                         EMPTY_GEOJSON
                     }
@@ -1448,6 +1488,20 @@ object MapLibreLayerManager {
                 Log.w(TAG, "Failed updating route hazard sequence GeoJSON: ${t.message}")
             }
 
+            // 7g-3. Update Route Weather Checkpoints GeoJSON (Dots along the active route)
+            try {
+                val rwSource = style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_WEATHER_POINTS)
+                val rwJson = if (state.routeWeatherSamples.isNotEmpty()) {
+                    buildRouteWeatherCheckpointsGeoJson(state.routeWeatherSamples)
+                } else EMPTY_GEOJSON
+                if (rwJson != lastRouteWeatherGeoJson) {
+                    rwSource?.setGeoJson(rwJson)
+                    lastRouteWeatherGeoJson = rwJson
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating route weather checkpoints GeoJSON: ${t.message}")
+            }
+
             // 7g-2. Update Community Hazards GeoJSON
             try {
                 val commSource = style.getSourceAs<GeoJsonSource>(SOURCE_COMMUNITY_HAZARDS)
@@ -1508,6 +1562,8 @@ object MapLibreLayerManager {
             style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_PRIMARY)?.setGeoJson(EMPTY_GEOJSON)
             style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_SECONDARY)?.setGeoJson(EMPTY_GEOJSON)
             style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_HAZARD_SEQUENCE)?.setGeoJson(EMPTY_GEOJSON)
+            style.getSourceAs<GeoJsonSource>(SOURCE_ROUTE_WEATHER_POINTS)?.setGeoJson(EMPTY_GEOJSON)
+            lastRouteWeatherGeoJson = null
             Log.d(TAG, "Cleared route and corridor layers from MapLibre style.")
         } catch (e: Throwable) {
             Log.w(TAG, "Failed clearing route layers: ${e.message}")
@@ -1676,6 +1732,18 @@ object MapLibreLayerManager {
         )
         style.getLayer(LAYER_WATERWAYS_LINE)?.setProperties(
             visibility(if (waterVis) Property.VISIBLE else Property.NONE)
+        )
+
+        // Route Weather Checkpoints Visibility (Visible whenever active route or weather samples exist)
+        val routeWeatherVis = state.routeCoordinates.size >= 2 || state.routeWeatherSamples.isNotEmpty()
+        style.getLayer(LAYER_ROUTE_WEATHER_PULSE)?.setProperties(
+            visibility(if (routeWeatherVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_ROUTE_WEATHER_CIRCLE)?.setProperties(
+            visibility(if (routeWeatherVis) Property.VISIBLE else Property.NONE)
+        )
+        style.getLayer(LAYER_ROUTE_WEATHER_SYMBOL)?.setProperties(
+            visibility(if (routeWeatherVis) Property.VISIBLE else Property.NONE)
         )
     }
 
@@ -1934,12 +2002,18 @@ object MapLibreLayerManager {
     /**
      * Ensures any raw GeoJSON string (e.g. LineString or Polygon) is wrapped into a valid FeatureCollection
      * so that MapLibre GeoJsonSource can parse and render it without runtime schema errors.
+     * Uses zero-allocation fast prefix checks to avoid blocking the Main Thread on multi-megabyte strings.
      */
     fun ensureFeatureCollection(rawJson: String?): String {
         if (rawJson.isNullOrBlank() || rawJson.trim() == "{}" || rawJson.trim() == "null") {
-            return "{\"type\":\"FeatureCollection\",\"features\":[]}"
+            return EMPTY_GEOJSON
         }
         val trimmed = rawJson.trim()
+        // Fast path: O(1) check avoiding synchronous multi-megabyte JSON tree parsing on the Main Thread
+        val prefix = if (trimmed.length > 80) trimmed.substring(0, 80) else trimmed
+        if (prefix.contains("\"type\"", ignoreCase = true) && prefix.contains("\"FeatureCollection\"", ignoreCase = true)) {
+            return trimmed
+        }
         return try {
             val root = org.json.JSONObject(trimmed)
             val type = root.optString("type")
@@ -1951,18 +2025,22 @@ object MapLibreLayerManager {
                 "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":$trimmed}]}"
             }
         } catch (_: Exception) {
-            "{\"type\":\"FeatureCollection\",\"features\":[]}"
+            EMPTY_GEOJSON
         }
     }
 
     /**
      * Checks whether a GeoJSON string contains at least one non-empty feature.
      * Prevents empty FeatureCollections from overwriting baseline or memory features.
+     * Uses fast substring check to avoid full tree JSON parsing on the Main Thread.
      */
     fun hasFeatures(rawJson: String?): Boolean {
         if (rawJson.isNullOrBlank()) return false
         val trimmed = rawJson.trim()
         if (trimmed == "{}" || trimmed == "null" || trimmed.isEmpty()) return false
+        if (trimmed.contains("\"features\":[]") || trimmed.contains("\"features\": []")) return false
+        if (trimmed.contains("\"features\":[") || trimmed.contains("\"features\": [")) return true
+        if (trimmed.contains("\"type\":\"Feature\"") || trimmed.contains("\"type\": \"Feature\"") || trimmed.contains("\"geometry\"")) return true
         return try {
             val root = org.json.JSONObject(trimmed)
             val features = root.optJSONArray("features")
@@ -2164,6 +2242,66 @@ object MapLibreLayerManager {
             sb.append("\"is_selected\":$isSelected,")
             sb.append("\"is_direct_intersection\":${item.intersectionType == com.touristsafety.app.core.model.RouteIntersectionType.DIRECT_INTERSECTION},")
             sb.append("\"trek_status\":\"${item.trekStatus.name}\"")
+            sb.append("}}")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    /**
+     * Serializes route weather checkpoints (temperature, precipitation, landslide risk, slope)
+     * into MapLibre GeoJSON FeatureCollection for GPU vector layer rendering.
+     */
+    fun buildRouteWeatherCheckpointsGeoJson(
+        samples: List<com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather>
+    ): String {
+        if (samples.isEmpty()) return EMPTY_GEOJSON
+        val sb = StringBuilder()
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
+        samples.forEachIndexed { idx, s ->
+            if (idx > 0) sb.append(",")
+            val safeId = escapeJson(s.sampleId)
+            val safeName = escapeJson(s.name)
+            val safeDesc = escapeJson(s.weather.weather_description)
+            val safeRiskLevel = escapeJson(s.landslideRiskLevel)
+
+            val riskLevel = when {
+                s.heavyRainfallWarning || s.landslideRiskLevel.equals("SEVERE", ignoreCase = true) || s.landslideProbabilityPct >= 70.0 || (s.weather.precipitation_mm ?: 0.0) >= 15.0 -> "SEVERE"
+                s.landslideRiskLevel.equals("HIGH", ignoreCase = true) || s.landslideProbabilityPct >= 40.0 || (s.weather.precipitation_mm ?: 0.0) >= 7.5 -> "HIGH"
+                s.landslideRiskLevel.equals("MODERATE", ignoreCase = true) || s.landslideProbabilityPct >= 20.0 || (s.weather.precipitation_mm ?: 0.0) >= 2.5 -> "MODERATE"
+                else -> "LOW"
+            }
+
+            val badgeText = when {
+                s.heavyRainfallWarning -> String.format(Locale.US, "🌧️ %.1fmm Rain", s.weather.precipitation_mm)
+                s.landslideProbabilityPct >= 35.0 -> String.format(Locale.US, "⚠️ Landslide %.0f%%", s.landslideProbabilityPct)
+                (s.weather.precipitation_mm ?: 0.0) > 0.0 -> String.format(Locale.US, "%.1f°C • %.1fmm", s.weather.temperature_c, s.weather.precipitation_mm)
+                else -> String.format(Locale.US, "%.1f°C", s.weather.temperature_c)
+            }
+            val safeBadge = escapeJson(badgeText)
+
+            sb.append("{\"type\":\"Feature\",\"id\":\"$safeId\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+            sb.append(s.longitude).append(",").append(s.latitude)
+            sb.append("]},\"properties\":{")
+            sb.append("\"id\":\"$safeId\",")
+            sb.append("\"sample_id\":\"$safeId\",")
+            sb.append("\"sample_index\":${s.sampleIndex},")
+            sb.append("\"name\":\"$safeName\",")
+            sb.append("\"category\":\"WEATHER_POINT\",")
+            sb.append("\"category_enum\":\"WEATHER_POINT\",")
+            sb.append("\"risk_level\":\"$riskLevel\",")
+            sb.append("\"badge_text\":\"$safeBadge\",")
+            sb.append("\"temperature_c\":${String.format(Locale.US, "%.2f", s.weather.temperature_c)},")
+            sb.append("\"precipitation_mm\":${String.format(Locale.US, "%.2f", s.weather.precipitation_mm)},")
+            sb.append("\"precipitation_probability_pct\":${String.format(Locale.US, "%.2f", s.weather.precipitation_probability_pct)},")
+            sb.append("\"wind_speed_kmh\":${String.format(Locale.US, "%.2f", s.weather.wind_speed_kmh)},")
+            sb.append("\"weather_description\":\"$safeDesc\",")
+            sb.append("\"heavy_rainfall_warning\":${s.heavyRainfallWarning},")
+            sb.append("\"landslide_prob_pct\":${String.format(Locale.US, "%.2f", s.landslideProbabilityPct)},")
+            sb.append("\"landslide_risk_level\":\"$safeRiskLevel\",")
+            sb.append("\"slope_degrees\":${String.format(Locale.US, "%.2f", s.slopeDegrees)},")
+            sb.append("\"elevation_m\":${String.format(Locale.US, "%.2f", s.elevationM)},")
+            sb.append("\"distance_km\":${String.format(Locale.US, "%.2f", s.distanceAlongRouteKm)}")
             sb.append("}}")
         }
         sb.append("]}")

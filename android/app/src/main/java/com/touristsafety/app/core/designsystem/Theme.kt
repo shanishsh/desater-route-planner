@@ -41,36 +41,37 @@ val ExpressiveLightColorScheme = lightColorScheme(
 )
 
 val ExpressiveDarkColorScheme = darkColorScheme(
-    primary = ForestGreenLight,
-    onPrimary = Color.White,
-    primaryContainer = ForestGreenDark,
-    onPrimaryContainer = Sage,
-    secondary = Sage,
-    onSecondary = ForestGreenDark,
-    secondaryContainer = ForestGreenPrimary,
-    onSecondaryContainer = Color.White,
+    primary = MintPrimary,
+    onPrimary = DarkBackground,
+    primaryContainer = DarkSurfaceSecondary,
+    onPrimaryContainer = MintPrimary,
+    secondary = MintSecondary,
+    onSecondary = DarkBackground,
+    secondaryContainer = DarkSurfaceElevated,
+    onSecondaryContainer = TextPrimary,
     tertiary = MountainMist,
     onTertiary = MountainSlate,
-    background = BackgroundDark,
-    surface = SurfaceDark,
-    onSurface = TextPrimaryDark,
-    surfaceVariant = SurfaceVariantDark,
-    onSurfaceVariant = TextSecondaryDark,
-    surfaceContainerLowest = Color(0xFF0C0F0E),
-    surfaceContainerLow = BackgroundDark,
-    surfaceContainer = SurfaceDark,
-    surfaceContainerHigh = SurfaceVariantDark,
-    surfaceContainerHighest = Color(0xFF38403C),
-    outline = OutlineDark,
-    error = EmergencyRed,
-    onError = OnEmergencyRed,
-    errorContainer = EmergencyRed.copy(alpha = 0.25f),
+    background = DarkBackground,
+    surface = DarkSurfacePrimary,
+    onSurface = TextPrimary,
+    surfaceVariant = DarkSurfaceSecondary,
+    onSurfaceVariant = TextSecondary,
+    surfaceContainerLowest = DarkBackground,
+    surfaceContainerLow = DarkSurfacePrimary,
+    surfaceContainer = DarkSurfaceSecondary,
+    surfaceContainerHigh = DarkSurfaceElevated,
+    surfaceContainerHighest = Color(0xFF384643),
+    outline = DarkDivider,
+    outlineVariant = Color(0xFF2C3734),
+    error = CriticalRed,
+    onError = Color.White,
+    errorContainer = DarkEmergencyContainer,
     onErrorContainer = Color(0xFFFFB4AB)
 )
 
 /**
  * TouristSafetyTheme modernizes the application theme into Material 3 Expressive.
- * - Dynamic wallpaper color on Android 12+ (API 31+) with expressive alpine fallbacks
+ * - Premium outdoor dark theme strictly follows reference visual palette
  * - Strictly paired container and content color roles
  * - Physics-based motion tokens and reduced-motion accessibility provider
  * - Expressive increased shape tokens and typography
@@ -78,7 +79,7 @@ val ExpressiveDarkColorScheme = darkColorScheme(
 @Composable
 fun TouristSafetyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current

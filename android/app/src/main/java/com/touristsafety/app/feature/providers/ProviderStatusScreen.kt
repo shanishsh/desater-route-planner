@@ -315,11 +315,11 @@ fun ProviderStatusScreen(
 
             // 4. Provider Status Items
             if (uiState.isLoading && uiState.providers.isEmpty()) {
-                items(count = 4) {
+                items(count = 4, key = { "skeleton_provider_$it" }) {
                     com.touristsafety.app.core.designsystem.components.SkeletonProviderStatusCard()
                 }
             } else {
-                items(uiState.providers) { provider ->
+                items(uiState.providers, key = { it.providerId }) { provider ->
                     ProviderCard(provider = provider) { url ->
                         if (url.isNotBlank()) {
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))

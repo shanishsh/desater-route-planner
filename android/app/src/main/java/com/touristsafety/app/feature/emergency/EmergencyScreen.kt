@@ -2,33 +2,40 @@ package com.touristsafety.app.feature.emergency
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.designsystem.components.*
-import com.touristsafety.app.core.model.MapPoint
-import com.touristsafety.app.core.model.PointCategory
+
+private val OFFICIAL_UTTARAKHAND_CONTACTS = listOf(
+    Triple("SDRF", "Rescue helpline", "1077"),
+    Triple("SEOC", "Rescue helpline", "1070"),
+    Triple("Van Agni", "Rescue helpline", "1800-180-4141"),
+    Triple("Trekker & Pilgrim", "Char Dham helpline", "1364"),
+    Triple("Ambulance & Medical", "State medical emergency", "108")
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,16 +48,26 @@ fun EmergencyScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Safety Hub & Emergency", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        "Safety Hub & Emergency",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = DarkBackground,
+                    titleContentColor = TextPrimary
                 )
             )
         },
+        containerColor = DarkBackground,
         modifier = modifier
     ) { innerPadding ->
         LazyColumn(
@@ -58,151 +75,70 @@ fun EmergencyScreen(
                 .padding(innerPadding)
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. National Emergency 112 Hero Card
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val intent = Intent(Intent.ACTION_DIAL).apply {
-                                data = Uri.parse("tel:112")
+            // 1. Dial National Emergency (112) Hero Banner (Screen 4 Reference)
+            item(key = "emergency_hero_banner") {
+                EmergencyHeroCard(
+                    onCallClick = {
+                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                            data = Uri.parse("tel:112")
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+            }
+
+            // 2. Section: Location (Screen 4 Reference)
+            item(key = "section_location") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Location",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    LocationCard(
+                        latitude = state.userLatitude,
+                        longitude = state.userLongitude,
+                        accuracyMeters = null,
+                        onCopyCoordinates = {
+                            if (state.userLatitude != null && state.userLongitude != null) {
+                                val coordsStr = String.format(java.util.Locale.US, "%.5f, %.5f", state.userLatitude, state.userLongitude)
+                                clipboardManager.setText(AnnotatedString(coordsStr))
+                                Toast.makeText(context, "Coordinates copied: $coordsStr", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "GPS location still acquiring...", Toast.LENGTH_SHORT).show()
                             }
-                            context.startActivity(intent)
                         },
-                    color = EmergencyRed,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            AppIcons.DialEmergency,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Dial National Emergency (112)",
-                                color = Color.White,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "India ERSS: Police, Fire & Medical 24x7",
-                                color = Color.White.copy(alpha = 0.9f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Button(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_DIAL).apply {
-                                    data = Uri.parse("tel:112")
-                                }
-                                context.startActivity(intent)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Text("CALL", color = EmergencyRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
+                        onOpenMap = {}
+                    )
                 }
             }
 
-            // 2. Handset GPS Location for Emergency Dispatch
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = SageContainer,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(AppIcons.MyLocation, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Your Current GPS Coordinates",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = ForestGreenPrimary
-                            )
+            // 3. Section: Beacon (Screen 4 Reference)
+            item(key = "section_beacon") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Beacon",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    DistressBeaconCard(
+                        onTransmitBeacon = {
+                            viewModel.triggerFieldSos()
+                            Toast.makeText(context, "Distress beacon transmitted to local network & SMS cache", Toast.LENGTH_LONG).show()
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        if (state.userLatitude != null && state.userLongitude != null) {
-                            Text(
-                                text = String.format(java.util.Locale.US, "%.5f° N,  %.5f° E", state.userLatitude, state.userLongitude),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimaryLight
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "Read these exact coordinates to 112 / SDRF dispatchers.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondaryLight
-                            )
-                        } else {
-                            Text(
-                                "Acquiring satellite GPS fix... Clear sky view required.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondaryLight
-                            )
-                        }
-                    }
+                    )
                 }
             }
 
-            // 3. Search & Rescue (SAR) Distress Field Beacon
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = if (state.isSosTriggered) EmergencyRed else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                AppIcons.SosBeacon,
-                                contentDescription = null,
-                                tint = if (state.isSosTriggered) Color.White else EmergencyRed,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    if (state.isSosTriggered) "SOS BEACON TRANSMITTED" else "SAR Distress Beacon",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (state.isSosTriggered) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    "Broadcasts emergency GPS coordinates & telemetry",
-                                    fontSize = 12.sp,
-                                    color = if (state.isSosTriggered) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        AppPrimaryButton(
-                            text = if (state.isSosTriggered) "RE-TRANSMIT BEACON" else "TRANSMIT DISTRESS BEACON",
-                            containerColor = if (state.isSosTriggered) Color.White else EmergencyRed,
-                            contentColor = if (state.isSosTriggered) EmergencyRed else Color.White,
-                            onClick = { viewModel.triggerFieldSos() }
-                        )
-                    }
-                }
-            }
-
-            // SOS Feedback message
+            // SOS Feedback Banner (if active)
             state.sosMessage?.let { msg ->
-                item {
+                item(key = "sos_feedback") {
                     AppErrorBanner(
                         message = msg,
                         isCritical = false,
@@ -212,185 +148,137 @@ fun EmergencyScreen(
                 }
             }
 
-            // 4. Uttarakhand Verified Emergency Helplines
-            item {
-                AppSectionHeader(
-                    title = "Uttarakhand Rescue Directory",
-                    subtitle = "Verified Government of Uttarakhand helplines"
-                )
-            }
-
-            val officialContacts = listOf(
-                Triple("SDRF Mountain Rescue", "1077", "State Disaster Response Force 24x7"),
-                Triple("State Disaster Op Centre (SEOC)", "1070", "USDMA Emergency Operations"),
-                Triple("Forest Fire Helpline (Van Agni)", "18001804141", "Forest Department MoEFCC"),
-                Triple("Trekker & Pilgrim Helpline", "1364", "Uttarakhand Tourism & Char Dham"),
-                Triple("Ambulance & Medical Emergency", "108", "State Health Emergency Service")
-            )
-
-            items(officialContacts) { (title, phone, desc) ->
-                AppListItem(
-                    title = title,
-                    subtitle = desc,
-                    leadingIcon = AppIcons.Phone,
-                    leadingIconTint = ForestGreenPrimary,
-                    leadingIconBg = SageContainer,
-                    trailingContent = {
-                        Button(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_DIAL).apply {
-                                    data = Uri.parse("tel:$phone")
-                                }
-                                context.startActivity(intent)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = SageContainer),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(phone, color = ForestGreenPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    },
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:$phone")
-                        }
-                        context.startActivity(intent)
-                    }
-                )
-            }
-
-            // 5. Safety & Operational Modules (Centralized Hub)
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
-                AppSectionHeader(
-                    title = "Safety & Operational Modules",
-                    subtitle = "Real-time advisories, offline survival protocols, and system diagnostics"
-                )
-            }
-
-            item {
-                AppListItem(
-                    title = "Live Weather & Disaster Advisories",
-                    subtitle = "Real-time IMD rain, flood warnings, avalanche & landslide bulletins",
-                    leadingIcon = AppIcons.Alerts,
-                    leadingIconTint = WarningAmber,
-                    leadingIconBg = SageContainer,
-                    showChevron = true,
-                    showDivider = true,
-                    onClick = onNavigateToAlerts
-                )
-            }
-
-            item {
-                AppListItem(
-                    title = "Disaster Safety Protocols & Geofence SMS",
-                    subtitle = "Offline survival checklists, emergency SMS contacts, and corridor geofences",
-                    leadingIcon = AppIcons.DisasterSafety,
-                    leadingIconTint = ForestGreenPrimary,
-                    leadingIconBg = SageContainer,
-                    showChevron = true,
-                    showDivider = true,
-                    onClick = onNavigateToDisasterSafety
-                )
-            }
-
-            item {
-                AppListItem(
-                    title = "Data Providers & System Diagnostics",
-                    subtitle = "Live status of OpenFreeMap, IMD weather, USGS elevation, and telemetry sync",
-                    leadingIcon = AppIcons.ProviderStatus,
-                    leadingIconTint = ForestGreenPrimary,
-                    leadingIconBg = SageContainer,
-                    showChevron = true,
-                    showDivider = true,
-                    onClick = onNavigateToProviders
-                )
-            }
-
-            // 6. Nearby Facilities Header & Category Filter
-            item {
-                AppSectionHeader(
-                    title = "Nearby Assistance Facilities",
-                    subtitle = "Verified hospitals, police stations, shelters, and medical posts along trail corridors"
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = state.selectedCategory == null,
-                        onClick = { viewModel.selectCategory(null) },
-                        label = { Text("All") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = SageContainer,
-                            selectedLabelColor = ForestGreenPrimary
-                        )
+            // 4. Section: Uttarakhand Rescue Directory (Screen 4 Reference)
+            item(key = "section_rescue_directory") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Uttarakhand Rescue Directory",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
                     )
-                    PointCategory.values().forEach { cat ->
-                        FilterChip(
-                            selected = state.selectedCategory == cat,
-                            onClick = { viewModel.selectCategory(cat) },
-                            label = { Text(cat.name.replace('_', ' ')) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SageContainer,
-                                selectedLabelColor = ForestGreenPrimary
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OFFICIAL_UTTARAKHAND_CONTACTS.forEach { (name, desc, phone) ->
+                            RescueDirectoryRow(
+                                authorityName = name,
+                                roleDescription = desc,
+                                phoneNumber = phone,
+                                onCallClick = {
+                                    val cleanNum = phone.replace("-", "")
+                                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = Uri.parse("tel:$cleanNum")
+                                    }
+                                    context.startActivity(intent)
+                                }
                             )
-                        )
+                        }
                     }
                 }
             }
 
-            // 7. Facilities List
-            if (state.filteredPoints.isEmpty()) {
-                item {
-                    AppEmptyState(
-                        title = "No Facilities in Cached Corridor",
-                        description = "Expand your corridor search buffer in Plan Route or download an offline trek pack.",
-                        icon = AppIcons.Hospital
+            // 5. Section: Safety & Operational Modules
+            item(key = "section_safety_modules") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Safety & Operational Modules",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
                     )
-                }
-            } else {
-                items(state.filteredPoints, key = { it.id }) { pt ->
-                    val facilityIcon = when (pt.category) {
-                        PointCategory.POLICE -> AppIcons.Police
-                        PointCategory.MEDICAL, PointCategory.CLINIC -> AppIcons.Hospital
-                        PointCategory.SHELTER -> AppIcons.Shelter
-                        else -> AppIcons.Pharmacy
-                    }
-                    AppListItem(
-                        title = pt.name,
-                        subtitle = "${pt.category.name.replace('_', ' ')}${if (pt.address != null) " • ${pt.address}" else ""}",
-                        caption = "Source: ${pt.provenance}",
-                        leadingIcon = facilityIcon,
-                        leadingIconTint = ForestGreenPrimary,
-                        leadingIconBg = SageContainer,
-                        trailingContent = pt.phone?.let { phoneNum ->
-                            {
-                                Button(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                                            data = Uri.parse("tel:$phoneNum")
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = SageContainer),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkSurfacePrimary,
+                        border = BorderStroke(1.dp, DarkDivider)
+                    ) {
+                        Column {
+                            // Live Weather & Disaster Advisories
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToAlerts() }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x33F2A477)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(AppIcons.Phone, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Call", color = ForestGreenPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Icon(AppIcons.Alerts, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(18.dp))
                                 }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Live Weather & Disaster Advisories", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                                    Text("IMD rain, flood warnings, avalanche bulletins", fontSize = 11.sp, color = TextSecondary)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+
+                            HorizontalDivider(color = DarkDivider, thickness = 0.5.dp)
+
+                            // Offline Survival & SMS Beacon Hub
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToDisasterSafety() }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x3388CDB2)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(AppIcons.DisasterSafety, contentDescription = null, tint = MintSecondary, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Offline Survival & SMS Emergency Hub", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                                    Text("Trusted SMS contacts & offline shelter maps", fontSize = 11.sp, color = TextSecondary)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+
+                            HorizontalDivider(color = DarkDivider, thickness = 0.5.dp)
+
+                            // Data Providers & System Diagnostics
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToProviders() }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x33303D3A)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(AppIcons.ProviderStatus, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Data Providers & System Diagnostics", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                                    Text("Inspect real-time feeds, offline sync & cache", fontSize = 11.sp, color = TextSecondary)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                             }
                         }
-                    )
+                    }
                 }
             }
 
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
+            item(key = "bottom_spacer") {
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

@@ -372,7 +372,7 @@ fun MapLocationPickerDialog(
                             .fillMaxWidth()
                             .padding(top = 4.dp)
                     ) {
-                        items(quickTowns) { (name, coords) ->
+                        items(quickTowns, key = { it.first }) { (name, coords) ->
                             SuggestionChip(
                                 onClick = {
                                     val pt = LatLng(coords.first, coords.second)

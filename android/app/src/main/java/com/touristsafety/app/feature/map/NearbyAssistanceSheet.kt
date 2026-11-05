@@ -87,7 +87,7 @@ fun NearbyAssistanceSheet(
                         .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(items) { feature ->
+                    items(items, key = { it.id }) { feature ->
                         AssistanceRowItem(
                             feature = feature,
                             onClick = {

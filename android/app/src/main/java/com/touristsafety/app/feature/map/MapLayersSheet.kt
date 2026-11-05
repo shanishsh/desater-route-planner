@@ -21,6 +21,8 @@ import com.touristsafety.app.core.map.BasemapMode
 import com.touristsafety.app.core.model.LayerDataStatus
 import com.touristsafety.app.core.model.MapFeatureCategory
 
+private val LAYER_CATEGORIES = MapFeatureCategory.entries.filter { it != MapFeatureCategory.ROUTE_WAYPOINT }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapLayersSheet(
@@ -148,7 +150,7 @@ fun MapLayersSheet(
                     .weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(MapFeatureCategory.entries.filter { it != MapFeatureCategory.ROUTE_WAYPOINT }) { category ->
+                items(LAYER_CATEGORIES, key = { it.name }) { category ->
                     val isVisible = layerVisibilities[category] ?: true
                     val status = layerStatuses[category] ?: LayerDataStatus.LOADED
                     val count = categoryCounts[category] ?: 0

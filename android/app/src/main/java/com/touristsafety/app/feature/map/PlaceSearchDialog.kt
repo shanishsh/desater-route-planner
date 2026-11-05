@@ -93,7 +93,7 @@ fun PlaceSearchDialog(
                         .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(results) { place ->
+                    items(results, key = { "${it.name}_${it.latitude}_${it.longitude}" }) { place ->
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),

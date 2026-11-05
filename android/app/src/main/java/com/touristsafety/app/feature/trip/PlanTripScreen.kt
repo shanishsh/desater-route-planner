@@ -4,6 +4,8 @@ import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,7 +21,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -44,7 +49,7 @@ data class VerifiedCorridor(
 
 val defaultVerifiedCorridors = listOf(
     VerifiedCorridor(
-        label = "Kedarnath Trek (Foot)",
+        label = "Kedarnath",
         originName = "Gaurikund Roadhead",
         originLat = 30.6534,
         originLon = 79.0268,
@@ -55,13 +60,35 @@ val defaultVerifiedCorridors = listOf(
         isPedestrianOnly = true
     ),
     VerifiedCorridor(
-        label = "Tungnath – Chandrashila",
+        label = "Tungnath",
         originName = "Chopta Roadhead",
         originLat = 30.4870,
         originLon = 79.2170,
         destName = "Tungnath Temple",
         destLat = 30.4883,
         destLon = 79.2174,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Rudranath",
+        originName = "Sagar Village",
+        originLat = 30.4432,
+        originLon = 79.3304,
+        destName = "Rudranath Temple",
+        destLat = 30.5230,
+        destLon = 79.3245,
+        mode = "hiking",
+        isPedestrianOnly = true
+    ),
+    VerifiedCorridor(
+        label = "Hemkund",
+        originName = "Ghangaria Camp",
+        originLat = 30.7011,
+        originLon = 79.5852,
+        destName = "Hemkund Sahib Gurudwara",
+        destLat = 30.7001,
+        destLon = 79.6083,
         mode = "hiking",
         isPedestrianOnly = true
     ),
@@ -73,17 +100,6 @@ val defaultVerifiedCorridors = listOf(
         destName = "Valley of Flowers Entry",
         destLat = 30.7258,
         destLon = 79.5936,
-        mode = "hiking",
-        isPedestrianOnly = true
-    ),
-    VerifiedCorridor(
-        label = "Hemkund Sahib",
-        originName = "Ghangaria Camp",
-        originLat = 30.7011,
-        originLon = 79.5852,
-        destName = "Hemkund Sahib Gurudwara",
-        destLat = 30.7001,
-        destLon = 79.6083,
         mode = "hiking",
         isPedestrianOnly = true
     ),
@@ -110,17 +126,6 @@ val defaultVerifiedCorridors = listOf(
         isPedestrianOnly = true
     ),
     VerifiedCorridor(
-        label = "Gaurikund Base (NH 107)",
-        originName = "Rudraprayag Junction",
-        originLat = 30.2844,
-        originLon = 78.9806,
-        destName = "Gaurikund",
-        destLat = 30.6534,
-        destLon = 79.0268,
-        mode = "driving",
-        isPedestrianOnly = false
-    ),
-    VerifiedCorridor(
         label = "Mussoorie Hills",
         originName = "Dehradun Clock Tower",
         originLat = 30.3165,
@@ -139,17 +144,6 @@ val defaultVerifiedCorridors = listOf(
         destName = "Devprayag Sangam",
         destLat = 30.1459,
         destLon = 78.5989,
-        mode = "driving",
-        isPedestrianOnly = false
-    ),
-    VerifiedCorridor(
-        label = "Haridwar – Rishikesh",
-        originName = "Haridwar",
-        originLat = 29.9457,
-        originLon = 78.1642,
-        destName = "Rishikesh",
-        destLat = 30.0869,
-        destLon = 78.2676,
         mode = "driving",
         isPedestrianOnly = false
     )
@@ -237,8 +231,7 @@ fun PlanTripScreen(
 }
 
 /**
- * Pure stateless PlanTripContent implementing Material 3 Expressive UI, physics springs,
- * and primitive key list optimization.
+ * Pure stateless PlanTripContent implementing the Dark Outdoor Reference Design (Screen 3).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -268,25 +261,29 @@ fun PlanTripContent(
 ) {
     var showRecentOriginMenu by remember { mutableStateOf(false) }
     var showRecentDestMenu by remember { mutableStateOf(false) }
+    var showSearchFields by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = DarkBackground,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         "Plan Route & Safety",
-                        style = MaterialTheme.typography.titleLargeEmphasized,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(AppIcons.Back, contentDescription = "Back")
+                        Icon(AppIcons.Back, contentDescription = "Back", tint = TextPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = DarkBackground,
+                    titleContentColor = TextPrimary
                 )
             )
         }
@@ -300,7 +297,7 @@ fun PlanTripContent(
         ) {
             // Dismissible error banner
             if (state.errorMessage != null) {
-                item(key = "error_banner", contentType = "error") {
+                item(key = "error_banner") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppErrorBanner(
                             message = state.errorMessage ?: "",
@@ -320,12 +317,15 @@ fun PlanTripContent(
                                 Button(
                                     onClick = onNavigateToDrawRoute,
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                    shape = ExpressiveShapes.pill
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MintPrimary,
+                                        contentColor = DarkBackground
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
                                 ) {
                                     Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("✏️ Switch to 'Draw my route' on Map", fontWeight = FontWeight.Bold)
+                                    Text("Switch to 'Draw my route' on Map", fontWeight = FontWeight.Bold)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -334,17 +334,19 @@ fun PlanTripContent(
                                     OutlinedButton(
                                         onClick = { onRetryWithTravelMode("walking") },
                                         modifier = Modifier.weight(1f),
-                                        shape = ExpressiveShapes.pill
+                                        shape = RoundedCornerShape(20.dp),
+                                        border = BorderStroke(1.dp, DarkDivider)
                                     ) {
-                                        Text("🚶 Walking / Road", style = MaterialTheme.typography.labelMedium)
+                                        Text("Walking / Road", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
                                     }
                                     if (!state.isPedestrianOnlySelected) {
                                         OutlinedButton(
                                             onClick = { onRetryWithTravelMode("driving") },
                                             modifier = Modifier.weight(1f),
-                                            shape = ExpressiveShapes.pill
+                                            shape = RoundedCornerShape(20.dp),
+                                            border = BorderStroke(1.dp, DarkDivider)
                                         ) {
-                                            Text("🚗 Driving Route", style = MaterialTheme.typography.labelMedium)
+                                            Text("Driving Route", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
                                         }
                                     }
                                 }
@@ -358,447 +360,440 @@ fun PlanTripContent(
                             Button(
                                 onClick = onSwitchToRenderAndRetry,
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = ExpressiveShapes.pill,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MintPrimary,
+                                    contentColor = DarkBackground
+                                )
                             ) {
-                                Text("☁️ Switch to Live Cloud (Render) & Retry", fontWeight = FontWeight.Bold)
+                                Text("Switch to Live Cloud & Retry", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             }
 
-            // Presets row
-            item(key = "verified_presets", contentType = "presets") {
-                AppSectionHeader(
-                    title = "Verified Trail Presets",
-                    subtitle = "Tap a route to automatically load coordinates and recommended travel mode"
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(
-                        items = verifiedCorridors,
-                        key = { it.label },
-                        contentType = { "corridor_chip" }
-                    ) { corridor ->
-                        val isSelected = state.destinationName == corridor.destName && state.originName == corridor.originName
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectCorridor(corridor) },
-                            label = { Text(corridor.label, style = MaterialTheme.typography.labelMedium) },
-                            shape = ExpressiveShapes.pill,
-                            leadingIcon = {
-                                if (isSelected) {
-                                    Icon(AppIcons.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+            // Section 1: Presets (Screen 3 Reference Design)
+            item(key = "section_presets") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Presets",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(
+                            items = verifiedCorridors,
+                            key = { it.label }
+                        ) { corridor ->
+                            val isSelected = state.destinationName == corridor.destName && state.originName == corridor.originName
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onSelectCorridor(corridor) },
+                                label = {
+                                    Text(
+                                        corridor.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                shape = RoundedCornerShape(20.dp),
+                                border = if (isSelected) null else BorderStroke(1.dp, DarkDivider),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = DarkSurfacePrimary,
+                                    labelColor = TextSecondary,
+                                    selectedContainerColor = MintPrimary,
+                                    selectedLabelColor = DarkBackground
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Actions (Screen 3 Reference Design)
+            item(key = "section_actions") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Actions",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    // Action Card 1: Choose Directly on Live Map
+                    PlanActionCard(
+                        title = "Choose Directly on Live Map",
+                        subtitle = "Choose directly on Live Map",
+                        buttonText1 = "Open Map",
+                        onButtonClick1 = onNavigateToChooseOnMap,
+                        buttonText2 = "Draw",
+                        onButtonClick2 = onNavigateToDrawRoute,
+                        rightGraphicIcon = Icons.Default.LocationOn
+                    )
+
+                    // Action Card 2: Draw Custom Route with Elevation Graph
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkSurfacePrimary,
+                        border = BorderStroke(1.dp, DarkDivider)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Draw Custom Route",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Elevation graph route",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
                                 }
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SageContainer,
-                                selectedLabelColor = ForestGreenPrimary
-                            )
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                // Decorative Elevation Curve Vector
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp, 36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x33263332))
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        val wavePath = Path().apply {
+                                            moveTo(0f, h * 0.8f)
+                                            cubicTo(w * 0.3f, h * 0.8f, w * 0.4f, h * 0.2f, w * 0.7f, h * 0.3f)
+                                            cubicTo(w * 0.85f, h * 0.35f, w * 0.9f, h * 0.1f, w, h * 0.2f)
+                                        }
+                                        drawPath(wavePath, color = MintSecondary, style = Stroke(width = 4f))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Button(
+                                onClick = onNavigateToDrawRoute,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MintPrimary,
+                                    contentColor = DarkBackground
+                                )
+                            ) {
+                                Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Draw", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 3: Inputs (Screen 3 Reference Design)
+            item(key = "section_inputs") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Inputs",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
+                        TextButton(onClick = { showSearchFields = !showSearchFields }) {
+                            Text(
+                                if (showSearchFields) "Hide Search" else "Search / GPS",
+                                color = MintPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                }
-            }
 
-            // Choose Route on Live Map Card
-            item(key = "choose_on_map_card", contentType = "choose_map") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ExpressiveShapes.largeIncreased,
-                    colors = CardDefaults.cardColors(
-                        containerColor = SageContainer
+                    // Connected Timeline Container (Green dot, dashed line, red pin)
+                    RouteInputsContainer(
+                        originText = state.originName,
+                        destinationText = state.destinationName,
+                        onOriginClick = {
+                            if (!showSearchFields) showSearchFields = true
+                            onOpenOriginMapPicker()
+                        },
+                        onDestinationClick = {
+                            if (!showSearchFields) showSearchFields = true
+                            onOpenDestMapPicker()
+                        },
+                        onClearOrigin = { onOriginQueryChanged("") },
+                        onClearDestination = { onDestinationQueryChanged("") }
                     )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "🗺️ Choose Directly on Live Map",
-                                style = MaterialTheme.typography.titleMediumEmphasized,
-                                fontWeight = FontWeight.Bold,
-                                color = ForestGreenPrimary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Browse verified trails on the 3D topographic map or tap origin and destination points directly on terrain.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Button(
-                            onClick = onNavigateToChooseOnMap,
-                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                            shape = ExpressiveShapes.pill,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+
+                    // Expandable Detailed Search & GPS Fields
+                    if (showSearchFields) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = DarkSurfaceSecondary,
+                            border = BorderStroke(1.dp, DarkDivider)
                         ) {
-                            Icon(AppIcons.Map, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Open Map", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                // Origin Search Box
+                                OutlinedTextField(
+                                    value = state.originName,
+                                    onValueChange = onOriginQueryChanged,
+                                    placeholder = { Text("Search starting point or village...", color = TextSecondary) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Place, contentDescription = null, tint = SafeGreen)
+                                    },
+                                    trailingIcon = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = onUseCurrentLocation,
+                                                enabled = !state.isLocating
+                                            ) {
+                                                if (state.isLocating) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MintPrimary)
+                                                } else {
+                                                    Icon(AppIcons.MyLocation, contentDescription = "Use GPS", tint = MintPrimary)
+                                                }
+                                            }
+                                            IconButton(onClick = onOpenOriginMapPicker) {
+                                                Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = MintPrimary)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = DarkSurfacePrimary,
+                                        unfocusedContainerColor = DarkSurfacePrimary,
+                                        focusedBorderColor = MintPrimary,
+                                        unfocusedBorderColor = DarkDivider,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    singleLine = true
+                                )
+
+                                // Suggestions for Origin
+                                if (state.originSuggestions.isNotEmpty()) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = DarkSurfaceElevated,
+                                        border = BorderStroke(1.dp, DarkDivider)
+                                    ) {
+                                        Column {
+                                            state.originSuggestions.forEach { place ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { onSelectOrigin(place) }
+                                                        .padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.LocationCity, contentDescription = null, modifier = Modifier.size(16.dp), tint = MintPrimary)
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(place.name, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextPrimary)
+                                                        Text(place.display_name, fontSize = 11.sp, color = TextSecondary, maxLines = 1)
+                                                    }
+                                                }
+                                                HorizontalDivider(thickness = 0.5.dp, color = DarkDivider)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Destination Search Box
+                                OutlinedTextField(
+                                    value = state.destinationName,
+                                    onValueChange = onDestinationQueryChanged,
+                                    placeholder = { Text("Search destination, summit or temple...", color = TextSecondary) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = CriticalRed)
+                                    },
+                                    trailingIcon = {
+                                        IconButton(onClick = onOpenDestMapPicker) {
+                                            Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = MintPrimary)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = DarkSurfacePrimary,
+                                        unfocusedContainerColor = DarkSurfacePrimary,
+                                        focusedBorderColor = MintPrimary,
+                                        unfocusedBorderColor = DarkDivider,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    singleLine = true
+                                )
+
+                                // Suggestions for Destination
+                                if (state.destSuggestions.isNotEmpty()) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = DarkSurfaceElevated,
+                                        border = BorderStroke(1.dp, DarkDivider)
+                                    ) {
+                                        Column {
+                                            state.destSuggestions.forEach { place ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { onSelectDestination(place) }
+                                                        .padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp), tint = CriticalRed)
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(place.name, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextPrimary)
+                                                        Text(place.display_name, fontSize = 11.sp, color = TextSecondary, maxLines = 1)
+                                                    }
+                                                }
+                                                HorizontalDivider(thickness = 0.5.dp, color = DarkDivider)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Custom Route / Off-Trail Drawing Mode Entry Card
-            item(key = "custom_route_card", contentType = "custom_route") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ExpressiveShapes.largeIncreased,
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "🎨 Draw Custom Route on Map",
-                                style = MaterialTheme.typography.titleMediumEmphasized,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Trace your intended hiking or off-trail path freely. Includes multi-hazard corridor scanning and elevation profile.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Button(
-                            onClick = onNavigateToDrawRoute,
-                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                            shape = ExpressiveShapes.pill,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Draw", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // Route Input Card (Origin & Destination)
-            item(key = "route_inputs", contentType = "inputs") {
+            // Section 4: Travel Mode & Safety Corridor Buffer
+            item(key = "section_mode_and_buffer") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = ExpressiveShapes.largeIncreased,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    tonalElevation = 1.dp
+                    shape = RoundedCornerShape(16.dp),
+                    color = DarkSurfacePrimary,
+                    border = BorderStroke(1.dp, DarkDivider)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        // Origin Field
                         Text(
-                            text = "Starting Point (Origin)",
-                            style = MaterialTheme.typography.labelMediumEmphasized,
+                            text = "Travel Mode",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = ForestGreenPrimary
+                            color = TextPrimary
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = state.originName,
-                            onValueChange = onOriginQueryChanged,
-                            placeholder = { Text("Search location or enter coordinates") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Place, contentDescription = null, tint = ForestGreenPrimary)
-                            },
-                            trailingIcon = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (state.originName.isNotEmpty()) {
-                                        IconButton(onClick = { onOriginQueryChanged("") }) {
-                                            Icon(AppIcons.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                    IconButton(
-                                        onClick = onUseCurrentLocation,
-                                        enabled = !state.isLocating
-                                    ) {
-                                        if (state.isLocating) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                        } else {
-                                            Icon(AppIcons.MyLocation, contentDescription = "Use GPS", tint = ForestGreenPrimary)
-                                        }
-                                    }
-                                    IconButton(onClick = onOpenOriginMapPicker) {
-                                        Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = ForestGreenPrimary)
-                                    }
-                                    if (state.recentLocations.isNotEmpty()) {
-                                        IconButton(onClick = { showRecentOriginMenu = true }) {
-                                            Icon(Icons.Default.History, contentDescription = "Recent Locations")
-                                        }
-                                        DropdownMenu(
-                                            expanded = showRecentOriginMenu,
-                                            onDismissRequest = { showRecentOriginMenu = false }
-                                        ) {
-                                            state.recentLocations.take(5).forEach { recent ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Column {
-                                                            Text(recent.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                                            Text(
-                                                                String.format(java.util.Locale.US, "%.4f, %.4f", recent.latitude, recent.longitude),
-                                                                fontSize = 11.sp,
-                                                                color = MaterialTheme.colorScheme.outline
-                                                            )
-                                                        }
-                                                    },
-                                                    onClick = {
-                                                        onSelectRecentOriginLocation(recent)
-                                                        showRecentOriginMenu = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            },
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = ExpressiveShapes.mediumIncreased,
-                            singleLine = true
-                        )
-
-                        // Autocomplete Suggestions for Origin
-                        if (state.originSuggestions.isNotEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                shape = ExpressiveShapes.mediumIncreased,
-                                shadowElevation = 3.dp
-                            ) {
-                                Column {
-                                    state.originSuggestions.forEach { place ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { onSelectOrigin(place) }
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Default.LocationCity, contentDescription = null, modifier = Modifier.size(18.dp), tint = ForestGreenPrimary)
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text(place.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                                Text(place.display_name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                        HorizontalDivider(thickness = 0.5.dp)
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Destination Field
-                        Text(
-                            text = "Destination",
-                            style = MaterialTheme.typography.labelMediumEmphasized,
-                            fontWeight = FontWeight.Bold,
-                            color = EmergencyRed
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = state.destinationName,
-                            onValueChange = onDestinationQueryChanged,
-                            placeholder = { Text("Search summit, temple, town or landmark") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Flag, contentDescription = null, tint = EmergencyRed)
-                            },
-                            trailingIcon = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (state.destinationName.isNotEmpty()) {
-                                        IconButton(onClick = { onDestinationQueryChanged("") }) {
-                                            Icon(AppIcons.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                    IconButton(onClick = onOpenDestMapPicker) {
-                                        Icon(AppIcons.Map, contentDescription = "Pick on Map", tint = ForestGreenPrimary)
-                                    }
-                                    if (state.recentLocations.isNotEmpty()) {
-                                        IconButton(onClick = { showRecentDestMenu = true }) {
-                                            Icon(Icons.Default.History, contentDescription = "Recent Destinations")
-                                        }
-                                        DropdownMenu(
-                                            expanded = showRecentDestMenu,
-                                            onDismissRequest = { showRecentDestMenu = false }
-                                        ) {
-                                            state.recentLocations.take(5).forEach { recent ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Column {
-                                                            Text(recent.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                                            Text(
-                                                                String.format(java.util.Locale.US, "%.4f, %.4f", recent.latitude, recent.longitude),
-                                                                fontSize = 11.sp,
-                                                                color = MaterialTheme.colorScheme.outline
-                                                            )
-                                                        }
-                                                    },
-                                                    onClick = {
-                                                        onSelectRecentDestLocation(recent)
-                                                        showRecentDestMenu = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = ExpressiveShapes.mediumIncreased,
-                            singleLine = true
-                        )
-
-                        // Autocomplete Suggestions for Destination
-                        if (state.destSuggestions.isNotEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                shape = ExpressiveShapes.mediumIncreased,
-                                shadowElevation = 3.dp
-                            ) {
-                                Column {
-                                    state.destSuggestions.forEach { place ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { onSelectDestination(place) }
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp), tint = EmergencyRed)
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text(place.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                                Text(place.display_name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                        HorizontalDivider(thickness = 0.5.dp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Travel Mode Segmented Row
-            item(key = "travel_mode", contentType = "mode") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Travel Mode", style = MaterialTheme.typography.titleMediumEmphasized, fontWeight = FontWeight.Bold)
-                    if (state.isPedestrianOnlySelected) {
-                        AppStatusBadge(label = "Foot Trail Only", isWarning = true)
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val modes = listOf(
-                        Triple("hiking", "Hiking / Trekking", AppIcons.Hiking),
-                        Triple("walking", "Walking", Icons.Default.DirectionsWalk),
-                        Triple("driving", "Driving", AppIcons.Driving)
-                    )
-                    modes.forEach { (mode, label, icon) ->
-                        val isDrivingDisabled = mode == "driving" && state.isPedestrianOnlySelected
-                        val isSelected = state.travelMode == mode
-                        OutlinedButton(
-                            onClick = { onSetTravelMode(mode) },
-                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                            shape = ExpressiveShapes.pill,
-                            enabled = !isDrivingDisabled,
-                            colors = if (isSelected) {
-                                ButtonDefaults.outlinedButtonColors(
-                                    containerColor = SageContainer,
-                                    contentColor = ForestGreenPrimary
-                                )
-                            } else ButtonDefaults.outlinedButtonColors()
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                label.split(" ")[0],
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            val modes = listOf(
+                                Triple("hiking", "Hiking", AppIcons.Hiking),
+                                Triple("walking", "Walking", Icons.Default.DirectionsWalk),
+                                Triple("driving", "Driving", AppIcons.Driving)
                             )
+                            modes.forEach { (mode, label, icon) ->
+                                val isDrivingDisabled = mode == "driving" && state.isPedestrianOnlySelected
+                                val isSelected = state.travelMode == mode
+                                Button(
+                                    onClick = { onSetTravelMode(mode) },
+                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    shape = RoundedCornerShape(19.dp),
+                                    enabled = !isDrivingDisabled,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSelected) MintPrimary else DarkSurfaceElevated,
+                                        contentColor = if (isSelected) DarkBackground else TextPrimary
+                                    ),
+                                    border = if (isSelected) null else BorderStroke(1.dp, DarkDivider),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = DarkDivider, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Safety Corridor Buffer",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "${state.corridorDistanceKm.toInt()} km radius",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MintSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val buffers = listOf(1.0, 2.0, 5.0, 10.0)
+                            buffers.forEach { km ->
+                                val isSelected = state.corridorDistanceKm == km
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSetCorridorDistanceKm(km) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    label = { Text("${km.toInt()} km", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    border = if (isSelected) null else BorderStroke(1.dp, DarkDivider),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = DarkSurfaceElevated,
+                                        labelColor = TextSecondary,
+                                        selectedContainerColor = MintPrimary,
+                                        selectedLabelColor = DarkBackground
+                                    )
+                                )
+                            }
                         }
                     }
                 }
-                if (state.isPedestrianOnlySelected) {
-                    Text(
-                        "Motor vehicles strictly prohibited on pedestrian mountain trails.",
-                        fontSize = 11.sp,
-                        color = WarningAmber,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
             }
 
-            // Corridor Buffer Width Selector
-            item(key = "corridor_buffer", contentType = "buffer") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Safety Corridor Buffer", style = MaterialTheme.typography.titleMediumEmphasized, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${state.corridorDistanceKm.toInt()} km search radius",
-                        style = MaterialTheme.typography.labelMediumEmphasized,
-                        color = ForestGreenPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val buffers = listOf(1.0, 2.0, 5.0, 10.0)
-                    buffers.forEach { km ->
-                        val isSelected = state.corridorDistanceKm == km
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSetCorridorDistanceKm(km) },
-                            shape = ExpressiveShapes.pill,
-                            label = { Text("${km.toInt()} km${if (km == 5.0) " (Def)" else ""}", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SageContainer,
-                                selectedLabelColor = ForestGreenPrimary
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Calculate Action Area
-            item(key = "action_area", contentType = "action") {
-                Spacer(modifier = Modifier.height(8.dp))
+            // Section 5: Calculate / Action Area
+            item(key = "section_plan_action") {
                 if (state.isPlanning) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = ExpressiveShapes.largeIncreased,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkSurfacePrimary,
+                        border = BorderStroke(1.dp, DarkDivider)
                     ) {
                         Column(
                             modifier = Modifier.padding(20.dp).fillMaxWidth(),
@@ -806,119 +801,62 @@ fun PlanTripContent(
                         ) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(36.dp),
-                                color = ForestGreenPrimary,
+                                color = MintPrimary,
                                 strokeWidth = 3.dp
                             )
                             Spacer(modifier = Modifier.height(14.dp))
                             Text(
                                 state.planningPhase.ifBlank { "Scanning Route & Safety Radar..." },
-                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = ForestGreenPrimary
+                                color = MintPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 "Correlating weather, fire and disaster hazards along trail...",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = TextSecondary
                             )
                         }
                     }
                 } else {
-                    AppPrimaryButton(
-                        text = "Scan & Evaluate Route Safety",
-                        icon = AppIcons.StartTrek,
-                        shape = ExpressiveShapes.pill,
+                    Button(
                         onClick = onPlanRoute,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(25.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MintPrimary,
+                            contentColor = DarkBackground
+                        ),
                         enabled = state.destinationName.isNotBlank() && state.originName.isNotBlank()
-                    )
+                    ) {
+                        Icon(AppIcons.StartTrek, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Scan & Evaluate Route Safety",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
-    }
-}
-
-@Preview(name = "Phone - Light", showBackground = true)
-@Composable
-private fun PlanTripPreviewLight() {
-    TouristSafetyTheme {
-        PlanTripContent(
-            state = PlanTripUiState(
-                originName = "Gaurikund Base",
-                destinationName = "Kedarnath Temple",
-                travelMode = "hiking",
-                corridorDistanceKm = 5.0
-            ),
-            verifiedCorridors = defaultVerifiedCorridors,
-            onNavigateBack = {},
-            onNavigateToDrawRoute = {},
-            onClearError = {},
-            onRetryWithTravelMode = {},
-            onSwitchToRenderAndRetry = {},
-            onSelectCorridor = {},
-            onOriginQueryChanged = {},
-            onSelectOrigin = {},
-            onUseCurrentLocation = {},
-            onOpenOriginMapPicker = {},
-            onSelectRecentOriginLocation = {},
-            onDestinationQueryChanged = {},
-            onSelectDestination = {},
-            onOpenDestMapPicker = {},
-            onSelectRecentDestLocation = {},
-            onSetTravelMode = {},
-            onSetCorridorDistanceKm = {},
-            onPlanRoute = {}
-        )
     }
 }
 
 @Preview(name = "Phone - Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
 @Composable
 private fun PlanTripPreviewDark() {
-    TouristSafetyTheme {
+    TouristSafetyTheme(darkTheme = true) {
         PlanTripContent(
             state = PlanTripUiState(
                 originName = "Gaurikund Base",
                 destinationName = "Kedarnath Temple",
                 travelMode = "hiking",
                 corridorDistanceKm = 5.0
-            ),
-            verifiedCorridors = defaultVerifiedCorridors,
-            onNavigateBack = {},
-            onNavigateToDrawRoute = {},
-            onClearError = {},
-            onRetryWithTravelMode = {},
-            onSwitchToRenderAndRetry = {},
-            onSelectCorridor = {},
-            onOriginQueryChanged = {},
-            onSelectOrigin = {},
-            onUseCurrentLocation = {},
-            onOpenOriginMapPicker = {},
-            onSelectRecentOriginLocation = {},
-            onDestinationQueryChanged = {},
-            onSelectDestination = {},
-            onOpenDestMapPicker = {},
-            onSelectRecentDestLocation = {},
-            onSetTravelMode = {},
-            onSetCorridorDistanceKm = {},
-            onPlanRoute = {}
-        )
-    }
-}
-
-@Preview(name = "Phone - Scanning State", showBackground = true)
-@Composable
-private fun PlanTripPreviewScanning() {
-    TouristSafetyTheme {
-        PlanTripContent(
-            state = PlanTripUiState(
-                originName = "Govindghat",
-                destinationName = "Valley of Flowers",
-                travelMode = "hiking",
-                corridorDistanceKm = 5.0,
-                isPlanning = true,
-                planningPhase = "Scanning NASA FIRMS fire anomalies..."
             ),
             verifiedCorridors = defaultVerifiedCorridors,
             onNavigateBack = {},

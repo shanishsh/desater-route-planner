@@ -14,7 +14,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     // 5 Permanent Navigation Pillars (Clean, Predictable, Never Shifting)
     data object Home : Screen("home", "Explore", AppIcons.Home)
     data object PlanTrip : Screen("plan_trip", "Plan", AppIcons.PlanTrip)
-    data object Map : Screen("map?startDrawing={startDrawing}&activeTripId={activeTripId}&chooseRoute={chooseRoute}", "Live Map", AppIcons.Map) {
+    data object Map : Screen("map?startDrawing={startDrawing}&activeTripId={activeTripId}&chooseRoute={chooseRoute}", "Map", AppIcons.Map) {
         fun createRoute(
             startDrawing: Boolean = false,
             activeTripId: String? = null,
@@ -27,7 +27,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
             return if (params.isEmpty()) "map" else "map?" + params.joinToString("&")
         }
     }
-    data object TrekHistory : Screen("trek_history", "History & Saved", Icons.Default.History)
+    data object TrekHistory : Screen("trek_history", "History", Icons.Default.History)
     data object Emergency : Screen("emergency", "Safety Hub", AppIcons.Emergency)
 
     // Secondary & Drill-Down Screens (Centralized via Safety Hub / Route Planning)

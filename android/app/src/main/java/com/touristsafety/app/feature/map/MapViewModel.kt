@@ -461,6 +461,14 @@ class MapViewModel @Inject constructor(
                         recordedTrekDurationSeconds = trip.elapsedDurationSeconds
                     )
                 }
+                if (_uiState.value.routeCoordinates.isNotEmpty() && _uiState.value.routeWeatherSamples.isEmpty()) {
+                    applyRouteSampleAndRiskMetrics(
+                        routeCoords = _uiState.value.routeCoordinates,
+                        conditions = emptyList(),
+                        baseWeather = _uiState.value.routeSummaryWeather,
+                        historicalLandslidesJson = _uiState.value.historicalLandslidesGeoJson
+                    )
+                }
             }
         }
     }
@@ -1566,232 +1574,239 @@ class MapViewModel @Inject constructor(
 
     private fun rebuildUnifiedFeatures() {
         val userLoc = _uiState.value.userLocation
-        val list = mutableListOf<UnifiedMapFeature>()
-
-        // 1. Map Points
-        rawMapPoints.forEach { pt ->
-            val cat = when (pt.category) {
-                PointCategory.MEDICAL -> MapFeatureCategory.HOSPITAL
-                PointCategory.CLINIC -> MapFeatureCategory.CLINIC
-                PointCategory.POLICE -> MapFeatureCategory.POLICE_STATION
-                PointCategory.FIRE_STATION -> MapFeatureCategory.FIRE_STATION
-                PointCategory.FUEL_STATION -> MapFeatureCategory.PETROL_PUMP
-                PointCategory.SHELTER -> MapFeatureCategory.SHELTER
-                PointCategory.VISITOR_INFO, PointCategory.TRANSPORT, PointCategory.VERIFIED_PUBLIC -> MapFeatureCategory.TOURIST_ASSISTANCE
-                PointCategory.EMERGENCY_SERVICE -> MapFeatureCategory.FIRE_STATION
-            }
-            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, pt.latitude, pt.longitude)
-            val detailMap = mutableMapOf<String, String>()
-            pt.address?.let { detailMap["Address"] = it }
-            pt.phone?.let { detailMap["Phone"] = it }
-            detailMap["Category"] = cat.displayName
-            detailMap["Provenance"] = pt.provenance
-            detailMap["Status"] = pt.verificationStatus
-            detailMap.putAll(pt.details)
-
-            list.add(
-                UnifiedMapFeature(
-                    id = "poi_${pt.id}",
-                    category = cat,
-                    title = pt.name,
-                    subtitle = pt.description,
-                    latitude = pt.latitude,
-                    longitude = pt.longitude,
-                    distanceMeters = dist,
-                    sourceName = pt.provenance,
-                    sourceTimestampEpochMs = pt.verificationTimestampEpochMs,
-                    isVerified = pt.verificationStatus == "verified",
-                    phone = pt.phone,
-                    address = pt.address,
-                    details = detailMap
-                )
-            )
-        }
-
-        // 2. Forest Features
-        rawForestFeatures.forEach { f ->
-            if (f.coordinates.isEmpty()) return@forEach
-            val centerLat = f.coordinates.map { it.first }.average()
-            val centerLon = f.coordinates.map { it.second }.average()
-            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, centerLat, centerLon)
-            list.add(
-                UnifiedMapFeature(
-                    id = "forest_${f.id}",
-                    category = MapFeatureCategory.FOREST_AREA,
-                    title = f.name,
-                    subtitle = "${f.woodType.replaceFirstChar { it.titlecase() }} Woodland",
-                    latitude = centerLat,
-                    longitude = centerLon,
-                    distanceMeters = dist,
-                    sourceName = "OpenStreetMap Contributors (ODbL)",
-                    isVerified = true,
-                    isCached = f.isCached,
-                    geometryPolygon = f.coordinates,
-                    details = mapOf(
-                        "Wood Type" to f.woodType,
-                        "Area Geometry" to "Polygon with ${f.coordinates.size} nodes",
-                        "Source License" to "Open Database License (ODbL)"
-                    )
-                )
-            )
-        }
-
-        // 3. Fire Hotspots
-        rawFireHotspots.forEach { fire ->
-            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, fire.latitude, fire.longitude)
-            list.add(
-                UnifiedMapFeature(
-                    id = "fire_${fire.id}",
-                    category = MapFeatureCategory.ACTIVE_FIRE_DETECTION,
-                    title = "Thermal Hotspot (${fire.satellite})",
-                    subtitle = "${fire.brightness}K • FRP: ${fire.frpMw} MW",
-                    latitude = fire.latitude,
-                    longitude = fire.longitude,
-                    distanceMeters = dist,
-                    sourceName = "NASA FIRMS (${fire.satellite})",
-                    isVerified = true,
-                    isSimulated = fire.isSimulated,
-                    isCached = true,
-                    details = mapOf(
-                        "Brightness Temp" to "${fire.brightness} Kelvin",
-                        "Fire Radiative Power" to "${fire.frpMw} MW",
-                        "Satellite Sensor" to fire.satellite,
-                        "Acquisition Date" to "${fire.acquisitionDate} ${fire.acquisitionTime} UTC",
-                        "Confidence" to fire.confidence
-                    )
-                )
-            )
-        }
-
-        // 4. Hazard Zones & Weather
-        list.addAll(rawHazardZones)
-        list.addAll(rawWeatherPoints)
-
-        // 4b. Waterways, River Channels & Flood Inundation Zones
-        rawWaterwayFeatures.forEach { w ->
-            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, w.latitude, w.longitude)
-            list.add(w.copy(distanceMeters = dist))
-        }
-
-        // 5. Cellular Sites & Transmission Masts (cached parsing)
         val sitesJson = _uiState.value.cellularSitesGeoJson
-        if (!sitesJson.isNullOrBlank() && sitesJson != lastParsedCellularGeoJson) {
-            try {
-                val cellList = mutableListOf<UnifiedMapFeature>()
-                val json = org.json.JSONObject(sitesJson)
-                val features = json.optJSONArray("features")
-                if (features != null) {
-                    for (i in 0 until features.length()) {
-                        val feat = features.optJSONObject(i) ?: continue
-                        val geom = feat.optJSONObject("geometry") ?: continue
-                        val coords = geom.optJSONArray("coordinates") ?: continue
-                        if (coords.length() < 2) continue
-                        val lon = coords.optDouble(0)
-                        val lat = coords.optDouble(1)
-                        if (lat.isNaN() || lon.isNaN()) continue
+        val zoom = _uiState.value.zoomLevel
+        val filter = _uiState.value.selectedFilter
+        val layers = _uiState.value.layerVisibilities
 
-                        val props = feat.optJSONObject("properties") ?: org.json.JSONObject()
-                        val op = props.optString("operator", "Mobile Network")
-                        val radio = props.optString("radio", "LTE")
-                        val rangeM = props.optDouble("range_m", 2500.0)
-                        val cellId = feat.optString("id", "tower_$i")
-                        val source = props.optString("source", "OpenCelliD / Telecom Baseline")
-                        val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, lat, lon)
+        viewModelScope.launch {
+            val list = mutableListOf<UnifiedMapFeature>()
 
-                        cellList.add(
-                            UnifiedMapFeature(
-                                id = "cell_tower_$cellId",
-                                category = MapFeatureCategory.CELL_TOWER,
-                                title = "$op ($radio)",
-                                subtitle = "Nominal Range: ${rangeM.toInt()} m • MCC ${props.optString("mcc", "404/405")} MNC ${props.optString("mnc", "")}",
-                                latitude = lat,
-                                longitude = lon,
-                                distanceMeters = dist,
-                                sourceName = source,
-                                sourceTimestampEpochMs = System.currentTimeMillis(),
-                                isVerified = true,
-                                details = mapOf(
-                                    "Operator" to op,
-                                    "Radio Standard" to radio,
-                                    "Nominal Transmission Range" to "${rangeM.toInt()} meters",
-                                    "MCC" to props.optString("mcc", "404/405"),
-                                    "MNC" to props.optString("mnc", "Unknown"),
-                                    "Source" to source,
-                                    "Notice" to "Topography and ridge lines may obstruct RF propagation. Emergency 112 / SMS is not guaranteed."
+            // 1. Map Points
+            rawMapPoints.forEach { pt ->
+                val cat = when (pt.category) {
+                    PointCategory.MEDICAL -> MapFeatureCategory.HOSPITAL
+                    PointCategory.CLINIC -> MapFeatureCategory.CLINIC
+                    PointCategory.POLICE -> MapFeatureCategory.POLICE_STATION
+                    PointCategory.FIRE_STATION -> MapFeatureCategory.FIRE_STATION
+                    PointCategory.FUEL_STATION -> MapFeatureCategory.PETROL_PUMP
+                    PointCategory.SHELTER -> MapFeatureCategory.SHELTER
+                    PointCategory.VISITOR_INFO, PointCategory.TRANSPORT, PointCategory.VERIFIED_PUBLIC -> MapFeatureCategory.TOURIST_ASSISTANCE
+                    PointCategory.EMERGENCY_SERVICE -> MapFeatureCategory.FIRE_STATION
+                }
+                val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, pt.latitude, pt.longitude)
+                val detailMap = mutableMapOf<String, String>()
+                pt.address?.let { detailMap["Address"] = it }
+                pt.phone?.let { detailMap["Phone"] = it }
+                detailMap["Category"] = cat.displayName
+                detailMap["Provenance"] = pt.provenance
+                detailMap["Status"] = pt.verificationStatus
+                detailMap.putAll(pt.details)
+
+                list.add(
+                    UnifiedMapFeature(
+                        id = "poi_${pt.id}",
+                        category = cat,
+                        title = pt.name,
+                        subtitle = pt.description,
+                        latitude = pt.latitude,
+                        longitude = pt.longitude,
+                        distanceMeters = dist,
+                        sourceName = pt.provenance,
+                        sourceTimestampEpochMs = pt.verificationTimestampEpochMs,
+                        isVerified = pt.verificationStatus == "verified",
+                        phone = pt.phone,
+                        address = pt.address,
+                        details = detailMap
+                    )
+                )
+            }
+
+            // 2. Forest Features
+            rawForestFeatures.forEach { f ->
+                if (f.coordinates.isEmpty()) return@forEach
+                val centerLat = f.coordinates.map { it.first }.average()
+                val centerLon = f.coordinates.map { it.second }.average()
+                val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, centerLat, centerLon)
+                list.add(
+                    UnifiedMapFeature(
+                        id = "forest_${f.id}",
+                        category = MapFeatureCategory.FOREST_AREA,
+                        title = f.name,
+                        subtitle = "${f.woodType.replaceFirstChar { it.titlecase() }} Woodland",
+                        latitude = centerLat,
+                        longitude = centerLon,
+                        distanceMeters = dist,
+                        sourceName = "OpenStreetMap Contributors (ODbL)",
+                        isVerified = true,
+                        isCached = f.isCached,
+                        geometryPolygon = f.coordinates,
+                        details = mapOf(
+                            "Wood Type" to f.woodType,
+                            "Area Geometry" to "Polygon with ${f.coordinates.size} nodes",
+                            "Source License" to "Open Database License (ODbL)"
+                        )
+                    )
+                )
+            }
+
+            // 3. Fire Hotspots
+            rawFireHotspots.forEach { fire ->
+                val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, fire.latitude, fire.longitude)
+                list.add(
+                    UnifiedMapFeature(
+                        id = "fire_${fire.id}",
+                        category = MapFeatureCategory.ACTIVE_FIRE_DETECTION,
+                        title = "Thermal Hotspot (${fire.satellite})",
+                        subtitle = "${fire.brightness}K • FRP: ${fire.frpMw} MW",
+                        latitude = fire.latitude,
+                        longitude = fire.longitude,
+                        distanceMeters = dist,
+                        sourceName = "NASA FIRMS (${fire.satellite})",
+                        isVerified = true,
+                        isSimulated = fire.isSimulated,
+                        isCached = true,
+                        details = mapOf(
+                            "Brightness Temp" to "${fire.brightness} Kelvin",
+                            "Fire Radiative Power" to "${fire.frpMw} MW",
+                            "Satellite Sensor" to fire.satellite,
+                            "Acquisition Date" to "${fire.acquisitionDate} ${fire.acquisitionTime} UTC",
+                            "Confidence" to fire.confidence
+                        )
+                    )
+                )
+            }
+
+            // 4. Hazard Zones & Weather
+            list.addAll(rawHazardZones)
+            list.addAll(rawWeatherPoints)
+
+            // 4b. Waterways, River Channels & Flood Inundation Zones
+            rawWaterwayFeatures.forEach { w ->
+                val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, w.latitude, w.longitude)
+                list.add(w.copy(distanceMeters = dist))
+            }
+
+            // 5. Cellular Sites & Transmission Masts (cached parsing)
+            if (!sitesJson.isNullOrBlank() && sitesJson != lastParsedCellularGeoJson) {
+                try {
+                    val cellList = mutableListOf<UnifiedMapFeature>()
+                    val json = org.json.JSONObject(sitesJson)
+                    val features = json.optJSONArray("features")
+                    if (features != null) {
+                        for (i in 0 until features.length()) {
+                            val feat = features.optJSONObject(i) ?: continue
+                            val geom = feat.optJSONObject("geometry") ?: continue
+                            val coords = geom.optJSONArray("coordinates") ?: continue
+                            if (coords.length() < 2) continue
+                            val lon = coords.optDouble(0)
+                            val lat = coords.optDouble(1)
+                            if (lat.isNaN() || lon.isNaN()) continue
+
+                            val props = feat.optJSONObject("properties") ?: org.json.JSONObject()
+                            val op = props.optString("operator", "Mobile Network")
+                            val radio = props.optString("radio", "LTE")
+                            val rangeM = props.optDouble("range_m", 2500.0)
+                            val cellId = feat.optString("id", "tower_$i")
+                            val source = props.optString("source", "OpenCelliD / Telecom Baseline")
+                            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, lat, lon)
+
+                            cellList.add(
+                                UnifiedMapFeature(
+                                    id = "cell_tower_$cellId",
+                                    category = MapFeatureCategory.CELL_TOWER,
+                                    title = "$op ($radio)",
+                                    subtitle = "Nominal Range: ${rangeM.toInt()} m • MCC ${props.optString("mcc", "404/405")} MNC ${props.optString("mnc", "")}",
+                                    latitude = lat,
+                                    longitude = lon,
+                                    distanceMeters = dist,
+                                    sourceName = source,
+                                    sourceTimestampEpochMs = System.currentTimeMillis(),
+                                    isVerified = true,
+                                    details = mapOf(
+                                        "Operator" to op,
+                                        "Radio Standard" to radio,
+                                        "Nominal Transmission Range" to "${rangeM.toInt()} meters",
+                                        "MCC" to props.optString("mcc", "404/405"),
+                                        "MNC" to props.optString("mnc", "Unknown"),
+                                        "Source" to source,
+                                        "Notice" to "Topography and ridge lines may obstruct RF propagation. Emergency 112 / SMS is not guaranteed."
+                                    )
                                 )
                             )
-                        )
+                        }
                     }
+                    rawCellularFeatures = cellList
+                    lastParsedCellularGeoJson = sitesJson
+                } catch (e: Exception) {
+                    Log.w("MapViewModel", "Failed parsing cellular sites for unified features: ${e.message}")
                 }
-                rawCellularFeatures = cellList
-                lastParsedCellularGeoJson = sitesJson
-            } catch (e: Exception) {
-                Log.w("MapViewModel", "Failed parsing cellular sites for unified features: ${e.message}")
             }
-        }
-        if (sitesJson.isNullOrBlank()) {
-            rawCellularFeatures = emptyList()
-            lastParsedCellularGeoJson = null
-        }
-        list.addAll(rawCellularFeatures)
-
-        // 6. Community Trail Reports
-        rawCommunityReports.forEach { rep ->
-            val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, rep.latitude, rep.longitude)
-            val detailMap = mutableMapOf<String, String>()
-            detailMap["Category"] = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() }
-            detailMap["Severity"] = rep.severity
-            detailMap["Status"] = if (rep.syncStatus == "SYNCED") "Synced to Community" else "Local Pending Sync"
-            rep.description?.let { detailMap["Description"] = it }
-            if (!rep.serverPhotoUrl.isNullOrBlank()) {
-                detailMap["Photo"] = rep.serverPhotoUrl
-            } else if (!rep.localPhotoUri.isNullOrBlank()) {
-                detailMap["LocalPhoto"] = rep.localPhotoUri
+            if (sitesJson.isNullOrBlank()) {
+                rawCellularFeatures = emptyList()
+                lastParsedCellularGeoJson = null
             }
+            list.addAll(rawCellularFeatures)
 
-            list.add(
-                UnifiedMapFeature(
-                    id = "community_${rep.id}",
-                    category = MapFeatureCategory.COMMUNITY_HAZARD,
-                    title = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() },
-                    subtitle = "Community Report • ${rep.severity}",
-                    latitude = rep.latitude,
-                    longitude = rep.longitude,
-                    distanceMeters = dist,
-                    sourceName = "Community Trekker Report",
-                    sourceTimestampEpochMs = rep.createdAtEpochMs,
-                    isVerified = rep.syncStatus == "SYNCED",
-                    details = detailMap
+            // 6. Community Trail Reports
+            rawCommunityReports.forEach { rep ->
+                val dist = MapClusterHelper.calculateDistanceMeters(userLoc.first, userLoc.second, rep.latitude, rep.longitude)
+                val detailMap = mutableMapOf<String, String>()
+                detailMap["Category"] = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() }
+                detailMap["Severity"] = rep.severity
+                detailMap["Status"] = if (rep.syncStatus == "SYNCED") "Synced to Community" else "Local Pending Sync"
+                rep.description?.let { detailMap["Description"] = it }
+                if (!rep.serverPhotoUrl.isNullOrBlank()) {
+                    detailMap["Photo"] = rep.serverPhotoUrl
+                } else if (!rep.localPhotoUri.isNullOrBlank()) {
+                    detailMap["LocalPhoto"] = rep.localPhotoUri
+                }
+
+                list.add(
+                    UnifiedMapFeature(
+                        id = "community_${rep.id}",
+                        category = MapFeatureCategory.COMMUNITY_HAZARD,
+                        title = rep.category.replace('_', ' ').replaceFirstChar { it.titlecase() },
+                        subtitle = "Community Report • ${rep.severity}",
+                        latitude = rep.latitude,
+                        longitude = rep.longitude,
+                        distanceMeters = dist,
+                        sourceName = "Community Trekker Report",
+                        sourceTimestampEpochMs = rep.createdAtEpochMs,
+                        isVerified = rep.syncStatus == "SYNCED",
+                        details = detailMap
+                    )
                 )
-            )
-        }
+            }
 
-        // Calculate counts per category
-        val counts = mutableMapOf<MapFeatureCategory, Int>()
-        list.forEach { feat ->
-            counts[feat.category] = (counts[feat.category] ?: 0) + 1
-        }
+            // Calculate counts per category
+            val counts = mutableMapOf<MapFeatureCategory, Int>()
+            list.forEach { feat ->
+                counts[feat.category] = (counts[feat.category] ?: 0) + 1
+            }
 
-        // Extract assistance items sorted by distance
-        val assistance = list
-            .filter { it.category in listOf(MapFeatureCategory.HOSPITAL, MapFeatureCategory.CLINIC, MapFeatureCategory.POLICE_STATION, MapFeatureCategory.FIRE_STATION, MapFeatureCategory.SHELTER, MapFeatureCategory.TOURIST_ASSISTANCE) }
-            .sortedBy { it.distanceMeters ?: Float.MAX_VALUE }
+            // Extract assistance items sorted by distance
+            val assistance = list
+                .filter { it.category in listOf(MapFeatureCategory.HOSPITAL, MapFeatureCategory.CLINIC, MapFeatureCategory.POLICE_STATION, MapFeatureCategory.FIRE_STATION, MapFeatureCategory.SHELTER, MapFeatureCategory.TOURIST_ASSISTANCE) }
+                .sortedBy { it.distanceMeters ?: Float.MAX_VALUE }
 
-        _uiState.update { state ->
-            val filtered = filterFeatures(list, state.selectedFilter, state.layerVisibilities)
+            val filtered = filterFeatures(list, filter, layers)
             val clustered = MapClusterHelper.clusterFeatures(
                 features = filtered.filter { !it.category.isAreaFeature },
-                zoom = state.zoomLevel
+                zoom = zoom
             )
-            state.copy(
-                allFeatures = list,
-                categoryCounts = counts,
-                visibleFeatures = filtered,
-                clusteredItems = clustered,
-                nearbyAssistanceList = assistance
-            )
+
+            _uiState.update { state ->
+                state.copy(
+                    allFeatures = list,
+                    categoryCounts = counts,
+                    visibleFeatures = filtered,
+                    clusteredItems = clustered,
+                    nearbyAssistanceList = assistance
+                )
+            }
+            updateRouteHazardSequence()
         }
-        updateRouteHazardSequence()
     }
 
     private fun loadBaselineWaterways() {
@@ -2544,6 +2559,12 @@ class MapViewModel @Inject constructor(
                 )
             }
             rebuildUnifiedFeatures()
+            applyRouteSampleAndRiskMetrics(
+                routeCoords = current.primaryRouteCoordinates,
+                conditions = emptyList(),
+                baseWeather = current.routeSummaryWeather,
+                historicalLandslidesJson = current.historicalLandslidesGeoJson
+            )
             return
         }
 
@@ -2566,6 +2587,12 @@ class MapViewModel @Inject constructor(
                 )
             }
             rebuildUnifiedFeatures()
+            applyRouteSampleAndRiskMetrics(
+                routeCoords = altCoords,
+                conditions = emptyList(),
+                baseWeather = current.routeSummaryWeather,
+                historicalLandslidesJson = current.historicalLandslidesGeoJson
+            )
         }
     }
 
@@ -3038,6 +3065,12 @@ class MapViewModel @Inject constructor(
                     )
                 }
                 rebuildUnifiedFeatures()
+                applyRouteSampleAndRiskMetrics(
+                    routeCoords = state.draftPolyline,
+                    conditions = emptyList(),
+                    baseWeather = _uiState.value.routeSummaryWeather,
+                    historicalLandslidesJson = entity.historicalLandslidesGeoJson
+                )
                 triggerRouteCorridorAnalysis(entity.routeId)
             } catch (e: Exception) {
                 Log.e("MapViewModel", "Failed to save custom route: ${e.message}", e)

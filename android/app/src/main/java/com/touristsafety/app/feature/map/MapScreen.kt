@@ -281,9 +281,12 @@ fun MapScreen(
                     try {
                         val screenPoint = mapboxMap.projection.toScreenLocation(latLng)
 
-                        // 1. Priority 1: Interactive Point Markers & Weather Circles
+                        // 1. Priority 1: Interactive Point Markers, Route Weather Checkpoints & Hazard Circles
                         val pointFeatures = mapboxMap.queryRenderedFeatures(
                             screenPoint,
+                            MapLibreLayerManager.LAYER_ROUTE_WEATHER_CIRCLE,
+                            MapLibreLayerManager.LAYER_ROUTE_WEATHER_SYMBOL,
+                            MapLibreLayerManager.LAYER_ROUTE_WEATHER_PULSE,
                             MapLibreLayerManager.LAYER_WEATHER_POINTS_CIRCLE,
                             MapLibreLayerManager.LAYER_ROUTE_HAZARD_SEQUENCE_SYMBOL,
                             MapLibreLayerManager.LAYER_COMMUNITY_HAZARDS_SYMBOL,
@@ -316,8 +319,13 @@ fun MapScreen(
                             val layerId = top.getStringProperty("layer")
                             val catProp = top.getStringProperty("category") ?: top.getStringProperty("category_enum")
 
-                            // Weather Point Sample tapped
-                            if (layerId == "weather_point" || catProp == "WEATHER_POINT") {
+                            // Weather Point or Route Weather Checkpoint tapped
+                            val isRouteWeatherLayer = layerId in listOf(
+                                MapLibreLayerManager.LAYER_ROUTE_WEATHER_CIRCLE,
+                                MapLibreLayerManager.LAYER_ROUTE_WEATHER_SYMBOL,
+                                MapLibreLayerManager.LAYER_ROUTE_WEATHER_PULSE
+                            )
+                            if (isRouteWeatherLayer || layerId == "weather_point" || catProp == "WEATHER_POINT" || top.getStringProperty("sample_id") != null) {
                                 val sampleId = top.getStringProperty("sample_id") ?: featId
                                 val sampleIdx = top.getNumberProperty("sample_index")?.toInt() ?: top.getNumberProperty("index")?.toInt() ?: 0
                                 val targetSample = state.routeWeatherSamples.firstOrNull { it.sampleId == sampleId || it.sampleIndex == sampleIdx }
@@ -330,8 +338,13 @@ fun MapScreen(
                                     val windKmh = top.getNumberProperty("wind_speed_kmh")?.toDouble() ?: 10.0
                                     val precipMm = top.getNumberProperty("precipitation_mm")?.toDouble() ?: 0.0
                                     val precipProb = top.getNumberProperty("precipitation_probability_pct")?.toDouble() ?: 0.0
-                                    val desc = top.getStringProperty("description") ?: "Weather Forecast"
+                                    val desc = top.getStringProperty("weather_description") ?: top.getStringProperty("description") ?: "Weather Forecast"
                                     val distKm = top.getNumberProperty("distance_km")?.toDouble() ?: 0.0
+                                    val slopeDeg = top.getNumberProperty("slope_degrees")?.toDouble() ?: 0.0
+                                    val elevM = top.getNumberProperty("elevation_m")?.toDouble() ?: 0.0
+                                    val landProb = top.getNumberProperty("landslide_prob_pct")?.toDouble() ?: 0.0
+                                    val landLevel = top.getStringProperty("landslide_risk_level") ?: "LOW"
+                                    val heavyRain = top.getBooleanProperty("heavy_rainfall_warning") ?: (precipMm >= 10.0)
                                     val dynamicSample = com.touristsafety.app.core.model.SelectedMapTarget.RouteWeather(
                                         sampleId = sampleId ?: "weather-sample-$sampleIdx",
                                         sampleIndex = sampleIdx,
@@ -347,10 +360,15 @@ fun MapScreen(
                                             wind_speed_kmh = windKmh,
                                             weather_code = top.getNumberProperty("weather_code")?.toInt() ?: 1,
                                             weather_description = desc,
-                                            warning_level = top.getStringProperty("warning_level") ?: "NONE",
+                                            warning_level = top.getStringProperty("warning_level") ?: (if (heavyRain) "WARNING" else "NONE"),
                                             forecast_valid_at = top.getStringProperty("forecast_valid_at") ?: "Current",
                                             source = top.getStringProperty("source") ?: "Open-Meteo"
-                                        )
+                                        ),
+                                        elevationM = elevM,
+                                        slopeDegrees = slopeDeg,
+                                        landslideProbabilityPct = landProb,
+                                        landslideRiskLevel = landLevel,
+                                        heavyRainfallWarning = heavyRain
                                     )
                                     viewModel.selectTarget(dynamicSample)
                                     return@addOnMapClickListener true
@@ -1139,7 +1157,11 @@ fun MapScreen(
                     weather = state.routeSummaryWeather,
                     fireCount = state.routeSummaryFireCount,
                     forestCount = state.routeSummaryForestCount,
-                    nearestMedicalDistance = state.nearbyAssistanceList.firstOrNull { it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC }?.formattedDistance(),
+                    nearestMedicalDistance = remember(state.nearbyAssistanceList) {
+                        state.nearbyAssistanceList.firstOrNull {
+                            it.category == MapFeatureCategory.HOSPITAL || it.category == MapFeatureCategory.CLINIC
+                        }?.formattedDistance()
+                    },
                     isExpanded = state.isBottomRouteExpanded,
                     onToggleExpand = { viewModel.toggleBottomRouteExpanded() },
                     plannedRouteAlternatives = state.plannedRouteAlternatives,
@@ -1960,7 +1982,10 @@ fun MapScreen(
         // A. Selected Target / Feature Detail Bottom Sheet
         if (state.selectedTarget != null) {
             PointDetailsBottomSheet(
-                uiState = state,
+                target = state.selectedTarget,
+                pointContextData = state.pointContextData,
+                pointContextLoading = state.pointContextLoading,
+                pointContextError = state.pointContextError,
                 onDismiss = { viewModel.clearSelection() },
                 onSelectHazard = { viewModel.selectFeature(it) }
             )
@@ -2135,14 +2160,12 @@ private fun FilterChipsRow(
     onSelectFilter: (MapFilterChip) -> Unit,
     onOpenNearbyList: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MapFilterChip.entries.forEach { chip ->
+        items(MapFilterChip.entries, key = { it.name }) { chip ->
             val isSelected = selectedFilter == chip
             val count = if (chip == MapFilterChip.ALL) {
                 null
@@ -2178,28 +2201,30 @@ private fun FilterChipsRow(
         }
 
         // Quick Nearby List Pill
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.clickable { onOpenNearbyList() }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
+        item(key = "nearby_list_pill") {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.clickable { onOpenNearbyList() }
             ) {
-                Icon(
-                    imageVector = Icons.Default.FormatListBulleted,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Nearby List",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FormatListBulleted,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Nearby List",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
             }
         }
     }
@@ -2424,33 +2449,9 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
                     )
                 }
 
-                // Distributed route checkpoints along the path
-                val activeSampleTags = mutableSetOf<String>()
-                state.routeWeatherSamples.forEach { sample ->
-                    val markerTag = "route_sample_${sample.sampleId}"
-                    activeSampleTags.add(markerTag)
-                    val sLatLng = LatLng(sample.latitude, sample.longitude)
-                    val rainWarning = if (sample.heavyRainfallWarning) "⚠️ Heavy Rain " else ""
-                    val title = "${sample.name} (${String.format(java.util.Locale.US, "%.2f km", sample.distanceAlongRouteKm)})"
-                    val snippet = "$markerTag • $rainWarning${String.format(java.util.Locale.US, "%.2f°C", sample.weather.temperature_c)} • Rain: ${String.format(java.util.Locale.US, "%.2f mm", sample.weather.precipitation_mm)} • Landslide: ${String.format(java.util.Locale.US, "%.2f%%", sample.landslideProbabilityPct)}"
-
-                    val existing = mapboxMap.markers.firstOrNull { it.snippet?.startsWith(markerTag) == true }
-                    if (existing != null) {
-                        if (existing.position != sLatLng) existing.position = sLatLng
-                        existing.title = title
-                        existing.snippet = snippet
-                    } else {
-                        mapboxMap.addMarker(
-                            MarkerOptions()
-                                .position(sLatLng)
-                                .title(title)
-                                .snippet(snippet)
-                        )
-                    }
-                }
+                // Clean up any legacy route sample markers (now rendered via GPU vector layers)
                 val obsoleteMarkers = mapboxMap.markers.filter { m ->
-                    m.snippet?.startsWith("route_sample_") == true &&
-                    !activeSampleTags.any { tag -> m.snippet?.startsWith(tag) == true }
+                    m.snippet?.startsWith("route_sample_") == true
                 }
                 obsoleteMarkers.forEach { mapboxMap.removeMarker(it) }
             } else {
@@ -2467,6 +2468,15 @@ private fun updateMaplibreLayers(mapboxMap: MapLibreMap, state: MapUiState, cont
     }
 }
 
+private data class CanvasMapBounds(
+    val minLat: Double,
+    val maxLat: Double,
+    val minLon: Double,
+    val maxLon: Double,
+    val latSpan: Double,
+    val lonSpan: Double
+)
+
 /**
  * High-performance Offline Canvas Vector Schematic fallback when offline or toggled.
  */
@@ -2478,6 +2488,46 @@ fun OfflineVectorCanvasView(
     onFeatureClicked: (UnifiedMapFeature) -> Unit,
     onDismiss: (() -> Unit)? = null
 ) {
+    // Memoize spatial boundaries to prevent iterating coordinates on every frame
+    val bounds = remember(routeCoordinates, features) {
+        var minLa = Double.MAX_VALUE
+        var maxLa = -Double.MAX_VALUE
+        var minLo = Double.MAX_VALUE
+        var maxLo = -Double.MAX_VALUE
+
+        for (pt in routeCoordinates) {
+            if (pt.first < minLa) minLa = pt.first
+            if (pt.first > maxLa) maxLa = pt.first
+            if (pt.second < minLo) minLo = pt.second
+            if (pt.second > maxLo) maxLo = pt.second
+        }
+        for (feat in features) {
+            if (feat.latitude < minLa) minLa = feat.latitude
+            if (feat.latitude > maxLa) maxLa = feat.latitude
+            if (feat.longitude < minLo) minLo = feat.longitude
+            if (feat.longitude > maxLo) maxLo = feat.longitude
+        }
+
+        if (minLa == Double.MAX_VALUE) {
+            minLa = 32.20
+            maxLa = 32.30
+            minLo = 77.15
+            maxLo = 77.25
+        }
+        val lSpan = (maxLa - minLa).coerceAtLeast(0.01)
+        val lnSpan = (maxLo - minLo).coerceAtLeast(0.01)
+        CanvasMapBounds(minLa, maxLa, minLo, maxLo, lSpan, lnSpan)
+    }
+
+    // Memoize category groupings to prevent collection filtering per frame
+    val forestFeatures = remember(features) { features.filter { it.category == MapFeatureCategory.FOREST_AREA } }
+    val waterwayFeatures = remember(features) { features.filter { it.category == MapFeatureCategory.WATERWAY } }
+    val hazardFeatures = remember(features) { features.filter { it.category == MapFeatureCategory.HAZARD_ZONE } }
+    val pointFeatures = remember(features) { features.filter { !it.category.isAreaFeature } }
+
+    // Pre-allocated reusable path for zero draw allocations
+    val reusablePath = remember { Path() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2526,101 +2576,90 @@ fun OfflineVectorCanvasView(
                     }
                 }
         ) {
-            val allLats = routeCoordinates.map { it.first } + features.map { it.latitude }
-            val allLons = routeCoordinates.map { it.second } + features.map { it.longitude }
-
-            val minLat = allLats.minOrNull() ?: 32.20
-            val maxLat = allLats.maxOrNull() ?: 32.30
-            val minLon = allLons.minOrNull() ?: 77.15
-            val maxLon = allLons.maxOrNull() ?: 77.25
-
-            val latSpan = (maxLat - minLat).coerceAtLeast(0.01)
-            val lonSpan = (maxLon - minLon).coerceAtLeast(0.01)
-
             fun project(lat: Double, lon: Double): Offset {
-                val x = ((lon - minLon) / lonSpan * (size.width - 80f) + 40f).toFloat()
-                val y = ((maxLat - lat) / latSpan * (size.height - 80f) + 40f).toFloat()
+                val x = (((lon - bounds.minLon) / bounds.lonSpan) * (size.width - 80f) + 40f).toFloat()
+                val y = (((bounds.maxLat - lat) / bounds.latSpan) * (size.height - 80f) + 40f).toFloat()
                 return Offset(x, y)
             }
 
             // 0. Draw Route Corridor Polygon (if available)
             corridorPolygonCoordinates.forEach { ring ->
                 if (ring.size >= 3) {
-                    val cPath = Path()
+                    reusablePath.rewind()
                     ring.forEachIndexed { idx, (lat, lon) ->
                         val pt = project(lat, lon)
-                        if (idx == 0) cPath.moveTo(pt.x, pt.y) else cPath.lineTo(pt.x, pt.y)
+                        if (idx == 0) reusablePath.moveTo(pt.x, pt.y) else reusablePath.lineTo(pt.x, pt.y)
                     }
-                    cPath.close()
-                    drawPath(path = cPath, color = Color(0x2203A9F4))
-                    drawPath(path = cPath, color = Color(0x660288D1), style = Stroke(width = 2f))
+                    reusablePath.close()
+                    drawPath(path = reusablePath, color = Color(0x2203A9F4))
+                    drawPath(path = reusablePath, color = Color(0x660288D1), style = Stroke(width = 2f))
                 }
             }
 
             // 1. Draw Forest polygons
-            features.filter { it.category == MapFeatureCategory.FOREST_AREA }.forEach { forest ->
+            forestFeatures.forEach { forest ->
                 forest.geometryPolygon?.let { coords ->
                     if (coords.size >= 3) {
-                        val path = Path()
+                        reusablePath.rewind()
                         coords.forEachIndexed { idx, (lat, lon) ->
                             val pt = project(lat, lon)
-                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                            if (idx == 0) reusablePath.moveTo(pt.x, pt.y) else reusablePath.lineTo(pt.x, pt.y)
                         }
-                        path.close()
-                        drawPath(path = path, color = Color(0x332E7D32))
-                        drawPath(path = path, color = Color(0xFF4CAF50), style = Stroke(width = 3f))
+                        reusablePath.close()
+                        drawPath(path = reusablePath, color = Color(0x332E7D32))
+                        drawPath(path = reusablePath, color = Color(0xFF4CAF50), style = Stroke(width = 3f))
                     }
                 }
             }
 
             // 1b. Draw Waterways, River Channels & Flood Inundation polygons
-            features.filter { it.category == MapFeatureCategory.WATERWAY }.forEach { water ->
+            waterwayFeatures.forEach { water ->
                 water.geometryPolygon?.let { coords ->
                     if (coords.size >= 3) {
-                        val path = Path()
+                        reusablePath.rewind()
                         coords.forEachIndexed { idx, (lat, lon) ->
                             val pt = project(lat, lon)
-                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                            if (idx == 0) reusablePath.moveTo(pt.x, pt.y) else reusablePath.lineTo(pt.x, pt.y)
                         }
-                        path.close()
+                        reusablePath.close()
                         val isFlood = water.details["category"] == "flood_inundation_zone" || water.title.contains("Flood", ignoreCase = true)
                         val fillColor = if (isFlood) Color(0x440097A7) else Color(0x440288D1)
                         val strokeColor = if (isFlood) Color(0xFF00796B) else Color(0xFF01579B)
-                        drawPath(path = path, color = fillColor)
-                        drawPath(path = path, color = strokeColor, style = Stroke(width = 2.5f))
+                        drawPath(path = reusablePath, color = fillColor)
+                        drawPath(path = reusablePath, color = strokeColor, style = Stroke(width = 2.5f))
                     }
                 }
             }
 
             // 2. Draw Hazard Zones (distinguish Flood Inundation from general hazards)
-            features.filter { it.category == MapFeatureCategory.HAZARD_ZONE }.forEach { hazard ->
+            hazardFeatures.forEach { hazard ->
                 hazard.geometryPolygon?.let { coords ->
                     if (coords.size >= 3) {
-                        val path = Path()
+                        reusablePath.rewind()
                         coords.forEachIndexed { idx, (lat, lon) ->
                             val pt = project(lat, lon)
-                            if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                            if (idx == 0) reusablePath.moveTo(pt.x, pt.y) else reusablePath.lineTo(pt.x, pt.y)
                         }
-                        path.close()
+                        reusablePath.close()
                         val isFloodHazard = hazard.details["Category"]?.contains("FLOOD", ignoreCase = true) == true ||
                             hazard.details["hazard_category"]?.contains("flood", ignoreCase = true) == true ||
                             hazard.title.contains("Flood", ignoreCase = true)
                         val hFillColor = if (isFloodHazard) Color(0x440097A7) else Color(0x33C62828)
                         val hStrokeColor = if (isFloodHazard) Color(0xFF00796B) else Color(0xFFE53935)
-                        drawPath(path = path, color = hFillColor)
-                        drawPath(path = path, color = hStrokeColor, style = Stroke(width = 3f))
+                        drawPath(path = reusablePath, color = hFillColor)
+                        drawPath(path = reusablePath, color = hStrokeColor, style = Stroke(width = 3f))
                     }
                 }
             }
 
             // 3. Draw Route Polyline
             if (routeCoordinates.size >= 2) {
-                val trailPath = Path()
+                reusablePath.rewind()
                 routeCoordinates.forEachIndexed { index, (lat, lon) ->
                     val pt = project(lat, lon)
-                    if (index == 0) trailPath.moveTo(pt.x, pt.y) else trailPath.lineTo(pt.x, pt.y)
+                    if (index == 0) reusablePath.moveTo(pt.x, pt.y) else reusablePath.lineTo(pt.x, pt.y)
                 }
-                drawPath(path = trailPath, color = Color(0xFF0288D1), style = Stroke(width = 8f))
+                drawPath(path = reusablePath, color = Color(0xFF0288D1), style = Stroke(width = 8f))
 
                 // Start dot (green)
                 val start = project(routeCoordinates.first().first, routeCoordinates.first().second)
@@ -2632,7 +2671,7 @@ fun OfflineVectorCanvasView(
             }
 
             // 4. Draw Point Features
-            features.filter { !it.category.isAreaFeature }.forEach { feat ->
+            pointFeatures.forEach { feat ->
                 val pt = project(feat.latitude, feat.longitude)
                 drawCircle(color = feat.category.primaryColor, radius = 12f, center = pt)
                 drawCircle(color = Color.White, radius = 5f, center = pt)

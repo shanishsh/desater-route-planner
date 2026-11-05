@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -16,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.touristsafety.app.core.network.dto.ElevationProfilePointDto
+
+private data class CachedElevationPoint(val xNorm: Float, val yNorm: Float, val isSteep: Boolean)
 
 @Composable
 fun ElevationProfileCard(
@@ -27,9 +30,29 @@ fun ElevationProfileCard(
 ) {
     if (profilePoints.isEmpty()) return
 
-    val minElev = profilePoints.minOf { it.elevation_m }.coerceAtLeast(0.0)
-    val maxElev = if (maxElevationM > 0) maxElevationM else profilePoints.maxOf { it.elevation_m }
-    val totalDistKm = profilePoints.lastOrNull()?.distance_from_start_km ?: 1.0
+    val minElev = remember(profilePoints) { profilePoints.minOfOrNull { it.elevation_m }?.coerceAtLeast(0.0) ?: 0.0 }
+    val maxElev = remember(profilePoints, maxElevationM) {
+        if (maxElevationM > 0) maxElevationM else (profilePoints.maxOfOrNull { it.elevation_m } ?: 100.0)
+    }
+    val totalDistKm = remember(profilePoints) { profilePoints.lastOrNull()?.distance_from_start_km ?: 1.0 }
+    val elevRange = remember(minElev, maxElev) { (maxElev - minElev).coerceAtLeast(10.0) }
+
+    val normalizedPoints = remember(profilePoints, elevRange, minElev, totalDistKm) {
+        profilePoints.map { pt ->
+            val xNorm = (pt.distance_from_start_km / totalDistKm).coerceIn(0.0, 1.0).toFloat()
+            val yNorm = ((pt.elevation_m - minElev) / elevRange).coerceIn(0.0, 1.0).toFloat()
+            CachedElevationPoint(xNorm, yNorm, pt.slope_degrees >= 26.0)
+        }
+    }
+
+    val gradientColors = remember {
+        listOf(
+            Color(0xFF2E7D32).copy(alpha = 0.35f),
+            Color(0xFF2E7D32).copy(alpha = 0.05f)
+        )
+    }
+    val fillPath = remember { Path() }
+    val linePath = remember { Path() }
 
     Column(
         modifier = modifier
@@ -65,95 +88,98 @@ fun ElevationProfileCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Elevation Canvas
+        // Elevation Canvas (Optimized: zero per-frame path/list allocations)
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(110.dp)
         ) {
+            if (normalizedPoints.size < 2) return@Canvas
             val width = size.width
             val height = size.height
             val padding = 16f
             val graphWidth = width - (padding * 2)
             val graphHeight = height - (padding * 2)
 
-            val elevRange = (maxElev - minElev).coerceAtLeast(10.0)
+            fillPath.rewind()
+            linePath.rewind()
 
-            // Calculate canvas coordinates for each profile point
-            val offsets = profilePoints.map { pt ->
-                val xNorm = (pt.distance_from_start_km / totalDistKm).coerceIn(0.0, 1.0).toFloat()
-                val yNorm = ((pt.elevation_m - minElev) / elevRange).coerceIn(0.0, 1.0).toFloat()
+            var trekkerX = 0f
+            var trekkerY = 0f
+            val trekkerTargetIdx = ((normalizedPoints.size - 1) * (progressPct / 100f).coerceIn(0f, 1f)).toInt()
 
-                val x = padding + (xNorm * graphWidth)
-                val y = height - padding - (yNorm * graphHeight)
-                Offset(x, y)
+            for (i in normalizedPoints.indices) {
+                val pt = normalizedPoints[i]
+                val x = padding + (pt.xNorm * graphWidth)
+                val y = height - padding - (pt.yNorm * graphHeight)
+
+                if (i == 0) {
+                    fillPath.moveTo(x, y)
+                    linePath.moveTo(x, y)
+                } else {
+                    fillPath.lineTo(x, y)
+                    linePath.lineTo(x, y)
+                }
+
+                if (i == trekkerTargetIdx) {
+                    trekkerX = x
+                    trekkerY = y
+                }
             }
 
-            if (offsets.size >= 2) {
-                // Build fill path
-                val fillPath = Path().apply {
-                    moveTo(offsets.first().x, offsets.first().y)
-                    for (i in 1 until offsets.size) {
-                        lineTo(offsets[i].x, offsets[i].y)
-                    }
-                    lineTo(offsets.last().x, height - padding)
-                    lineTo(offsets.first().x, height - padding)
-                    close()
-                }
+            val lastPt = normalizedPoints.last()
+            val lastX = padding + (lastPt.xNorm * graphWidth)
+            val firstPt = normalizedPoints.first()
+            val firstX = padding + (firstPt.xNorm * graphWidth)
 
-                // Gradient under elevation line
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF2E7D32).copy(alpha = 0.35f),
-                            Color(0xFF2E7D32).copy(alpha = 0.05f)
-                        ),
-                        startY = 0f,
-                        endY = height
-                    )
+            fillPath.lineTo(lastX, height - padding)
+            fillPath.lineTo(firstX, height - padding)
+            fillPath.close()
+
+            // Gradient under elevation line
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = gradientColors,
+                    startY = 0f,
+                    endY = height
                 )
+            )
 
-                // Elevation Line Stroke
-                val linePath = Path().apply {
-                    moveTo(offsets.first().x, offsets.first().y)
-                    for (i in 1 until offsets.size) {
-                        lineTo(offsets[i].x, offsets[i].y)
-                    }
+            // Elevation Line Stroke
+            drawPath(
+                path = linePath,
+                color = Color(0xFF2E7D32),
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // Highlight steep / high risk slope points
+            for (i in normalizedPoints.indices) {
+                val pt = normalizedPoints[i]
+                if (pt.isSteep) {
+                    val x = padding + (pt.xNorm * graphWidth)
+                    val y = height - padding - (pt.yNorm * graphHeight)
+                    drawCircle(
+                        color = Color(0xFFD32F2F),
+                        radius = 3.5.dp.toPx(),
+                        center = Offset(x, y)
+                    )
                 }
-                drawPath(
-                    path = linePath,
-                    color = Color(0xFF2E7D32),
-                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            }
+
+            // Active trekker position dot if in progress
+            if (progressPct > 0f) {
+                val centerOffset = Offset(trekkerX, trekkerY)
+                drawCircle(
+                    color = Color(0xFF1976D2),
+                    radius = 6.dp.toPx(),
+                    center = centerOffset
                 )
-
-                // Highlight steep / high risk slope points
-                for (i in offsets.indices) {
-                    val slope = profilePoints[i].slope_degrees
-                    if (slope >= 26.0) {
-                        drawCircle(
-                            color = Color(0xFFD32F2F),
-                            radius = 3.5.dp.toPx(),
-                            center = offsets[i]
-                        )
-                    }
-                }
-
-                // Active trekker position dot if in progress
-                if (progressPct > 0f) {
-                    val progressIndex = ((offsets.size - 1) * (progressPct / 100f).coerceIn(0f, 1f)).toInt()
-                    val trekkerOffset = offsets[progressIndex.coerceIn(0, offsets.size - 1)]
-                    drawCircle(
-                        color = Color(0xFF1976D2),
-                        radius = 6.dp.toPx(),
-                        center = trekkerOffset
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 2.5.dp.toPx(),
-                        center = trekkerOffset
-                    )
-                }
+                drawCircle(
+                    color = Color.White,
+                    radius = 2.5.dp.toPx(),
+                    center = centerOffset
+                )
             }
         }
 

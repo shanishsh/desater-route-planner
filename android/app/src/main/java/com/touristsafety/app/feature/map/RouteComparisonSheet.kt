@@ -120,7 +120,7 @@ fun RouteComparisonSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(ComparisonPreference.entries) { pref ->
+                items(ComparisonPreference.entries, key = { it.id }) { pref ->
                     val isSelected = pref == selectedPref
                     FilterChip(
                         selected = isSelected,
@@ -188,7 +188,7 @@ fun RouteComparisonSheet(
                 }
 
                 // 2. Alternative Route Cards
-                items(state.plannedRouteAlternatives) { alt ->
+                items(state.plannedRouteAlternatives, key = { it.id }) { alt ->
                     val isAltActive = state.selectedAlternativeId == alt.id
                     AlternativeRouteComparisonCard(
                         alt = alt,

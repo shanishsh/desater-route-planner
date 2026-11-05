@@ -582,7 +582,7 @@ fun RouteSafetyReviewScreen(
                 }
 
                 // Segment Cards
-                items(state.conditions) { wp ->
+                items(state.conditions, key = { "${it.index}_${it.name}" }) { wp ->
                     WaypointConditionCard(wp)
                 }
 

@@ -5,12 +5,10 @@ import android.content.res.Configuration
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -91,7 +89,7 @@ fun HomeScreen(
 }
 
 /**
- * Stateless Content Composable: Pure rendering, receives immutable state and action callbacks.
+ * Stateless Content Composable: Pure rendering matching the reference dark outdoor design.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,38 +139,84 @@ fun HomeContent(
                         Text(
                             "Uttarakhand Trek Safety",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
-                        val syncTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastSyncTimestamp))
+                        val syncText = remember(state.lastSyncTimestamp, state.isOffline) {
+                            if (state.isOffline) {
+                                "Offline Cache Active"
+                            } else if (state.lastSyncTimestamp <= 0L) {
+                                "Synchronizing..."
+                            } else {
+                                val diffMs = System.currentTimeMillis() - state.lastSyncTimestamp
+                                val diffHours = diffMs / 3_600_000.0
+                                if (diffHours < 0.1) {
+                                    "Last-synced just now"
+                                } else if (diffHours < 24.0) {
+                                    String.format(Locale.US, "Last-synced %.1f hours ago", diffHours)
+                                } else {
+                                    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+                                    "Last-synced at ${sdf.format(Date(state.lastSyncTimestamp))}"
+                                }
+                            }
+                        }
                         Text(
-                            if (state.isOffline) "Offline Cache Active" else "Last Synced at $syncTime",
+                            syncText,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (state.isOffline) WarningAmber else MaterialTheme.colorScheme.outline
+                            color = if (state.isOffline) WarningAmber else TextSecondary
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateToProviders) {
-                        Icon(AppIcons.ProviderStatus, contentDescription = "Data Providers & Diagnostics")
-                    }
                     IconButton(onClick = onRefresh) {
-                        Icon(AppIcons.Refresh, contentDescription = "Refresh Data")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh Data",
+                            tint = TextPrimary
+                        )
+                    }
+                    IconButton(onClick = onNavigateToAlerts) {
+                        BadgedBox(
+                            badge = {
+                                if (state.alerts.isNotEmpty()) {
+                                    Badge(
+                                        containerColor = CriticalRed,
+                                        contentColor = Color.White
+                                    ) {
+                                        Text("${state.alerts.size}")
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Notifications,
+                                contentDescription = "Active Advisories",
+                                tint = TextPrimary
+                            )
+                        }
                     }
                     IconButton(onClick = { onShowProfileDialogChange(true) }) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Account Profile")
+                        Icon(
+                            Icons.Default.AccountCircle,
+                            contentDescription = "Account Profile",
+                            tint = TextPrimary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = DarkBackground,
+                    titleContentColor = TextPrimary
                 )
             )
         },
+        containerColor = DarkBackground,
         modifier = modifier
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
+                .background(DarkBackground)
         ) {
             OfflineBanner(isOffline = state.isOffline)
 
@@ -180,7 +224,7 @@ fun HomeContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // 1. High-Priority Disaster Siren Alarm
                 if (isSirenPlaying) {
@@ -188,8 +232,8 @@ fun HomeContent(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(ExpressiveShapes.mediumIncreased)
-                                .background(EmergencyRed)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CriticalRed)
                                 .padding(14.dp)
                         ) {
                             Row(
@@ -219,10 +263,10 @@ fun HomeContent(
                                 Button(
                                     onClick = onStopDisasterSiren,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                    shape = ExpressiveShapes.smallIncreased,
+                                    shape = RoundedCornerShape(20.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text("SILENCE", color = EmergencyRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("SILENCE", color = CriticalRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -236,13 +280,13 @@ fun HomeContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onNavigateToActiveTrip(active.tripId) },
-                            shape = ExpressiveShapes.largeIncreased,
+                            shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = ForestGreenPrimary.copy(alpha = 0.12f)
+                                containerColor = DarkSurfacePrimary
                             ),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ForestGreenPrimary)
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, MintPrimary)
                         ) {
-                            Column(modifier = Modifier.padding(18.dp)) {
+                            Column(modifier = Modifier.padding(16.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -252,15 +296,15 @@ fun HomeContent(
                                         Box(
                                             modifier = Modifier
                                                 .size(10.dp)
-                                                .clip(ExpressiveShapes.pill)
-                                                .background(ForestGreenPrimary)
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(MintPrimary)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             "LIVE TREK IN PROGRESS",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = ForestGreenPrimary
+                                            color = MintPrimary
                                         )
                                     }
                                     if (active.isPaused) {
@@ -276,8 +320,9 @@ fun HomeContent(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = active.routeTitle.ifBlank { "Active Monitored Trek" },
-                                    style = MaterialTheme.typography.titleLargeEmphasized,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
                                 )
 
                                 if (active.originName.isNotBlank() && active.destinationName.isNotBlank()) {
@@ -285,7 +330,7 @@ fun HomeContent(
                                     Text(
                                         text = "${active.originName} → ${active.destinationName}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = TextSecondary
                                     )
                                 }
 
@@ -304,14 +349,17 @@ fun HomeContent(
                                         text = "${String.format(Locale.US, "%.2f km", distKm)} • $timeStr",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = TextPrimary
                                     )
 
                                     Button(
                                         onClick = { onNavigateToActiveTrip(active.tripId) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                        shape = ExpressiveShapes.smallIncreased,
-                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MintPrimary,
+                                            contentColor = DarkBackground
+                                        ),
+                                        shape = RoundedCornerShape(20.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                     ) {
                                         Icon(AppIcons.Map, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -323,55 +371,159 @@ fun HomeContent(
                     }
                 }
 
-                // 3. Recently Completed Treks
-                if (state.recentCompletedTrips.isNotEmpty()) {
-                    item(key = "section_recent_treks", contentType = "section_header") {
-                        AppSectionHeader(
-                            title = "Recent Completed Treks (${state.recentCompletedTrips.size})",
-                            subtitle = "Review recorded GPS tracks, distance, and duration",
-                            actionLabel = "View All",
-                            onActionClick = onNavigateToHistory
+                // 3. Section: Weather
+                item(key = "section_weather") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Weather",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        val weather = state.weather
+                        val temp = weather?.temperatureC?.toInt()
+                        val cond = weather?.weatherDescription ?: if (state.isLoading) "Fetching weather..." else "Weather forecast unavailable"
+                        val loc = "Kedarnath Valley"
+                        val alertNote = if (state.alerts.isEmpty()) "No alerts" else "${state.alerts.size} active alerts"
+
+                        WeatherSummarySurface(
+                            temperatureC = temp,
+                            conditionText = cond,
+                            locationName = loc,
+                            alertsNote = alertNote,
+                            onClick = onNavigateToMap
                         )
                     }
-                    item(key = "row_recent_completed_treks", contentType = "horizontal_trek_feed") {
+                }
+
+                // 4. Section: Verified Trail Routes
+                item(key = "section_verified_trails") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Verified Trail Routes",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Plan Custom",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MintPrimary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onNavigateToPlanTrip() }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(
-                                items = state.recentCompletedTrips,
-                                key = { it.tripId },
-                                contentType = { "recent_completed_trek" }
-                            ) { trip ->
+                            items(VERIFIED_CORRIDORS_PREVIEW, key = { it.title }) { corridor ->
+                                TrailRouteCard(
+                                    title = corridor.title,
+                                    subtitle = corridor.subtitle,
+                                    distanceKm = corridor.distanceKm,
+                                    onClick = onNavigateToPlanTrip
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 5. Section: Live Safety Advisories
+                item(key = "section_live_safety_advisories") {
+                    val criticalCount = state.alerts.count { it.severity == AlertSeverity.CRITICAL }
+                    val warningCount = state.alerts.count { it.severity == AlertSeverity.HIGH || it.severity == AlertSeverity.MEDIUM }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Live Safety Advisories",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            if (state.alerts.isNotEmpty()) {
+                                Text(
+                                    text = "View All (${state.alerts.size})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MintPrimary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { onNavigateToAlerts() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        // Prominent Circular Status Card ("All Clear" or Warning/Critical)
+                        SafetyStatusCard(
+                            criticalCount = criticalCount,
+                            warningCount = warningCount,
+                            isOffline = state.isOffline,
+                            onClick = onNavigateToAlerts
+                        )
+
+                        // If active alerts exist, show concise rows matching the reference design
+                        if (state.alerts.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            state.alerts.take(3).forEach { alert ->
                                 Surface(
                                     modifier = Modifier
-                                        .width(220.dp)
-                                        .clickable { onNavigateToCompletedTrekDetail(trip.tripId) },
-                                    shape = ExpressiveShapes.mediumIncreased,
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        .fillMaxWidth()
+                                        .clickable { onNavigateToAlerts() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = DarkSurfacePrimary,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkDivider)
                                 ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestGreenPrimary, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("COMPLETED", style = MaterialTheme.typography.labelSmall, color = ForestGreenPrimary, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val iconColor = when (alert.severity) {
+                                            AlertSeverity.CRITICAL -> CriticalRed
+                                            AlertSeverity.HIGH -> WarningAmber
+                                            else -> WarningAmber
                                         }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = trip.routeTitle.ifBlank { "Completed Trek" },
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = iconColor,
+                                            modifier = Modifier.size(20.dp)
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        val distKm = trip.traveledDistanceMeters / 1000.0
-                                        val mins = trip.elapsedDurationSeconds / 60
-                                        Text(
-                                            text = "${String.format(Locale.US, "%.1f km", distKm)} • $mins mins",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = alert.title,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary,
+                                                maxLines = 1
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = alert.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondary,
+                                                maxLines = 1
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -379,142 +531,144 @@ fun HomeContent(
                     }
                 }
 
-                // 4. Alpine Weather Glance
-                item(key = "alpine_weather_glance", contentType = "weather_card") {
-                    AlpineWeatherGlance(
-                        weather = state.weather,
-                        isLoading = state.isLoading
-                    )
-                }
-
-                // 5. Trail Quick-Starts (Verified Corridors)
-                item(key = "section_verified_trails", contentType = "section_header") {
-                    AppSectionHeader(
-                        title = "Verified Trail Routes",
-                        subtitle = "Select a monitored corridor to inspect hazards and safety facilities",
-                        actionLabel = "Plan Custom",
-                        onActionClick = onNavigateToPlanTrip
-                    )
-                    VerifiedTrailQuickStarts(onSelectTrail = onNavigateToPlanTrip)
-                }
-
-                item(key = "row_custom_actions", contentType = "action_buttons") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onNavigateToDrawRoute,
-                            modifier = Modifier.weight(1f),
-                            shape = ExpressiveShapes.smallIncreased
+                // 6. Section: Live Map Preview
+                item(key = "section_live_map_preview") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(AppIcons.DrawRoute, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Draw Route", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                text = "Live Map Preview",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Open Map",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MintPrimary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onNavigateToMap() }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
                         }
-                        OutlinedButton(
-                            onClick = onNavigateToHistory,
-                            modifier = Modifier.weight(1f),
-                            shape = ExpressiveShapes.smallIncreased
-                        ) {
-                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Trek History", style = MaterialTheme.typography.labelMedium)
-                        }
+
+                        // Lightweight Corridor Preview Card (zero duplicate MapView OpenGL allocation)
+                        LiveMapPreviewCard(onOpenMap = onNavigateToMap)
                     }
                 }
 
-                // 6. Live Safety Advisories
-                item(key = "section_live_safety_advisories", contentType = "section_header") {
-                    AppSectionHeader(
-                        title = "Live Safety Advisories (${state.alerts.size})",
-                        actionLabel = "View All",
-                        onActionClick = onNavigateToAlerts
-                    )
-                }
-
-                if (state.isLoading && state.alerts.isEmpty()) {
-                    items(
-                        count = 3,
-                        key = { "skeleton_alert_$it" },
-                        contentType = { "skeleton_advisory_item" }
-                    ) {
-                        SkeletonHazardAlertCard()
-                    }
-                } else if (state.alerts.isEmpty()) {
-                    item(key = "empty_alerts_state", contentType = "empty_state") {
-                        AppEmptyState(
-                            title = "All Clear on Monitored Trails",
-                            description = "No active NDMA/SACHET weather alerts or severe hazard closures detected.",
-                            icon = AppIcons.Safe
+                // 7. Section: Critical Emergency Block
+                item(key = "section_critical_emergency") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Critical Emergency Block",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
-                    }
-                } else {
-                    items(
-                        items = state.alerts.take(5),
-                        key = { it.id },
-                        contentType = { "safety_advisory_item" }
-                    ) { alert ->
-                        val stripeColor = when (alert.severity) {
-                            AlertSeverity.CRITICAL -> EmergencyRed
-                            AlertSeverity.HIGH -> WarningAmber
-                            AlertSeverity.MEDIUM -> Color(0xFFF59E0B)
-                            AlertSeverity.LOW -> InfoBlue
-                        }
-                        AppListItem(
-                            title = alert.title,
-                            subtitle = alert.description,
-                            caption = "Source: ${alert.sourceName} • ${alert.category.name}",
-                            stripeColor = stripeColor,
-                            trailingContent = {
-                                AppSeverityChip(severity = alert.severity)
+
+                        CriticalEmergencyBlock(
+                            onDial112 = {
+                                val intent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = Uri.parse("tel:112")
+                                }
+                                context.startActivity(intent)
                             },
-                            onClick = onNavigateToAlerts
+                            onOfflineSafety = onNavigateToEmergency
                         )
                     }
                 }
 
-                // 7. Direct Emergency & Assistance Card
-                item(key = "card_emergency_112", contentType = "emergency_card") {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    AppListItem(
-                        title = "National Emergency Assistance (112)",
-                        subtitle = "Instant dial for SDRF Mountain Rescue, Police & Medical",
-                        leadingIcon = AppIcons.DialEmergency,
-                        leadingIconTint = Color.White,
-                        leadingIconBg = EmergencyRed,
-                        trailingContent = {
-                            Button(
-                                onClick = {
-                                    val intent = Intent(Intent.ACTION_DIAL).apply {
-                                        data = Uri.parse("tel:112")
-                                    }
-                                    context.startActivity(intent)
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed),
-                                shape = ExpressiveShapes.smallIncreased,
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                // 8. Section: Recently Completed Treks (if available)
+                if (state.recentCompletedTrips.isNotEmpty()) {
+                    item(key = "section_recent_treks") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("DIAL 112", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text(
+                                    text = "Recent Treks (${state.recentCompletedTrips.size})",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "View All",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MintPrimary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { onNavigateToHistory() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
                             }
-                        },
-                        showDivider = false,
-                        onClick = onNavigateToEmergency
-                    )
+
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(
+                                    items = state.recentCompletedTrips,
+                                    key = { it.tripId }
+                                ) { trip ->
+                                    Surface(
+                                        modifier = Modifier
+                                            .width(220.dp)
+                                            .clickable { onNavigateToCompletedTrekDetail(trip.tripId) },
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = DarkSurfacePrimary,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkDivider)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = MintPrimary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    "COMPLETED",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MintPrimary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = trip.routeTitle.ifBlank { "Completed Trek" },
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary,
+                                                maxLines = 1
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            val distKm = trip.traveledDistanceMeters / 1000.0
+                                            val mins = trip.elapsedDurationSeconds / 60
+                                            Text(
+                                                text = "${String.format(Locale.US, "%.1f km", distKm)} • $mins mins",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                // 8. Offline Safety Center Shortcut
-                item(key = "card_offline_safety_center", contentType = "safety_center_card") {
-                    AppListItem(
-                        title = "Offline Safety & SMS Beacon",
-                        subtitle = "Register emergency SMS contacts and manage route hazard geofences",
-                        leadingIcon = AppIcons.DisasterSafety,
-                        leadingIconTint = ForestGreenPrimary,
-                        leadingIconBg = SageContainer,
-                        showChevron = true,
-                        showDivider = false,
-                        onClick = onNavigateToDisasterSafety
-                    )
+                // Bottom Padding
+                item(key = "bottom_spacer") {
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
@@ -522,155 +676,31 @@ fun HomeContent(
     }
 }
 
-/**
- * Compact Alpine Weather Glance component.
- */
-@Composable
-private fun AlpineWeatherGlance(weather: Weather?, isLoading: Boolean) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ExpressiveShapes.largeIncreased,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-    ) {
-        if (weather == null) {
-            if (isLoading) {
-                SkeletonAlpineWeather()
-            } else {
-                Text(
-                    "Weather forecast unavailable",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.WbSunny,
-                            contentDescription = null,
-                            tint = WarningAmber,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${weather.temperatureC}°C",
-                            style = MaterialTheme.typography.headlineLargeEmphasized,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = weather.weatherDescription,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+private data class TrailPreviewItem(
+    val title: String,
+    val subtitle: String,
+    val distanceKm: Double
+)
 
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Wind: ${weather.windSpeedKmh} km/h",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Humidity: ${weather.relativeHumidityPct}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Precip: ${weather.precipitationMm} mm",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (weather.isFallback || weather.isStale) {
-                        Text(
-                            text = "• Cached Forecast",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Horizontal row of popular verified corridors for fast start.
- */
-@Composable
-private fun VerifiedTrailQuickStarts(onSelectTrail: () -> Unit) {
-    val quickTrails = listOf(
-        Pair("Kedarnath Trail", "Gaurikund to Temple • 16 km"),
-        Pair("Mussoorie Hills", "Dehradun to Mall Road • 32 km"),
-        Pair("Devprayag Confluence", "Rishikesh to Sangam • 70 km"),
-        Pair("Haridwar Highway", "Pilgrim Road corridor • 24 km")
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        quickTrails.forEach { (title, subtitle) ->
-            Surface(
-                modifier = Modifier
-                    .width(180.dp)
-                    .clickable { onSelectTrail() },
-                shape = ExpressiveShapes.mediumIncreased,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                tonalElevation = 1.dp
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
+private val VERIFIED_CORRIDORS_PREVIEW = listOf(
+    TrailPreviewItem("Kedarnath Trail", "Gaurikund to Temple", 16.0),
+    TrailPreviewItem("Mussoorie Hills", "Dehradun to Mall Road", 32.0),
+    TrailPreviewItem("Devprayag Confluence", "Rishikesh to Sangam", 70.0),
+    TrailPreviewItem("Haridwar Highway", "Pilgrim Road corridor", 24.0)
+)
 
 // Multi-Device @Preview Composables
-@Preview(name = "Phone - Light", showBackground = true)
+@Preview(name = "Phone - Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
 @Composable
-private fun HomeScreenPreviewLight() {
-    TouristSafetyTheme(darkTheme = false) {
+private fun HomeScreenPreviewDark() {
+    TouristSafetyTheme(darkTheme = true) {
         HomeContent(
             state = HomeUiState(
-                activeTrip = ActiveTripEntity(
-                    tripId = "sample_trip",
-                    routeId = "sample_route",
-                    status = "ACTIVE",
-                    startedAt = "2026-10-30T10:00:00Z",
-                    routeTitle = "Kedarnath Trailhead to Temple",
-                    originName = "Gaurikund",
-                    destinationName = "Kedarnath Temple",
-                    traveledDistanceMeters = 4200.0,
-                    elapsedDurationSeconds = 3600
-                ),
+                activeTrip = null,
                 alerts = listOf(
                     Alert(
                         id = "a1",
-                        title = "Landslide Warning: Sonprayag Sector",
+                        title = "Kedarnath Trail • recent alerts",
                         description = "Loose scree and active falling stones detected along corridor.",
                         severity = AlertSeverity.HIGH,
                         category = AlertCategory.HAZARD,
@@ -680,32 +710,6 @@ private fun HomeScreenPreviewLight() {
                     )
                 )
             ),
-            isSirenPlaying = false,
-            userEmail = "trekker@uttarakhand.gov.in",
-            showProfileDialog = false,
-            onShowProfileDialogChange = {},
-            onRefresh = {},
-            onStopDisasterSiren = {},
-            onNavigateToMap = {},
-            onNavigateToAlerts = {},
-            onNavigateToEmergency = {},
-            onNavigateToDisasterSafety = {},
-            onNavigateToProviders = {},
-            onNavigateToPlanTrip = {},
-            onNavigateToActiveTrip = {},
-            onNavigateToCompletedTrekDetail = {},
-            onNavigateToDrawRoute = {},
-            onNavigateToHistory = {}
-        )
-    }
-}
-
-@Preview(name = "Phone - Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
-@Composable
-private fun HomeScreenPreviewDark() {
-    TouristSafetyTheme(darkTheme = true) {
-        HomeContent(
-            state = HomeUiState(),
             isSirenPlaying = false,
             userEmail = "explorer@field.in",
             showProfileDialog = false,
