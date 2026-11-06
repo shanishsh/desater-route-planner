@@ -319,6 +319,7 @@ fun AppNavGraph(
                     }
                 },
                 onNavigateToHistory = {
+                    backStackEntry.arguments?.remove("activeTripId")
                     navController.navigate(Screen.TrekHistory.route) {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                         launchSingleTop = true
@@ -326,6 +327,7 @@ fun AppNavGraph(
                     }
                 },
                 onNavigateToCompletedTrekDetail = { tripId ->
+                    backStackEntry.arguments?.remove("activeTripId")
                     navController.navigate(Screen.CompletedTrekDetail.createRoute(tripId))
                 },
                 onNavigateToSafetyReview = { routeId ->

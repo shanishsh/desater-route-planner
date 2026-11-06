@@ -47,15 +47,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import com.touristsafety.app.core.auth.TokenManager
-
-import com.touristsafety.app.core.designsystem.ExpressiveShapes
-
-import com.touristsafety.app.core.designsystem.ForestGreenPrimary
-
-import com.touristsafety.app.core.designsystem.SageContainer
-
-import com.touristsafety.app.core.designsystem.TouristSafetyTheme
-
+import com.touristsafety.app.core.designsystem.*
 import com.touristsafety.app.core.repository.RouteRepository
 
 import com.touristsafety.app.core.sync.SyncManager

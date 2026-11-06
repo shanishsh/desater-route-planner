@@ -443,15 +443,26 @@ class MapViewModel @Inject constructor(
 
     fun bindActiveTripId(tripId: String?) {
         if (tripId.isNullOrBlank()) return
-        savedStateHandle["activeTripId"] = tripId
-        _uiState.update { current ->
-            current.copy(
-                activeTrekTripId = tripId,
-                isTrekActive = true
-            )
-        }
         viewModelScope.launch {
             val trip = activeTripDao?.getTripById(tripId) ?: routeRepository.getTripById(tripId)
+            if (trip != null && trip.status == "COMPLETED") {
+                savedStateHandle.remove<String>("activeTripId")
+                _uiState.update { current ->
+                    current.copy(
+                        activeTrekTripId = null,
+                        isTrekActive = false,
+                        lastCompletedTripId = tripId
+                    )
+                }
+                return@launch
+            }
+            savedStateHandle["activeTripId"] = tripId
+            _uiState.update { current ->
+                current.copy(
+                    activeTrekTripId = tripId,
+                    isTrekActive = true
+                )
+            }
             if (trip != null) {
                 _uiState.update { current ->
                     current.copy(
@@ -3235,26 +3246,54 @@ class MapViewModel @Inject constructor(
             ?: (liveTrekContextEngine?.liveContext?.value?.progress?.elapsedDurationSeconds ?: 0L).takeIf { it > 0 }
             ?: ((currentState.routeDurationHours ?: 0.0) * 3600).toLong()
 
-        viewModelScope.launch {
-            // 1. Stop background tracking and live engine first to flush points & avoid status='ACTIVE' overwrite
-            ActiveTripTrackingService.stop(ctx)
-            liveTrekContextEngine?.stopTrekSession()
-            hazardAlertEngine?.dismissActiveAlert()
+        // 1. Purge navigation state handle so re-composition / rotation / back-press never resurrects trek
+        savedStateHandle.remove<String>("activeTripId")
 
-            // 2. Finalize trip in Room database with accurate final metrics
+        // 2. Stop background tracking service and live engine
+        ActiveTripTrackingService.stop(ctx)
+        liveTrekContextEngine?.stopTrekSession()
+        hazardAlertEngine?.dismissActiveAlert()
+
+        // 3. Clear route repository state so RouteSummaryCard does not latch on
+        routeRepository.clearActiveRoute()
+
+        viewModelScope.launch {
+            // 4. Finalize trip in Room database with accurate final metrics
             routeRepository.stopTrip(
                 tripId = tripId,
                 finalDistanceMeters = finalDistanceMeters,
                 finalDurationSeconds = finalDurationSeconds
             )
 
-            // 3. Update UI state while preserving lastCompletedTripId for navigation to CompletedTrekDetailScreen
+            // 5. Update UI state: clear all active trek & route polylines so map returns cleanly to Explore mode
             _uiState.update {
                 it.copy(
                     isRecordingTrek = false,
                     isTrekActive = false,
+                    isTrekPaused = false,
                     activeTrekTripId = null,
-                    lastCompletedTripId = tripId
+                    lastCompletedTripId = tripId,
+                    activeRouteId = null,
+                    routeCoordinates = emptyList(),
+                    primaryRouteCoordinates = emptyList(),
+                    routeTitle = "Explore Map",
+                    routeLifecycleState = RouteLifecycleState.NO_ROUTE_SELECTED,
+                    routeHazardSequence = emptyList(),
+                    liveRecordedTrackCoordinates = emptyList(),
+                    proposedConnectorCoordinates = emptyList(),
+                    draftPolyline = emptyList(),
+                    draftWaypoints = emptyList(),
+                    selectedHazardSequenceItem = null,
+                    routeWeatherSamples = emptyList(),
+                    routeLandslideProbabilityPct = null,
+                    routeLandslideRiskLevel = null,
+                    routeHeavyRainfallWarning = false,
+                    routeMaxPrecipitationMm = null,
+                    isRouteChoosingActive = false,
+                    isTapToRouteMode = false,
+                    tapOrigin = null,
+                    tapDestination = null,
+                    selectedPresetCorridor = null
                 )
             }
             onComplete()
@@ -3264,6 +3303,10 @@ class MapViewModel @Inject constructor(
     fun endActiveRoute(ctx: Context, onComplete: () -> Unit = {}) {
         val activeRoute = routeRepository.activeRouteFlow.value
         val currentState = _uiState.value
+        savedStateHandle.remove<String>("activeTripId")
+        ActiveTripTrackingService.stop(ctx)
+        liveTrekContextEngine?.stopTrekSession()
+
         viewModelScope.launch {
             val completedTripId = if (activeRoute != null) {
                 routeRepository.completeActiveRoute(
@@ -3285,8 +3328,30 @@ class MapViewModel @Inject constructor(
                 it.copy(
                     isRecordingTrek = false,
                     isTrekActive = false,
+                    isTrekPaused = false,
                     activeTrekTripId = null,
-                    lastCompletedTripId = completedTripId
+                    lastCompletedTripId = completedTripId,
+                    activeRouteId = null,
+                    routeCoordinates = emptyList(),
+                    primaryRouteCoordinates = emptyList(),
+                    routeTitle = "Explore Map",
+                    routeLifecycleState = RouteLifecycleState.NO_ROUTE_SELECTED,
+                    routeHazardSequence = emptyList(),
+                    liveRecordedTrackCoordinates = emptyList(),
+                    proposedConnectorCoordinates = emptyList(),
+                    draftPolyline = emptyList(),
+                    draftWaypoints = emptyList(),
+                    selectedHazardSequenceItem = null,
+                    routeWeatherSamples = emptyList(),
+                    routeLandslideProbabilityPct = null,
+                    routeLandslideRiskLevel = null,
+                    routeHeavyRainfallWarning = false,
+                    routeMaxPrecipitationMm = null,
+                    isRouteChoosingActive = false,
+                    isTapToRouteMode = false,
+                    tapOrigin = null,
+                    tapDestination = null,
+                    selectedPresetCorridor = null
                 )
             }
             onComplete()
@@ -3294,6 +3359,8 @@ class MapViewModel @Inject constructor(
     }
 
     fun clearActiveRouteAndTrek() {
+        savedStateHandle.remove<String>("activeTripId")
+        routeRepository.clearActiveRoute()
         _uiState.update {
             it.copy(
                 activeRouteId = null,
@@ -3313,9 +3380,26 @@ class MapViewModel @Inject constructor(
                 routeHeavyRainfallWarning = false,
                 routeMaxPrecipitationMm = null,
                 isRouteChoosingActive = false,
+                isTapToRouteMode = false,
+                tapOrigin = null,
+                tapDestination = null,
                 isTrekActive = false,
+                isRecordingTrek = false,
+                isTrekPaused = false,
                 activeTrekTripId = null,
-                lastCompletedTripId = null
+                lastCompletedTripId = null,
+                routeSummaryWeather = null,
+                selectedPresetCorridor = null
+            )
+        }
+    }
+
+    fun unbindActiveTrip() {
+        savedStateHandle.remove<String>("activeTripId")
+        _uiState.update {
+            it.copy(
+                activeTrekTripId = null,
+                isTrekActive = false
             )
         }
     }

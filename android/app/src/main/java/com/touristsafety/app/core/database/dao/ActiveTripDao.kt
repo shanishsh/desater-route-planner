@@ -37,6 +37,18 @@ interface ActiveTripDao {
         pointsCount: Int
     )
 
+    @Query("UPDATE active_trips SET status = 'COMPLETED', completedAtEpochMs = :completedAt, lastSyncedAt = :completedAt, traveledDistanceMeters = :distanceMeters, elapsedDurationSeconds = :durationSeconds, recordedPointsCount = :pointsCount WHERE tripId = :tripId OR status = 'ACTIVE'")
+    suspend fun completeActiveTripWithMetrics(
+        tripId: String,
+        completedAt: Long,
+        distanceMeters: Double,
+        durationSeconds: Long,
+        pointsCount: Int
+    )
+
+    @Query("UPDATE active_trips SET status = 'COMPLETED', completedAtEpochMs = :completedAt, lastSyncedAt = :completedAt WHERE status = 'ACTIVE' OR tripId = :tripId")
+    suspend fun completeAllActiveTrips(completedAt: Long, tripId: String)
+
     @Query("DELETE FROM active_trips")
     suspend fun clearAll()
 }

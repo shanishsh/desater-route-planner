@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,8 +80,10 @@ fun MapScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    var consumedActiveTripId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(activeTripId) {
-        if (!activeTripId.isNullOrBlank()) {
+        if (!activeTripId.isNullOrBlank() && activeTripId != consumedActiveTripId) {
+            consumedActiveTripId = activeTripId
             android.util.Log.i("MapScreen", "Unified MapScreen activated with activeTripId: $activeTripId")
             viewModel.bindActiveTripId(activeTripId)
             viewModel.recenterToUserLocation()
@@ -1909,12 +1912,20 @@ fun MapScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
-                        showTrekSummaryDialog = false
-                        viewModel.clearActiveRouteAndTrek()
-                        onNavigateToHistory()
-                    }) {
-                        Text("View Trek History")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            showTrekSummaryDialog = false
+                            viewModel.clearActiveRouteAndTrek()
+                        }) {
+                            Text("Done (Explore Map)")
+                        }
+                        TextButton(onClick = {
+                            showTrekSummaryDialog = false
+                            viewModel.clearActiveRouteAndTrek()
+                            onNavigateToHistory()
+                        }) {
+                            Text("History")
+                        }
                     }
                 }
             )

@@ -11,6 +11,7 @@ import com.touristsafety.app.core.database.entity.TrekTrackPointEntity
 import com.touristsafety.app.core.network.ApiService
 import com.touristsafety.app.core.network.dto.*
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -27,6 +28,7 @@ class RouteRepository @Inject constructor(
     private val trekTrackPointDao: TrekTrackPointDao
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     data class VerifiedTrailInfo(
         val id: String,
@@ -791,18 +793,25 @@ suspend fun syncTrackPointsBatch(
         finalDistanceMeters: Double? = null,
         finalDurationSeconds: Long? = null
     ): Result<Unit> {
-        return try {
-            try { apiService.stopTrip(tripId) } catch (_: Exception) {}
-            val existing = activeTripDao.getTripById(tripId)
-            val points = trekTrackPointDao.getAllPointsForTrip(tripId)
-            val now = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        var effectiveTripId = tripId
+
+        try {
+            // 1. Local-first: Check if there is an active trip in DB to resolve ID mismatches
+            val currentActive = activeTripDao.getCurrentActiveTrip()
+            if (currentActive != null && currentActive.tripId.isNotBlank()) {
+                effectiveTripId = currentActive.tripId
+            }
+
+            val existing = activeTripDao.getTripById(effectiveTripId) ?: currentActive
+            val points = trekTrackPointDao.getAllPointsForTrip(effectiveTripId)
             val totalDistance = maxOf(existing?.traveledDistanceMeters ?: 0.0, finalDistanceMeters ?: 0.0)
             val totalDuration = maxOf(existing?.elapsedDurationSeconds ?: 0L, finalDurationSeconds ?: 0L)
             val pointsCount = points.size
 
             if (existing != null) {
-                activeTripDao.completeTripWithMetrics(
-                    tripId = tripId,
+                activeTripDao.completeActiveTripWithMetrics(
+                    tripId = effectiveTripId,
                     completedAt = now,
                     distanceMeters = totalDistance,
                     durationSeconds = totalDuration,
@@ -811,8 +820,8 @@ suspend fun syncTrackPointsBatch(
             } else {
                 val activeRoute = _activeRouteFlow.value
                 val newTrip = ActiveTripEntity(
-                    tripId = tripId,
-                    routeId = activeRoute?.route_id ?: tripId,
+                    tripId = effectiveTripId,
+                    routeId = activeRoute?.route_id ?: effectiveTripId,
                     status = "COMPLETED",
                     startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
                         .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
@@ -828,39 +837,30 @@ suspend fun syncTrackPointsBatch(
                 )
                 activeTripDao.insertOrUpdate(newTrip)
             }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("RouteRepository", "Error stopping trip $tripId: ${e.message}", e)
+
+            // Guaranteed cleanup: mark any orphaned active trips as COMPLETED
+            activeTripDao.completeAllActiveTrips(completedAt = now, tripId = effectiveTripId)
+            clearActiveRoute()
+        } catch (dbEx: Exception) {
+            Log.e("RouteRepository", "Error updating local DB for stopTrip $tripId: ${dbEx.message}", dbEx)
             try {
-                val now = System.currentTimeMillis()
-                val existing = activeTripDao.getTripById(tripId)
-                if (existing != null) {
-                    activeTripDao.completeTrip(tripId)
-                } else {
-                    val activeRoute = _activeRouteFlow.value
-                    val fallbackTrip = ActiveTripEntity(
-                        tripId = tripId,
-                        routeId = activeRoute?.route_id ?: tripId,
-                        status = "COMPLETED",
-                        startedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
-                            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-                            .format(java.util.Date(now)),
-                        completedAtEpochMs = now,
-                        lastSyncedAt = now,
-                        routeTitle = activeRoute?.title ?: "Completed Expedition",
-                        originName = activeRoute?.origin_name ?: "Start Point",
-                        destinationName = activeRoute?.destination_name ?: "Destination",
-                        traveledDistanceMeters = finalDistanceMeters ?: 0.0,
-                        elapsedDurationSeconds = finalDurationSeconds ?: 0L,
-                        recordedPointsCount = 0
-                    )
-                    activeTripDao.insertOrUpdate(fallbackTrip)
-                }
+                activeTripDao.completeAllActiveTrips(completedAt = now, tripId = effectiveTripId)
             } catch (inner: Exception) {
-                Log.e("RouteRepository", "Fatal fallback completing trip $tripId: ${inner.message}", inner)
+                Log.e("RouteRepository", "Fatal fallback completing trips: ${inner.message}", inner)
             }
-            Result.success(Unit)
+            clearActiveRoute()
         }
+
+        // 2. Dispatch remote network stop asynchronously in background so offline/slow mountain network never blocks UI exit
+        repositoryScope.launch {
+            try {
+                apiService.stopTrip(effectiveTripId)
+            } catch (netEx: Exception) {
+                Log.w("RouteRepository", "Remote stopTrip call failed or offline (ignored): ${netEx.message}")
+            }
+        }
+
+        return Result.success(Unit)
     }
 
     suspend fun completeActiveRoute(
@@ -896,6 +896,7 @@ suspend fun syncTrackPointsBatch(
             recordedPointsCount = route.conditions.size.coerceAtLeast(1)
         )
         activeTripDao.insertOrUpdate(entity)
+        activeTripDao.completeAllActiveTrips(completedAt = now, tripId = tripId)
         clearActiveRoute()
         return tripId
     }

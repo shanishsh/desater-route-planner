@@ -67,6 +67,7 @@ class ActiveTripTrackingService : Service() {
     private var durationTimerJob: Job? = null
     private var periodicSyncJob: Job? = null
     private var engineObserveJob: Job? = null
+    @Volatile private var isServiceStopping: Boolean = false
 
     // High-performance track point buffering to eliminate disk I/O on every GPS point
     private val pointBuffer = java.util.Collections.synchronizedList(mutableListOf<TrekTrackPointEntity>())
@@ -120,7 +121,12 @@ class ActiveTripTrackingService : Service() {
             val intent = Intent(context, ActiveTripTrackingService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.stopService(intent)
+            try {
+                context.startService(intent)
+            } catch (_: Exception) {}
+            try {
+                context.stopService(intent)
+            } catch (_: Exception) {}
         }
     }
 
@@ -141,6 +147,7 @@ class ActiveTripTrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                handleStop()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -301,6 +308,27 @@ class ActiveTripTrackingService : Service() {
         }
     }
 
+    private fun handleStop() {
+        if (isServiceStopping) return
+        isServiceStopping = true
+        try {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error removing location updates: ${t.message}")
+        }
+        durationTimerJob?.cancel()
+        durationTimerJob = null
+        periodicSyncJob?.cancel()
+        periodicSyncJob = null
+        engineObserveJob?.cancel()
+        engineObserveJob = null
+        try {
+            liveTrekContextEngine.stopTrekSession()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error stopping context engine: ${t.message}")
+        }
+    }
+
     private fun startDurationTimer() {
         durationTimerJob?.cancel()
         durationTimerJob = serviceScope.launch {
@@ -340,7 +368,9 @@ class ActiveTripTrackingService : Service() {
     }
 
     private fun onLocationReceived(location: Location) {
+        if (isServiceStopping) return
         serviceScope.launch {
+            if (isServiceStopping) return@launch
             val now = System.currentTimeMillis()
             val speedKmh = location.speed * 3.6
 
@@ -394,7 +424,9 @@ class ActiveTripTrackingService : Service() {
     }
 
     private suspend fun updateTripEntityMetrics(latestLocation: Location? = null) {
+        if (isServiceStopping) return
         val existing = activeTripDao.getTripById(currentTripId) ?: return
+        if (existing.status != "ACTIVE") return
         val elapsedSec = getElapsedSeconds()
 
         val updated = existing.copy(
@@ -529,11 +561,7 @@ class ActiveTripTrackingService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
-        durationTimerJob?.cancel()
-        periodicSyncJob?.cancel()
-        engineObserveJob?.cancel()
-        liveTrekContextEngine.stopTrekSession()
+        handleStop()
         runBlocking {
             flushPointBuffer()
             syncPendingPointsBatch()
